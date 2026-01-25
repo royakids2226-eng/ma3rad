@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  password  String
+  role      String   @default("EMPLOYEE") // 'ADMIN' or 'EMPLOYEE'
+  orders    Order[]
+}
+
+model Customer {
+  id      String  @id @default(cuid())
+  code    String  @unique
+  name    String
+  phone   String?
+  address String?
+  orders  Order[]
+}
+
+model Product {
+  id          String      @id @default(cuid())
+  modelNo     String
+  description String?
+  material    String?
+  color       String
+  stockQty    Int         @default(0)
+  price       Float
+  orderItems  OrderItem[]
+
+  @@unique([modelNo, color]) // منع تكرار نفس الموديل بنفس اللون
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  orderNo     Int         @default(autoincrement())
+  createdAt   DateTime    @default(now())
+  
+  // 👇 الإضافة الجديدة هنا
+  deposit     Float       @default(0.0) 
+
+  totalAmount Float
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  customerId  String
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  items       OrderItem[]
+}
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int     // عدد الدست (1 = 4 قطع)
+  price     Float
+}
