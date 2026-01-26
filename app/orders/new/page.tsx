@@ -1,9 +1,8 @@
 'use client'
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getCustomers, searchProducts, createOrder, getSafes } from '@/app/actions';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-// 👇 استدعاء مكتبة الكاميرا
 import { Scanner } from '@yudiel/react-qr-scanner';
 
 const PIECES_PER_UNIT = 4;
@@ -18,31 +17,42 @@ export default function NewOrderPage() {
   const [safes, setSafes] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   
+  // 👇 حالات البحث الجديد للعملاء
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [showCustomerList, setShowCustomerList] = useState(false);
+  const customerListRef = useRef<HTMLDivElement>(null); // لإغلاق القائمة عند الضغط خارجها
+
   // Search & Scanner States
   const [searchTerm, setSearchTerm] = useState('');
-  const [showScanner, setShowScanner] = useState(false); // 👈 حالة ظهور الكاميرا
+  const [showScanner, setShowScanner] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectionMap, setSelectionMap] = useState<{[key: string]: number}>({});
 
   // Cart & Finance
   const [cart, setCart] = useState<any[]>([]);
+  const [cartSearchTerm, setCartSearchTerm] = useState(''); // 👈 حالة البحث داخل السلة
   const [deposit, setDeposit] = useState<string>('');
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
 
   // 1. Load Data
   useEffect(() => {
     getCustomers().then(setCustomers);
-    
-    // 👇 جلب الخزن وتعيين الأولى كافتراضي
     getSafes().then(data => {
       setSafes(data);
-      if (data.length > 0) {
-        setSelectedSafeId(data[0].id); // تعيين أول خزنة تلقائياً
-      }
+      if (data.length > 0) setSelectedSafeId(data[0].id);
     });
+
+    // إغلاق قائمة العملاء عند الضغط في أي مكان آخر
+    const handleClickOutside = (event: MouseEvent) => {
+      if (customerListRef.current && !customerListRef.current.contains(event.target as Node)) {
+        setShowCustomerList(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // 2. Live Search Logic
+  // 2. Live Search Logic (Products)
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (searchTerm.length >= 2) {
@@ -131,7 +141,7 @@ export default function NewOrderPage() {
     setSelectionMap({});
     setSearchTerm('');
     setSearchResults([]);
-    setShowScanner(false); // إغلاق الكاميرا بعد الإضافة
+    setShowScanner(false);
   };
 
   const handleEditItem = async (item: any) => {
@@ -145,12 +155,10 @@ export default function NewOrderPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // دالة التعامل مع المسح
   const handleScan = (code: string) => {
       if (code) {
-          setSearchTerm(code); // وضع الكود في البحث
-          setShowScanner(false); // إغلاق الكاميرا تلقائياً
-          // الـ useEffect الخاص بـ searchTerm سيعمل تلقائياً ويجلب النتائج
+          setSearchTerm(code);
+          setShowScanner(false);
       }
   };
 
@@ -189,6 +197,18 @@ export default function NewOrderPage() {
   const currentTotal = cart.reduce((acc, i) => acc + i.totalPrice, 0);
   const depositVal = parseFloat(deposit) || 0;
 
+  // 👇 فلترة العملاء بناءً على البحث
+  const filteredCustomers = customers.filter(c => 
+    c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) || 
+    c.code.toLowerCase().includes(customerSearchTerm.toLowerCase())
+  );
+
+  // 👇 فلترة السلة بناءً على بحث الأصناف
+  const filteredCart = cart.filter(item => 
+    item.modelNo.toLowerCase().includes(cartSearchTerm.toLowerCase()) ||
+    item.displayDescription.toLowerCase().includes(cartSearchTerm.toLowerCase())
+  );
+
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans text-gray-800" dir="rtl">
       {/* Header */}
@@ -204,27 +224,48 @@ export default function NewOrderPage() {
       <div className="p-4 max-w-2xl mx-auto">
         {step === 1 && (
           <>
-            {/* Customer Select */}
-            <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-gray-100">
+            {/* 👇 قسم اختيار العميل (Live Search) */}
+            <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-gray-100 relative" ref={customerListRef}>
               <label className="text-sm text-gray-500 font-bold mb-2 block">العميل</label>
-              <select 
-                className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              
+              <input 
+                type="text"
+                placeholder="ابحث عن اسم العميل..."
+                value={customerSearchTerm}
                 onChange={(e) => {
-                  const cust = customers.find(c => c.id === e.target.value);
-                  setSelectedCustomer(cust);
+                  setCustomerSearchTerm(e.target.value);
+                  setShowCustomerList(true);
+                  if (e.target.value === '') setSelectedCustomer(null);
                 }}
-              >
-                <option value="">-- اختر العميل --</option>
-                {customers.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+                onFocus={() => setShowCustomerList(true)}
+                className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+
+              {/* قائمة العملاء المقترحة */}
+              {showCustomerList && filteredCustomers.length > 0 && (
+                <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-xl z-50 max-h-60 overflow-y-auto">
+                  {filteredCustomers.map(c => (
+                    <div 
+                      key={c.id}
+                      onClick={() => {
+                        setSelectedCustomer(c);
+                        setCustomerSearchTerm(c.name);
+                        setShowCustomerList(false);
+                      }}
+                      className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0"
+                    >
+                      <div className="font-bold">{c.name}</div>
+                      <div className="text-xs text-gray-500">{c.phone || 'لا يوجد هاتف'}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {selectedCustomer && (
               <div className="animate-fade-in">
                 
-                {/* 👇 قسم الكاميرا (يظهر عند الضغط على الزر) */}
+                {/* Scanner Modal */}
                 {showScanner && (
                     <div className="fixed inset-0 z-50 bg-black bg-opacity-90 flex flex-col items-center justify-center p-4">
                         <div className="w-full max-w-sm bg-white rounded-xl overflow-hidden relative">
@@ -242,20 +283,18 @@ export default function NewOrderPage() {
                     </div>
                 )}
 
-                {/* 👇 مربع البحث مع زر الكاميرا */}
+                {/* Product Search Input */}
                 <div className="relative mb-4 flex gap-2">
                   <div className="relative flex-1">
                     <input 
                         type="text" 
-                        placeholder="🔍 ابحث برقم الموديل..." 
+                        placeholder="🔍 ابحث برقم الموديل لإضافته..." 
                         className="w-full p-4 pl-12 border rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-blue-500 outline-none"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         autoFocus
                     />
                   </div>
-                  
-                  {/* زر فتح الكاميرا */}
                   <button 
                     onClick={() => setShowScanner(true)}
                     className="bg-black text-white p-4 rounded-xl shadow-sm hover:bg-gray-800 transition"
@@ -264,7 +303,7 @@ export default function NewOrderPage() {
                   </button>
                 </div>
 
-                {/* Results */}
+                {/* Search Results */}
                 {searchResults.length > 0 && (
                   <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6">
                      <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
@@ -300,12 +339,26 @@ export default function NewOrderPage() {
               </div>
             )}
 
-            {/* Cart */}
+            {/* Cart Section */}
             {cart.length > 0 && (
               <div className="mt-8">
                 <h3 className="font-bold text-gray-700 mb-3 text-lg">محتويات السلة</h3>
+                
+                {/* 👇 حقل البحث داخل السلة (الجديد) */}
+                <div className="mb-4">
+                  <input 
+                    type="text" 
+                    placeholder="🔎 تصفية / بحث داخل السلة..." 
+                    value={cartSearchTerm}
+                    onChange={(e) => setCartSearchTerm(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-gray-50"
+                  />
+                </div>
+
                 <div className="space-y-3">
-                  {cart.map((item) => (
+                  {filteredCart.length === 0 && <p className="text-gray-400 text-center text-sm">لا يوجد نتائج للبحث</p>}
+                  
+                  {filteredCart.map((item) => (
                     <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                       <div className="flex justify-between mb-2">
                         <div><span className="text-xl font-bold block">{item.modelNo}</span><span className="text-xs text-gray-500">{item.baseDescription}</span></div>
@@ -376,7 +429,7 @@ export default function NewOrderPage() {
                   </div>
                </div>
 
-               {/* 👇 القائمة المنسدلة للخزن (الافتراضي تم تحديده في useEffect) */}
+               {/* Safe Select */}
                {depositVal > 0 && (
                   <div className="mb-4 animate-fade-in">
                      <label className="block text-yellow-400 text-sm mb-2 font-bold">📥 توريد العربون إلى:</label>
