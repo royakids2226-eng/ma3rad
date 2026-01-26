@@ -15,15 +15,17 @@ model User {
   password  String
   role      String   @default("EMPLOYEE")
   orders    Order[]
+  payments  Payment[] // 👈 تمت الإضافة
 }
 
 model Customer {
-  id      String  @id @default(cuid())
-  code    String  @unique
-  name    String
-  phone   String?
-  address String?
-  orders  Order[]
+  id        String    @id @default(cuid())
+  code      String    @unique
+  name      String
+  phone     String?
+  address   String?
+  orders    Order[]
+  payments  Payment[] // 👈 تمت الإضافة
 }
 
 model Product {
@@ -39,32 +41,26 @@ model Product {
   @@unique([modelNo, color])
 }
 
-// 👇 جدول الخزن الجديد
 model Safe {
-  id        String   @id @default(cuid())
-  name      String   // اسم الخزنة (الرئيسية، فودافون كاش، إلخ)
-  orders    Order[]  // علاقة بالأوردرات
-  createdAt DateTime @default(now())
+  id        String    @id @default(cuid())
+  name      String
+  orders    Order[]
+  payments  Payment[] // 👈 تمت الإضافة
+  createdAt DateTime  @default(now())
 }
 
 model Order {
   id          String      @id @default(cuid())
   orderNo     Int         @default(autoincrement())
   createdAt   DateTime    @default(now())
-  
-  deposit     Float       @default(0.0) 
+  deposit     Float       @default(0.0)
   totalAmount Float
-
   userId      String
   user        User        @relation(fields: [userId], references: [id])
-  
   customerId  String
   customer    Customer    @relation(fields: [customerId], references: [id])
-
-  // 👇 ربط الأوردر بالخزنة (اختياري لأنه ربما لا يوجد عربون)
-  safeId      String?     
+  safeId      String?
   safe        Safe?       @relation(fields: [safeId], references: [id])
-  
   items       OrderItem[]
 }
 
@@ -74,6 +70,22 @@ model OrderItem {
   order     Order   @relation(fields: [orderId], references: [id])
   productId String
   product   Product @relation(fields: [productId], references: [id])
-  quantity  Int     
+  quantity  Int
   price     Float
+}
+
+model Payment {
+  id         String   @id @default(cuid())
+  receiptNo  Int      @default(autoincrement())
+  createdAt  DateTime @default(now())
+  amount     Float
+  
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  
+  safeId     String
+  safe       Safe     @relation(fields: [safeId], references: [id])
 }

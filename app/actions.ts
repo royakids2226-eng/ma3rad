@@ -5,53 +5,38 @@ import { revalidatePath } from 'next/cache'
 
 const prisma = new PrismaClient()
 
-// 1. جلب العملاء
+// --- العملاء والخزن ---
 export async function getCustomers() {
   try {
-    const customers = await prisma.customer.findMany({
-      take: 100,
-      orderBy: { name: 'asc' }
-    });
+    const customers = await prisma.customer.findMany({ take: 100, orderBy: { name: 'asc' } });
     return JSON.parse(JSON.stringify(customers));
-  } catch (error) {
-    return [];
-  }
+  } catch (error) { return []; }
 }
 
-// 👇 2. جلب الخزن (الجديد)
 export async function getSafes() {
   try {
-    const safes = await prisma.safe.findMany({
-      orderBy: { name: 'asc' }
-    });
+    const safes = await prisma.safe.findMany({ orderBy: { name: 'asc' } });
     return JSON.parse(JSON.stringify(safes));
-  } catch (error) {
-    return [];
-  }
+  } catch (error) { return []; }
 }
 
-// 3. بحث المنتجات
+// --- المنتجات ---
 export async function searchProducts(term: string) {
   if (!term || term.length < 2) return [];
   try {
     const products = await prisma.product.findMany({
-      where: {
-        modelNo: { contains: term, mode: 'insensitive' }
-      },
+      where: { modelNo: { contains: term, mode: 'insensitive' } },
       orderBy: { modelNo: 'asc' }
     });
     return JSON.parse(JSON.stringify(products));
-  } catch (error) {
-    return [];
-  }
+  } catch (error) { return []; }
 }
 
-// 4. حفظ الأوردر (تم التعديل لاستقبال safeId)
+// --- الأوردرات ---
 export async function createOrder(data: any, userId: string) {
-  // نستقبل safeId مع البيانات
   const { customerId, items, total, deposit, safeId } = data; 
-  
   const dbItems: any[] = [];
+  
   items.forEach((cartItem: any) => {
     cartItem.variants.forEach((variant: any) => {
       dbItems.push({
@@ -65,40 +50,88 @@ export async function createOrder(data: any, userId: string) {
   try {
     const order = await prisma.order.create({
       data: {
-        userId,
-        customerId,
-        totalAmount: total,
-        deposit: deposit || 0,
-        // 👇 ربط الخزنة (لو مفيش عربون ممكن يكون null)
+        userId, customerId, totalAmount: total, deposit: deposit || 0,
         safeId: deposit > 0 ? safeId : null, 
-        items: {
-          create: dbItems
-        }
+        items: { create: dbItems }
       }
     });
-    
     revalidatePath('/');
     return JSON.parse(JSON.stringify(order));
-  } catch (error) {
-    console.error("Error creating order:", error);
-    return null;
-  }
+  } catch (error) { return null; }
 }
 
-// 5. جلب تفاصيل الأوردر للطباعة
 export async function getOrderById(orderId: string) {
   if (!orderId) return null;
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: {
-        customer: true,
-        user: true,
-        items: { include: { product: true } }
-      }
+      include: { customer: true, user: true, items: { include: { product: true } } }
     });
     return JSON.parse(JSON.stringify(order));
+  } catch (error) { return null; }
+}
+
+// 👇 دوال جديدة للأوردرات السابقة
+export async function getUserOrders(userId: string) {
+  try {
+    // 1. نعرف رتبة الموظف
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    
+    let whereCondition = {};
+    
+    // لو مش أدمن، يرجع أوردراته بس
+    if (user?.role !== 'ADMIN') {
+      whereCondition = { userId: userId };
+    }
+
+    const orders = await prisma.order.findMany({
+      where: whereCondition,
+      include: { customer: true, user: true }, // نحتاج اسم العميل واسم الموظف
+      orderBy: { createdAt: 'desc' },
+      take: 100 // آخر 100 أوردر عشان الأداء
+    });
+
+    // نرجع البيانات ومعها الرول عشان الواجهة تعرف تظهر زر الحذف ولا لا
+    return {
+      orders: JSON.parse(JSON.stringify(orders)),
+      userRole: user?.role
+    };
+
   } catch (error) {
-    return null;
+    console.error(error);
+    return { orders: [], userRole: 'EMPLOYEE' };
+  }
+}
+
+export async function deleteOrder(orderId: string) {
+  try {
+    // يجب حذف العناصر (Items) أولاً بسبب العلاقة
+    await prisma.orderItem.deleteMany({ where: { orderId } });
+    await prisma.order.delete({ where: { id: orderId } });
+    revalidatePath('/orders/list');
+    return { success: true };
+  } catch (error) {
+    console.error(error);
+    return { success: false };
+  }
+}
+
+// 👇 دالة حفظ الدفعة (Payment)
+export async function createPayment(data: any, userId: string) {
+  const { customerId, amount, safeId } = data;
+  try {
+    const payment = await prisma.payment.create({
+      data: {
+        amount,
+        customerId,
+        safeId,
+        userId
+      }
+    });
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error(error);
+    return { success: false };
   }
 }
