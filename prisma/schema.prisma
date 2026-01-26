@@ -13,7 +13,7 @@ model User {
   code      String   @unique
   name      String
   password  String
-  role      String   @default("EMPLOYEE") // 'ADMIN' or 'EMPLOYEE'
+  role      String   @default("EMPLOYEE")
   orders    Order[]
 }
 
@@ -36,7 +36,15 @@ model Product {
   price       Float
   orderItems  OrderItem[]
 
-  @@unique([modelNo, color]) // منع تكرار نفس الموديل بنفس اللون
+  @@unique([modelNo, color])
+}
+
+// 👇 جدول الخزن الجديد
+model Safe {
+  id        String   @id @default(cuid())
+  name      String   // اسم الخزنة (الرئيسية، فودافون كاش، إلخ)
+  orders    Order[]  // علاقة بالأوردرات
+  createdAt DateTime @default(now())
 }
 
 model Order {
@@ -44,22 +52,28 @@ model Order {
   orderNo     Int         @default(autoincrement())
   createdAt   DateTime    @default(now())
   
-  // 👇 الإضافة الجديدة هنا
   deposit     Float       @default(0.0) 
-
   totalAmount Float
+
   userId      String
   user        User        @relation(fields: [userId], references: [id])
+  
   customerId  String
   customer    Customer    @relation(fields: [customerId], references: [id])
+
+  // 👇 ربط الأوردر بالخزنة (اختياري لأنه ربما لا يوجد عربون)
+  safeId      String?     
+  safe        Safe?       @relation(fields: [safeId], references: [id])
+  
   items       OrderItem[]
 }
+
 model OrderItem {
   id        String  @id @default(cuid())
   orderId   String
   order     Order   @relation(fields: [orderId], references: [id])
   productId String
   product   Product @relation(fields: [productId], references: [id])
-  quantity  Int     // عدد الدست (1 = 4 قطع)
+  quantity  Int     
   price     Float
 }

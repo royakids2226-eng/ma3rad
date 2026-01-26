@@ -1,8 +1,10 @@
 'use client'
 import { useState, useEffect } from 'react';
-import { getCustomers, searchProducts, createOrder } from '@/app/actions';
+import { getCustomers, searchProducts, createOrder, getSafes } from '@/app/actions';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+// 👇 استدعاء مكتبة الكاميرا
+import { Scanner } from '@yudiel/react-qr-scanner';
 
 const PIECES_PER_UNIT = 4;
 
@@ -13,20 +15,31 @@ export default function NewOrderPage() {
   // States
   const [step, setStep] = useState(1);
   const [customers, setCustomers] = useState<any[]>([]);
+  const [safes, setSafes] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   
-  // Search & Selection
+  // Search & Scanner States
   const [searchTerm, setSearchTerm] = useState('');
+  const [showScanner, setShowScanner] = useState(false); // 👈 حالة ظهور الكاميرا
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectionMap, setSelectionMap] = useState<{[key: string]: number}>({});
 
   // Cart & Finance
   const [cart, setCart] = useState<any[]>([]);
-  const [deposit, setDeposit] = useState<string>(''); // جعلناه string مؤقتاً لسهولة المسح
+  const [deposit, setDeposit] = useState<string>('');
+  const [selectedSafeId, setSelectedSafeId] = useState<string>('');
 
-  // 1. Load Customers
+  // 1. Load Data
   useEffect(() => {
     getCustomers().then(setCustomers);
+    
+    // 👇 جلب الخزن وتعيين الأولى كافتراضي
+    getSafes().then(data => {
+      setSafes(data);
+      if (data.length > 0) {
+        setSelectedSafeId(data[0].id); // تعيين أول خزنة تلقائياً
+      }
+    });
   }, []);
 
   // 2. Live Search Logic
@@ -118,6 +131,7 @@ export default function NewOrderPage() {
     setSelectionMap({});
     setSearchTerm('');
     setSearchResults([]);
+    setShowScanner(false); // إغلاق الكاميرا بعد الإضافة
   };
 
   const handleEditItem = async (item: any) => {
@@ -131,14 +145,29 @@ export default function NewOrderPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // دالة التعامل مع المسح
+  const handleScan = (code: string) => {
+      if (code) {
+          setSearchTerm(code); // وضع الكود في البحث
+          setShowScanner(false); // إغلاق الكاميرا تلقائياً
+          // الـ useEffect الخاص بـ searchTerm سيعمل تلقائياً ويجلب النتائج
+      }
+  };
+
   const handleSaveOrder = async () => {
     if(!session?.user) return;
     
     const total = cart.reduce((acc, item) => acc + item.totalPrice, 0);
     const userId = session.user.image as string; 
+    const depositVal = parseFloat(deposit) || 0;
 
     if (!userId) {
         alert("خطأ: لم يتم التعرف على هوية الموظف.");
+        return;
+    }
+
+    if (depositVal > 0 && !selectedSafeId) {
+        alert("⚠️ يجب اختيار الخزنة!");
         return;
     }
 
@@ -146,7 +175,8 @@ export default function NewOrderPage() {
       customerId: selectedCustomer.id,
       items: cart,
       total,
-      deposit: parseFloat(deposit) || 0 // تحويل النص لرقم عند الحفظ
+      deposit: depositVal,
+      safeId: selectedSafeId
     }, userId);
 
     if (newOrder && newOrder.id) {
@@ -174,6 +204,7 @@ export default function NewOrderPage() {
       <div className="p-4 max-w-2xl mx-auto">
         {step === 1 && (
           <>
+            {/* Customer Select */}
             <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-gray-100">
               <label className="text-sm text-gray-500 font-bold mb-2 block">العميل</label>
               <select 
@@ -192,17 +223,48 @@ export default function NewOrderPage() {
 
             {selectedCustomer && (
               <div className="animate-fade-in">
-                <div className="relative mb-4">
-                  <input 
-                    type="text" 
-                    placeholder="🔍 ابحث برقم الموديل..." 
-                    className="w-full p-4 border rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    autoFocus
-                  />
+                
+                {/* 👇 قسم الكاميرا (يظهر عند الضغط على الزر) */}
+                {showScanner && (
+                    <div className="fixed inset-0 z-50 bg-black bg-opacity-90 flex flex-col items-center justify-center p-4">
+                        <div className="w-full max-w-sm bg-white rounded-xl overflow-hidden relative">
+                            <button 
+                                onClick={() => setShowScanner(false)}
+                                className="absolute top-2 right-2 z-10 bg-red-600 text-white w-8 h-8 rounded-full font-bold"
+                            >X</button>
+                            <h3 className="text-center p-2 font-bold bg-gray-100">وجه الكاميرا للكود</h3>
+                            <Scanner 
+                                onScan={(result) => {
+                                    if(result && result.length > 0) handleScan(result[0].rawValue);
+                                }}
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {/* 👇 مربع البحث مع زر الكاميرا */}
+                <div className="relative mb-4 flex gap-2">
+                  <div className="relative flex-1">
+                    <input 
+                        type="text" 
+                        placeholder="🔍 ابحث برقم الموديل..." 
+                        className="w-full p-4 pl-12 border rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        autoFocus
+                    />
+                  </div>
+                  
+                  {/* زر فتح الكاميرا */}
+                  <button 
+                    onClick={() => setShowScanner(true)}
+                    className="bg-black text-white p-4 rounded-xl shadow-sm hover:bg-gray-800 transition"
+                  >
+                    📷
+                  </button>
                 </div>
 
+                {/* Results */}
                 {searchResults.length > 0 && (
                   <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6">
                      <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
@@ -238,6 +300,7 @@ export default function NewOrderPage() {
               </div>
             )}
 
+            {/* Cart */}
             {cart.length > 0 && (
               <div className="mt-8">
                 <h3 className="font-bold text-gray-700 mb-3 text-lg">محتويات السلة</h3>
@@ -266,6 +329,7 @@ export default function NewOrderPage() {
           </>
         )}
 
+        {/* STEP 2: Review & Finance */}
         {step === 2 && (
           <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
             <h3 className="text-center font-bold text-xl mb-6 border-b pb-4">مراجعة الحساب</h3>
@@ -287,7 +351,6 @@ export default function NewOrderPage() {
               ))}
             </div>
 
-            {/* 👇 قسم العربون (محسن التصميم) */}
             <div className="bg-slate-900 text-white p-5 rounded-xl mb-6 shadow-md">
                <div className="flex justify-between text-lg mb-4 border-b border-gray-700 pb-2">
                   <span>إجمالي الفاتورة:</span>
@@ -313,7 +376,23 @@ export default function NewOrderPage() {
                   </div>
                </div>
 
-               <div className="flex justify-between text-2xl font-bold pt-2 text-yellow-400">
+               {/* 👇 القائمة المنسدلة للخزن (الافتراضي تم تحديده في useEffect) */}
+               {depositVal > 0 && (
+                  <div className="mb-4 animate-fade-in">
+                     <label className="block text-yellow-400 text-sm mb-2 font-bold">📥 توريد العربون إلى:</label>
+                     <select 
+                        value={selectedSafeId}
+                        onChange={(e) => setSelectedSafeId(e.target.value)}
+                        className="w-full p-3 rounded-lg bg-white text-black text-lg outline-none focus:ring-2 focus:ring-yellow-500 border-2 border-yellow-600"
+                     >
+                        {safes.map(safe => (
+                          <option key={safe.id} value={safe.id}>{safe.name}</option>
+                        ))}
+                     </select>
+                  </div>
+               )}
+
+               <div className="flex justify-between text-2xl font-bold pt-2 text-yellow-400 border-t border-gray-700 mt-4">
                   <span>المتبقي (آجل):</span>
                   <span>{(currentTotal - depositVal).toFixed(2)}</span>
                </div>

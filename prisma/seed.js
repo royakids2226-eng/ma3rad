@@ -1,4 +1,3 @@
-// prisma/seed.js
 const { PrismaClient } = require('@prisma/client')
 const bcrypt = require('bcryptjs')
 const prisma = new PrismaClient()
@@ -29,12 +28,11 @@ async function main() {
     },
   })
 
-  // 3. إنشاء منتج (موديل 3700 لون كافيه ولون أسود)
+  // 3. إنشاء منتج
   const products = [
     { modelNo: '3700', color: 'كافيه', price: 185, stockQty: 32 },
     { modelNo: '3700', color: 'أسود', price: 185, stockQty: 20 },
   ]
-
   for (const p of products) {
     await prisma.product.upsert({
       where: { modelNo_color: { modelNo: p.modelNo, color: p.color } },
@@ -49,6 +47,18 @@ async function main() {
       },
     })
   }
+
+  // 👇 4. إضافة الخزن (الجديد)
+  const safes = ['الخزنة الرئيسية', 'درج الكاشير', 'فودافون كاش'];
+  for (const safeName of safes) {
+    // نتأكد ألا نضيفها مرتين
+    const existing = await prisma.safe.findFirst({ where: { name: safeName } });
+    if (!existing) {
+      await prisma.safe.create({ data: { name: safeName } });
+    }
+  }
+  
+  console.log("Seeding completed.");
 }
 
 main()

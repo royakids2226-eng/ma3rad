@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 
 const prisma = new PrismaClient()
 
-// 1. جلب العملاء للقائمة المنسدلة
+// 1. جلب العملاء
 export async function getCustomers() {
   try {
     const customers = await prisma.customer.findMany({
@@ -14,40 +14,44 @@ export async function getCustomers() {
     });
     return JSON.parse(JSON.stringify(customers));
   } catch (error) {
-    console.error("Error fetching customers:", error);
     return [];
   }
 }
 
-// 2. بحث "لايف" عن المنتجات (بالكود)
+// 👇 2. جلب الخزن (الجديد)
+export async function getSafes() {
+  try {
+    const safes = await prisma.safe.findMany({
+      orderBy: { name: 'asc' }
+    });
+    return JSON.parse(JSON.stringify(safes));
+  } catch (error) {
+    return [];
+  }
+}
+
+// 3. بحث المنتجات
 export async function searchProducts(term: string) {
   if (!term || term.length < 2) return [];
-  
   try {
     const products = await prisma.product.findMany({
       where: {
-        modelNo: {
-          contains: term,
-          mode: 'insensitive'
-        }
+        modelNo: { contains: term, mode: 'insensitive' }
       },
       orderBy: { modelNo: 'asc' }
     });
     return JSON.parse(JSON.stringify(products));
   } catch (error) {
-    console.error("Error searching products:", error);
     return [];
   }
 }
 
-// 3. حفظ الأوردر (تم التعديل لاستقبال العربون)
+// 4. حفظ الأوردر (تم التعديل لاستقبال safeId)
 export async function createOrder(data: any, userId: string) {
-  // نستقبل العربون هنا (deposit)
-  const { customerId, items, total, deposit } = data; 
+  // نستقبل safeId مع البيانات
+  const { customerId, items, total, deposit, safeId } = data; 
   
-  // تجهيز الأصناف لقاعدة البيانات
   const dbItems: any[] = [];
-  
   items.forEach((cartItem: any) => {
     cartItem.variants.forEach((variant: any) => {
       dbItems.push({
@@ -64,7 +68,9 @@ export async function createOrder(data: any, userId: string) {
         userId,
         customerId,
         totalAmount: total,
-        deposit: deposit || 0, // حفظ العربون (أو صفر إذا لم يدخل شيئاً)
+        deposit: deposit || 0,
+        // 👇 ربط الخزنة (لو مفيش عربون ممكن يكون null)
+        safeId: deposit > 0 ? safeId : null, 
         items: {
           create: dbItems
         }
@@ -79,28 +85,20 @@ export async function createOrder(data: any, userId: string) {
   }
 }
 
-// 4. جلب تفاصيل الأوردر للطباعة
+// 5. جلب تفاصيل الأوردر للطباعة
 export async function getOrderById(orderId: string) {
   if (!orderId) return null;
-
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: {
         customer: true,
         user: true,
-        items: {
-          include: {
-            product: true
-          }
-        }
+        items: { include: { product: true } }
       }
     });
-    
-    if (!order) return null;
     return JSON.parse(JSON.stringify(order));
   } catch (error) {
-    console.error("Error fetching order:", error);
     return null;
   }
 }
