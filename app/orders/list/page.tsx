@@ -9,10 +9,12 @@ export default function OrdersListPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [userRole, setUserRole] = useState('EMPLOYEE');
   const [loading, setLoading] = useState(true);
+  
+  // 👇 حالة البحث الجديدة
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     if (session?.user?.image) {
-      // image يحتوي على userId
       getUserOrders(session.user.image).then(res => {
         setOrders(res.orders);
         setUserRole(res.userRole || 'EMPLOYEE');
@@ -33,24 +35,39 @@ export default function OrdersListPage() {
     }
   };
 
-  // دالة لإنشاء رابط الواتساب
   const getWhatsappLink = (phone: string, orderNo: number, total: number) => {
-      // تنظيف رقم الهاتف وإضافة كود الدولة إذا لزم الأمر
-      // نفترض الرقم مصري
-      return `https://wa.me/20${phone}?text=${encodeURIComponent(`مرحباً، تفاصيل أوردر رقم #${orderNo} بقيمة ${total} ج.م`)}`;
+      return `https://wa.me/20${phone}?text=${encodeURIComponent(`مرحباً، تفاصيل فاتورة رقم #${orderNo} بقيمة ${total} ج.م`)}`;
   };
+
+  // 👇 منطق الفلترة (اسم العميل، رقم الأوردر، القيمة)
+  const filteredOrders = orders.filter(order => 
+    order.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    order.orderNo.toString().includes(searchTerm) ||
+    order.totalAmount.toString().includes(searchTerm)
+  );
 
   if (loading) return <div className="p-10 text-center">جاري التحميل...</div>;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4" dir="rtl">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-4">
             <h1 className="text-xl font-bold">الأوردرات السابقة</h1>
             <Link href="/" className="bg-gray-500 text-white px-4 py-2 rounded text-sm">عودة</Link>
         </div>
 
+        {/* 👇 حقل البحث الجديد */}
+        <div className="mb-6">
+            <input 
+                type="text" 
+                placeholder="🔍 ابحث بـ: اسم العميل، رقم الأوردر، أو المبلغ..." 
+                className="w-full p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+            />
+        </div>
+
         <div className="space-y-4">
-            {orders.map((order) => (
+            {filteredOrders.map((order) => (
                 <div key={order.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
                     <div className="flex justify-between items-start mb-2">
                         <div>
@@ -62,11 +79,9 @@ export default function OrdersListPage() {
                     
                     <div className="text-xs text-gray-400 mb-4 flex justify-between">
                         <span>{new Date(order.createdAt).toLocaleDateString('ar-EG')}</span>
-                        {/* لو الأدمن بيشوف أوردر موظف، يظهر اسم الموظف */}
                         {userRole === 'ADMIN' && <span>بواسطة: {order.user.name}</span>}
                     </div>
 
-                    {/* الأزرار */}
                     <div className="flex flex-wrap gap-2 border-t pt-3">
                         <Link 
                             href={`/orders/${order.id}/print`}
@@ -89,12 +104,6 @@ export default function OrdersListPage() {
                         {userRole === 'ADMIN' && (
                             <>
                                 <button 
-                                    onClick={() => alert('ميزة التعديل قادمة قريباً - حالياً يمكنك الحذف والإدخال من جديد')}
-                                    className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded text-sm font-bold flex-1 text-center"
-                                >
-                                    تعديل ✏️
-                                </button>
-                                <button 
                                     onClick={() => handleDelete(order.id)}
                                     className="bg-red-100 text-red-700 px-3 py-1 rounded text-sm font-bold flex-1 text-center"
                                 >
@@ -106,8 +115,8 @@ export default function OrdersListPage() {
                 </div>
             ))}
             
-            {orders.length === 0 && (
-                <div className="text-center text-gray-500 mt-10">لا توجد أوردرات سابقة</div>
+            {filteredOrders.length === 0 && (
+                <div className="text-center text-gray-500 mt-10">لا توجد نتائج مطابقة للبحث</div>
             )}
         </div>
     </div>
