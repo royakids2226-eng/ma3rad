@@ -42,7 +42,7 @@ export async function getUsers() {
 }
 
 // ==========================================
-// 2. إدارة المنتجات (Products)
+// 2. إدارة المنتجات (Products) - (معدل)
 // ==========================================
 
 export async function addProduct(data: any) {
@@ -129,16 +129,19 @@ export async function addBulkProducts(products: any[]) {
     }
 }
 
+// حذف منتج واحد
 export async function deleteProduct(id: string) {
   try {
     await prisma.product.delete({ where: { id } });
     revalidatePath('/admin/products');
     return { success: true };
-  } catch (e) { return { success: false }; }
+  } catch (e) { 
+      return { success: false, error: 'لا يمكن حذف الصنف لأنه موجود في طلبات سابقة' }; 
+  }
 }
 
+// حذف مجموعة منتجات (مع التخطي)
 export async function deleteBulkProducts(ids: string[]) {
-    // تم التعديل هنا أيضاً للتعامل بالمثل (اختياري، لكن مفضل)
     let deleted = 0;
     let failed = 0;
     for(const id of ids) {
@@ -151,12 +154,25 @@ export async function deleteBulkProducts(ids: string[]) {
     return { success: true, deleted, failed };
 }
 
+// حذف جميع المنتجات (مع التخطي)
 export async function deleteAllProducts() {
     try {
-        await prisma.product.deleteMany({});
+        // جلب كل الآيديهات
+        const all = await prisma.product.findMany({ select: { id: true } });
+        const ids = all.map(p => p.id);
+
+        let deleted = 0;
+        let failed = 0;
+        for(const id of ids) {
+            try {
+                await prisma.product.delete({ where: { id } });
+                deleted++;
+            } catch(e) { failed++; }
+        }
+
         revalidatePath('/admin/products');
-        return { success: true };
-    } catch (e) { return { success: false, error: 'لا يمكن حذف المنتجات لوجود طلبات مرتبطة بها' }; }
+        return { success: true, deleted, failed };
+    } catch (e) { return { success: false, error: 'حدث خطأ غير متوقع' }; }
 }
 
 export async function getProducts() {
@@ -165,7 +181,7 @@ export async function getProducts() {
 }
 
 // ==========================================
-// 3. إدارة العملاء (Customers) - (محدث بالكامل لحل مشكلة الحذف)
+// 3. إدارة العملاء (Customers)
 // ==========================================
 
 export async function addCustomer(data: any) {
@@ -233,63 +249,45 @@ export async function addBulkCustomers(customers: any[]) {
     }
 }
 
-// حذف عميل واحد (إرجاع السبب)
 export async function deleteCustomer(id: string) {
     try {
         await prisma.customer.delete({ where: { id } });
         revalidatePath('/admin/customers');
         return { success: true };
     } catch (e) { 
-        // في الغالب الخطأ هو Foreign Key constraint failed
         return { success: false, error: 'لا يمكن حذف العميل لوجود طلبات أو مدفوعات مسجلة باسمه' }; 
     }
 }
 
-// 👇 التعديل الجوهري: حذف المحدد واحداً تلو الآخر
 export async function deleteBulkCustomers(ids: string[]) {
     let deleted = 0;
     let failed = 0;
-
     for (const id of ids) {
         try {
             await prisma.customer.delete({ where: { id } });
             deleted++;
-        } catch (e) {
-            // فشل الحذف بسبب وجود علاقات (أوردرات/دفعات)
-            failed++;
-        }
+        } catch (e) { failed++; }
     }
-    
     revalidatePath('/admin/customers');
     return { success: true, deleted, failed };
 }
 
-// 👇 التعديل الجوهري: حذف الكل (عن طريق جلب الجميع ثم المحاولة)
 export async function deleteAllCustomers() {
     try {
-        // نجلب كل الـ IDs أولاً
         const allCustomers = await prisma.customer.findMany({ select: { id: true } });
         const ids = allCustomers.map(c => c.id);
         
-        // نعيد استخدام منطق الحذف بالتكرار
         let deleted = 0;
         let failed = 0;
-
         for (const id of ids) {
             try {
                 await prisma.customer.delete({ where: { id } });
                 deleted++;
-            } catch (e) {
-                failed++;
-            }
+            } catch (e) { failed++; }
         }
-        
         revalidatePath('/admin/customers');
         return { success: true, deleted, failed };
-        
-    } catch (e) { 
-        return { success: false, error: 'حدث خطأ غير متوقع', deleted: 0, failed: 0 }; 
-    }
+    } catch (e) { return { success: false, error: 'حدث خطأ غير متوقع', deleted: 0, failed: 0 }; }
 }
 
 export async function getAdminCustomers() {

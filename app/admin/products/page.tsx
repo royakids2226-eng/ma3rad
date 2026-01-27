@@ -27,10 +27,13 @@ export default function ProductsPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
 
-  // 👇 حالات الرفع والتقدم (Progress Bar)
+  // Upload States
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatusText, setUploadStatusText] = useState('');
+
+  // 👇 Deleting State
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     refreshProducts();
@@ -87,7 +90,6 @@ export default function ProductsPage() {
     const file = e.target.files[0];
     if(!file) return;
 
-    // تصفير القيم
     setUploadProgress(0);
     setUploadStatusText('');
     
@@ -101,24 +103,19 @@ export default function ProductsPage() {
         
         if(confirm(`تم قراءة ${data.length} صنف. هل تريد البدء في الرفع؟`)) {
             setIsUploading(true);
-            const BATCH_SIZE = 200; // 👈 حجم الدفعة الواحدة
+            const BATCH_SIZE = 200;
             let successCount = 0;
             const total = data.length;
 
-            // تقسيم البيانات لشرائح
             for (let i = 0; i < total; i += BATCH_SIZE) {
                 const chunk = data.slice(i, i + BATCH_SIZE);
-                
-                // تحديث النص
                 setUploadStatusText(`جاري رفع الأصناف من ${i + 1} إلى ${Math.min(i + BATCH_SIZE, total)} ...`);
                 
-                // استدعاء السيرفر لهذه الدفعة فقط
-                const res = await addBulkProducts(chunk as any[]); // Ensure type casting or check `addBulkProducts` definition
+                const res = await addBulkProducts(chunk as any[]);
                 if (res.success) {
                     successCount += (res.count || 0);
                 }
 
-                // حساب النسبة المئوية
                 const percent = Math.round(((i + chunk.length) / total) * 100);
                 setUploadProgress(percent);
             }
@@ -127,41 +124,63 @@ export default function ProductsPage() {
             setUploadStatusText(`✅ تم الانتهاء! تم رفع/تحديث ${successCount} صنف بنجاح.`);
             alert(`تمت العملية بنجاح. تم معالجة ${successCount} صنف.`);
             refreshProducts();
-            
-            // تصفير حقل الملف ليمكن رفعه مرة أخرى
             e.target.value = '';
         }
     };
     reader.readAsBinaryString(file);
   };
 
-  // --- Delete Logic ---
+  // --- Delete Logic (Updated) ---
+  
   const handleDelete = async (id: string) => {
     if (confirm('حذف هذا الصنف نهائياً؟')) {
-      await deleteProduct(id);
-      refreshProducts();
+      setIsDeleting(true);
+      const res = await deleteProduct(id);
+      setIsDeleting(false);
+
+      if(res.success) {
+          refreshProducts();
+      } else {
+          alert('❌ فشل الحذف: ' + res.error);
+      }
     }
   };
 
   const handleDeleteSelected = async () => {
     if(selectedIds.length === 0) return;
-    if(confirm(`هل أنت متأكد من حذف ${selectedIds.length} صنف؟`)) {
-        await deleteBulkProducts(selectedIds);
-        refreshProducts();
+    if(confirm(`هل أنت متأكد من محاولة حذف ${selectedIds.length} صنف؟\n(لن يتم حذف الأصناف المرتبطة بطلبات)`)) {
+        setIsDeleting(true);
+        const res = await deleteBulkProducts(selectedIds);
+        setIsDeleting(false);
+
+        if(res.success) {
+            alert(`✅ تقرير الحذف:\n- تم حذف: ${res.deleted} صنف.\n- فشل حذف: ${res.failed} صنف (مرتبطة بطلبات بيع).`);
+            refreshProducts();
+        } else {
+            alert('حدث خطأ غير متوقع');
+        }
     }
   };
 
   const handleDeleteAll = async () => {
     const confirm1 = confirm("⚠️ تحذير خطير!\nهل أنت متأكد أنك تريد حذف جميع الأصناف من النظام؟");
     if(confirm1) {
-        if(confirm("هذا الإجراء لا يمكن التراجع عنه. هل أنت متأكد تماماً؟")) {
-            await deleteAllProducts();
-            alert("تم الحذف.");
-            refreshProducts();
+        if(confirm("سيتم حذف الأصناف التي ليس لها مبيعات فقط.\nهل تريد الاستمرار؟")) {
+            setIsDeleting(true);
+            const res = await deleteAllProducts();
+            setIsDeleting(false);
+
+            if(res.success) {
+                alert(`✅ تقرير الحذف الشامل:\n- تم حذف: ${res.deleted} صنف.\n- متبقي: ${res.failed} صنف (لم يتم حذفهم لوجود مبيعات).`);
+                refreshProducts();
+            } else {
+                alert("خطأ: " + res.error);
+            }
         }
     }
   }
 
+  // Helper Logic
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
       if(e.target.checked) setSelectedIds(products.map(p => p.id));
       else setSelectedIds([]);
@@ -172,7 +191,7 @@ export default function ProductsPage() {
       else setSelectedIds([...selectedIds, id]);
   };
 
-  // --- Edit Logic ---
+  // Edit Logic
   const handleEditClick = (product: any) => {
       setEditingProduct({ ...product });
       setIsEditModalOpen(true);
@@ -197,14 +216,21 @@ export default function ProductsPage() {
     <div className="space-y-8 relative">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-2xl font-bold">إدارة الأصناف والمخزون</h1>
+        
         <div className="flex gap-2">
             {selectedIds.length > 0 && (
-                <button onClick={handleDeleteSelected} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded text-sm font-bold shadow animate-pulse">
-                    حذف المحدد ({selectedIds.length})
+                <button 
+                    onClick={handleDeleteSelected} 
+                    disabled={isDeleting}
+                    className={`text-white px-4 py-2 rounded text-sm font-bold shadow transition-all ${isDeleting ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600 animate-pulse'}`}>
+                    {isDeleting ? '⏳ جاري الحذف...' : `حذف المحدد (${selectedIds.length})`}
                 </button>
             )}
-            <button onClick={handleDeleteAll} className="bg-red-800 hover:bg-red-900 text-white px-4 py-2 rounded text-sm font-bold shadow">
-                ⚠️ حذف جميع الأصناف
+            <button 
+                onClick={handleDeleteAll} 
+                disabled={isDeleting}
+                className={`text-white px-4 py-2 rounded text-sm font-bold shadow transition-all ${isDeleting ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-800 hover:bg-red-900'}`}>
+                {isDeleting ? '⏳ جاري العملية...' : '⚠️ حذف جميع الأصناف'}
             </button>
         </div>
       </div>
@@ -221,11 +247,10 @@ export default function ProductsPage() {
             </div>
             <div className="flex-1 flex flex-col items-end">
                 <label className="text-sm font-bold text-gray-700 mb-2">رفع الملف:</label>
-                <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} disabled={isUploading} className="text-sm bg-white p-2 rounded border cursor-pointer w-full md:w-auto" />
+                <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} disabled={isUploading || isDeleting} className="text-sm bg-white p-2 rounded border cursor-pointer w-full md:w-auto" />
             </div>
           </div>
 
-          {/* 👇 شريط التقدم */}
           {(isUploading || uploadProgress > 0) && (
              <div className="w-full bg-white p-4 rounded shadow-sm border border-blue-100">
                 <div className="flex justify-between text-xs font-bold text-blue-800 mb-1">
@@ -267,11 +292,18 @@ export default function ProductsPage() {
             ))}
             <button type="button" onClick={handleAddColorField} className="text-sm text-blue-600 font-bold mt-2">+ إضافة لون</button>
         </div>
-        <button type="submit" className="bg-green-600 text-white px-6 py-3 rounded font-bold w-full hover:bg-green-700">حفظ</button>
+        <button type="submit" disabled={isDeleting} className="bg-green-600 text-white px-6 py-3 rounded font-bold w-full hover:bg-green-700 disabled:opacity-50">حفظ</button>
       </form>
 
       {/* Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow overflow-hidden relative">
+        {/* 👇 Overlay أثناء الحذف */}
+        {isDeleting && (
+            <div className="absolute inset-0 bg-white bg-opacity-70 z-10 flex justify-center items-center">
+                <div className="text-red-600 font-bold text-lg animate-pulse">⏳ جاري تنفيذ عمليات الحذف...</div>
+            </div>
+        )}
+
         <div className="p-2 bg-gray-50 border-b flex justify-between items-center text-xs text-gray-500">
             <span>عدد الأصناف: {products.length}</span>
             <span>المحدد: {selectedIds.length}</span>
@@ -299,7 +331,7 @@ export default function ProductsPage() {
                 <td className="p-3">{p.price}</td>
                 <td className="p-3 flex justify-center gap-2">
                   <button onClick={() => handleEditClick(p)} className="text-blue-600 hover:text-blue-800 font-bold bg-blue-100 px-2 py-1 rounded text-xs">تعديل</button>
-                  <button onClick={() => handleDelete(p.id)} className="text-red-600 hover:text-red-800 font-bold bg-red-100 px-2 py-1 rounded text-xs">حذف</button>
+                  <button onClick={() => handleDelete(p.id)} disabled={isDeleting} className="text-red-600 hover:text-red-800 font-bold bg-red-100 px-2 py-1 rounded text-xs disabled:opacity-50">حذف</button>
                 </td>
               </tr>
             ))}
