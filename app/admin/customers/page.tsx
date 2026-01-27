@@ -31,6 +31,9 @@ export default function CustomersPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatusText, setUploadStatusText] = useState('');
 
+  // 👇 حالة الحذف (الجديد)
+  const [isDeleting, setIsDeleting] = useState(false);
+
   useEffect(() => {
     refreshCustomers();
   }, []);
@@ -111,26 +114,32 @@ export default function CustomersPage() {
     reader.readAsBinaryString(file);
   };
 
-  // --- Delete Logic (Updated) ---
+  // --- Delete Logic (Updated with Indicator) ---
   
-  // حذف عميل واحد
   const handleDelete = async (id: string) => {
     if (confirm('حذف هذا العميل؟')) {
+      // 👇 تفعيل المؤشر إذا أردت (أو تركه للحذف الجماعي فقط)
+      setIsDeleting(true); 
       const res = await deleteCustomer(id);
+      setIsDeleting(false); // 👇 إيقاف المؤشر
+
       if(res.success) {
           refreshCustomers();
       } else {
-          // عرض السبب القادم من السيرفر
           alert("❌ فشل الحذف: " + res.error);
       }
     }
   };
 
-  // حذف المحدد
   const handleDeleteSelected = async () => {
     if(selectedIds.length === 0) return;
     if(confirm(`هل أنت متأكد من محاولة حذف ${selectedIds.length} عميل؟\n(لن يتم حذف العملاء الذين لديهم طلبات)`)) {
+        setIsDeleting(true); // ⏳ بدء التحميل
+        
         const res = await deleteBulkCustomers(selectedIds);
+        
+        setIsDeleting(false); // 🛑 إيقاف التحميل
+
         if(res.success) {
             alert(`✅ تقرير الحذف:\n- تم حذف: ${res.deleted} عميل.\n- فشل حذف: ${res.failed} عميل (لوجود طلبات سابقة لهم).`);
             refreshCustomers();
@@ -140,10 +149,14 @@ export default function CustomersPage() {
     }
   };
 
-  // حذف الجميع
   const handleDeleteAll = async () => {
     if(confirm("⚠️ سيتم محاولة حذف جميع العملاء من النظام!\nسيتم فقط حذف العملاء الذين ليس لديهم أي تعاملات مالية أو طلبات.\nهل أنت متأكد؟")) {
+        setIsDeleting(true); // ⏳ بدء التحميل
+        
         const res = await deleteAllCustomers();
+        
+        setIsDeleting(false); // 🛑 إيقاف التحميل
+
         if(res.success) {
              alert(`✅ تقرير الحذف الشامل:\n- تم حذف: ${res.deleted} عميل.\n- متبقي: ${res.failed} عميل (لم يتم حذفهم لوجود بيانات مرتبطة).`);
              refreshCustomers();
@@ -153,6 +166,7 @@ export default function CustomersPage() {
     }
   };
 
+  // Checkbox Logic
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
       if(e.target.checked) setSelectedIds(customers.map(c => c.id));
       else setSelectedIds([]);
@@ -163,6 +177,7 @@ export default function CustomersPage() {
       else setSelectedIds([...selectedIds, id]);
   };
 
+  // Edit Logic
   const handleEditClick = (cust: any) => {
       setEditingCustomer({ ...cust });
       setIsEditModalOpen(true);
@@ -183,20 +198,30 @@ export default function CustomersPage() {
 
   return (
     <div className="space-y-8 relative">
-       <div className="flex justify-between items-center gap-4">
+       {/* 👇 Header & Delete Buttons */}
+       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-2xl font-bold">إدارة العملاء</h1>
+        
         <div className="flex gap-2">
             {selectedIds.length > 0 && (
-                <button onClick={handleDeleteSelected} className="bg-red-500 text-white px-4 py-2 rounded text-sm font-bold animate-pulse">
-                    حذف المحدد ({selectedIds.length})
+                <button 
+                    onClick={handleDeleteSelected} 
+                    disabled={isDeleting} // تعطيل أثناء الحذف
+                    className={`text-white px-4 py-2 rounded text-sm font-bold shadow transition-all ${isDeleting ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600 animate-pulse'}`}>
+                    {isDeleting ? '⏳ جاري الحذف...' : `حذف المحدد (${selectedIds.length})`}
                 </button>
             )}
-            <button onClick={handleDeleteAll} className="bg-red-800 text-white px-4 py-2 rounded text-sm font-bold">
-                ⚠️ حذف الجميع
+            
+            <button 
+                onClick={handleDeleteAll} 
+                disabled={isDeleting} // تعطيل أثناء الحذف
+                className={`text-white px-4 py-2 rounded text-sm font-bold shadow transition-all ${isDeleting ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-800 hover:bg-red-900'}`}>
+                {isDeleting ? '⏳ جاري العملية...' : '⚠️ حذف الجميع'}
             </button>
         </div>
       </div>
 
+      {/* Upload Section */}
       <div className="bg-indigo-50 p-6 rounded border border-indigo-200">
           <div className="flex justify-between items-center gap-4 mb-4">
             <div>
@@ -204,7 +229,7 @@ export default function CustomersPage() {
                 <p className="text-sm text-indigo-600">سيتم التقسيم إلى دفعات تلقائياً.</p>
                 <button onClick={downloadTemplate} className="text-sm text-indigo-700 underline font-bold mt-1">تحميل النموذج</button>
             </div>
-            <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} disabled={isUploading} className="text-sm bg-white p-2 border rounded cursor-pointer" />
+            <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} disabled={isUploading || isDeleting} className="text-sm bg-white p-2 border rounded cursor-pointer" />
           </div>
 
           {(isUploading || uploadProgress > 0) && (
@@ -220,6 +245,7 @@ export default function CustomersPage() {
           )}
       </div>
 
+      {/* Form */}
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded shadow space-y-4 border-t-4 border-blue-600">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div><label className="text-xs font-bold text-gray-500">الكود</label><input type="text" className="w-full border p-2 rounded" value={code} onChange={e => setCode(e.target.value)} required /></div>
@@ -228,10 +254,18 @@ export default function CustomersPage() {
           <div><label className="text-xs font-bold text-gray-500">هاتف 2</label><input type="text" className="w-full border p-2 rounded bg-yellow-50" value={phone2} onChange={e => setPhone2(e.target.value)} /></div>
           <div><label className="text-xs font-bold text-gray-500">العنوان</label><input type="text" className="w-full border p-2 rounded" value={address} onChange={e => setAddress(e.target.value)} /></div>
         </div>
-        <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded font-bold w-full">حفظ العميل</button>
+        <button type="submit" disabled={isDeleting} className="bg-blue-600 text-white px-6 py-2 rounded font-bold w-full disabled:opacity-50">حفظ العميل</button>
       </form>
 
-      <div className="bg-white rounded shadow overflow-hidden">
+      {/* Table */}
+      <div className="bg-white rounded shadow overflow-hidden relative">
+        {/* 👇 Overlay أثناء الحذف الجماعي */}
+        {isDeleting && (
+            <div className="absolute inset-0 bg-white bg-opacity-70 z-10 flex justify-center items-center">
+                <div className="text-red-600 font-bold text-lg animate-pulse">⏳ جاري تنفيذ عمليات الحذف... يرجى الانتظار</div>
+            </div>
+        )}
+
         <table className="w-full text-sm text-right">
           <thead className="bg-gray-100">
             <tr>
@@ -255,7 +289,7 @@ export default function CustomersPage() {
                 <td className="p-3 text-xs">{c.address}</td>
                 <td className="p-3 flex justify-center gap-2">
                   <button onClick={() => handleEditClick(c)} className="text-blue-600 bg-blue-100 px-2 py-1 rounded">تعديل</button>
-                  <button onClick={() => handleDelete(c.id)} className="text-red-600 bg-red-100 px-2 py-1 rounded">حذف</button>
+                  <button onClick={() => handleDelete(c.id)} disabled={isDeleting} className="text-red-600 bg-red-100 px-2 py-1 rounded disabled:opacity-50">حذف</button>
                 </td>
               </tr>
             ))}
