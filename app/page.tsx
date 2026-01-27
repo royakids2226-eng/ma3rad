@@ -1,22 +1,20 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { getCurrentUser } from "./actions"; // 👈 نستدعي الدالة من هنا بدلاً من بريزما
 
 export default async function Home() {
   const session = await getServerSession();
   
+  // إذا لم يكن هناك جلسة، اذهب للدخول
   if (!session?.user?.image) {
     redirect("/login");
   }
 
-  // جلب بيانات المستخدم لمعرفة الرول
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.image as string }
-  });
+  // جلب بيانات المستخدم باستخدام الدالة الآمنة
+  const user = await getCurrentUser(session.user.image as string);
 
+  // تحديد هل هو أدمن أو صاحب شركة
   const isAdminOrOwner = user?.role === 'ADMIN' || user?.role === 'OWNER';
 
   return (
@@ -34,13 +32,13 @@ export default async function Home() {
         </div>
         
         <div className="flex gap-2">
-            {/* 👇 زر لوحة التحكم يظهر فقط للأدمن والصاحب */}
+            {/* زر لوحة التحكم يظهر فقط للأدمن والصاحب */}
             {isAdminOrOwner && (
-                <Link href="/admin" className="bg-slate-900 text-white px-4 py-2 rounded text-sm font-bold hover:bg-slate-700">
+                <Link href="/admin" className="bg-slate-900 text-white px-4 py-2 rounded text-sm font-bold hover:bg-slate-700 flex items-center">
                     لوحة التحكم 🛡️
                 </Link>
             )}
-            <Link href="/api/auth/signout" className="text-red-500 text-sm font-bold border border-red-100 px-3 py-2 rounded hover:bg-red-50">
+            <Link href="/api/auth/signout" className="text-red-500 text-sm font-bold border border-red-100 px-3 py-2 rounded hover:bg-red-50 flex items-center">
                 خروج
             </Link>
         </div>
@@ -48,23 +46,25 @@ export default async function Home() {
 
       {/* Main Actions */}
       <div className="grid grid-cols-1 gap-4">
-        <Link href="/orders/new" className="bg-blue-600 text-white p-6 rounded-xl shadow-lg flex items-center justify-between hover:bg-blue-700 transition">
+        <Link href="/orders/new" className="bg-blue-600 text-white p-6 rounded-xl shadow-lg flex items-center justify-between hover:bg-blue-700 transition transform hover:scale-[1.01]">
           <span className="text-2xl font-bold">أوردر جديد 🛒</span>
           <span className="text-4xl">+</span>
         </Link>
 
         <div className="grid grid-cols-2 gap-4">
-          <Link href="/orders/list" className="bg-white p-4 rounded-xl shadow text-gray-700 font-bold border border-gray-200 text-center hover:bg-gray-50">
-             📝 الأوردرات السابقة
+          <Link href="/orders/list" className="bg-white p-4 rounded-xl shadow text-gray-700 font-bold border border-gray-200 text-center hover:bg-gray-50 flex flex-col justify-center items-center gap-2">
+             <span className="text-2xl">📝</span>
+             <span>الأوردرات السابقة</span>
           </Link>
-          <Link href="/payments/new" className="bg-white p-4 rounded-xl shadow text-gray-700 font-bold border border-gray-200 text-center hover:bg-gray-50">
-             💰 تحصيل دفعة
+          <Link href="/payments/new" className="bg-white p-4 rounded-xl shadow text-gray-700 font-bold border border-gray-200 text-center hover:bg-gray-50 flex flex-col justify-center items-center gap-2">
+             <span className="text-2xl">💰</span>
+             <span>تحصيل دفعة</span>
           </Link>
         </div>
       </div>
       
       <div className="mt-10 text-center text-gray-400 text-xs">
-        نظام إدارة المبيعات v1.3
+        نظام إدارة المبيعات v1.4
       </div>
     </div>
   );

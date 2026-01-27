@@ -135,3 +135,18 @@ export async function createPayment(data: any, userId: string) {
     return { success: false };
   }
 }
+// ... (أضف هذه الدالة في آخر الملف)
+
+// 6. جلب بيانات المستخدم الحالي (للصفحة الرئيسية)
+export async function getCurrentUser(userId: string) {
+  if (!userId) return null;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+    // تحويل البيانات لنصوص لتجنب أي مشاكل
+    return JSON.parse(JSON.stringify(user));
+  } catch (error) {
+    return null;
+  }
+}
