@@ -6,7 +6,10 @@ import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
-// --- 1. إدارة المستخدمين ---
+// ==========================================
+// 1. إدارة المستخدمين (Users)
+// ==========================================
+
 export async function addUser(data: any) {
   try {
     const hashedPassword = await bcrypt.hash(data.password, 10);
@@ -38,10 +41,13 @@ export async function getUsers() {
   return JSON.parse(JSON.stringify(users));
 }
 
-// --- 2. إدارة المنتجات (محدث) ---
+// ==========================================
+// 2. إدارة المنتجات (Products)
+// ==========================================
 
 export async function addProduct(data: any) {
   try {
+    // نقوم بإضافة كل لون كمنتج منفصل في قاعدة البيانات
     for (const item of data.colors) {
         await prisma.product.create({
             data: {
@@ -84,6 +90,7 @@ export async function updateProduct(id: string, data: any) {
     }
 }
 
+// استيراد المنتجات من إكسيل (Bulk Import)
 export async function addBulkProducts(products: any[]) {
     try {
         let count = 0;
@@ -91,7 +98,7 @@ export async function addBulkProducts(products: any[]) {
             if(p.modelNo && p.color) {
                 const productStatus = (p.status && p.status.toUpperCase() === 'CLOSED') ? 'CLOSED' : 'OPEN';
                 
-                // نستخدم upsert لتحديث المنتج إذا كان موجوداً أو إنشائه إذا لم يكن
+                // Upsert: تحديث إذا وجد، إنشاء إذا لم يوجد
                 await prisma.product.upsert({
                     where: {
                         modelNo_color: {
@@ -134,7 +141,7 @@ export async function deleteProduct(id: string) {
   } catch (e) { return { success: false }; }
 }
 
-// حذف مجموعة منتجات مختارة
+// حذف مجموعة منتجات
 export async function deleteBulkProducts(ids: string[]) {
     try {
         await prisma.product.deleteMany({
@@ -147,7 +154,7 @@ export async function deleteBulkProducts(ids: string[]) {
     } catch (e) { return { success: false, error: 'حدث خطأ أثناء الحذف' }; }
 }
 
-// حذف جميع المنتجات (تصفير المخزن)
+// حذف جميع المنتجات
 export async function deleteAllProducts() {
     try {
         await prisma.product.deleteMany({});
@@ -159,18 +166,76 @@ export async function deleteAllProducts() {
 export async function getProducts() {
   const products = await prisma.product.findMany({ 
       orderBy: { id: 'desc' },
-      take: 200 // زيادة العدد قليلاً
+      take: 200 
   });
   return JSON.parse(JSON.stringify(products));
 }
 
-// --- 3. إدارة العملاء ---
+// ==========================================
+// 3. إدارة العملاء (Customers)
+// ==========================================
+
 export async function addCustomer(data: any) {
     try {
-      await prisma.customer.create({ data });
+      await prisma.customer.create({ 
+          data: {
+              code: data.code,
+              name: data.name,
+              phone: data.phone,
+              address: data.address
+          } 
+      });
       revalidatePath('/admin/customers');
       return { success: true };
     } catch (e) { return { success: false, error: 'كود العميل مكرر' }; }
+}
+
+// تعديل بيانات عميل
+export async function updateCustomer(id: string, data: any) {
+    try {
+        await prisma.customer.update({
+            where: { id },
+            data: {
+                code: data.code,
+                name: data.name,
+                phone: data.phone,
+                address: data.address
+            }
+        });
+        revalidatePath('/admin/customers');
+        return { success: true };
+    } catch (e) { return { success: false, error: 'حدث خطأ، ربما الكود مكرر' }; }
+}
+
+// استيراد عملاء من إكسيل
+export async function addBulkCustomers(customers: any[]) {
+    try {
+        let count = 0;
+        for (const c of customers) {
+            if(c.code && c.name) {
+                await prisma.customer.upsert({
+                    where: { code: String(c.code) },
+                    update: {
+                        name: c.name,
+                        phone: String(c.phone || ''),
+                        address: c.address || ''
+                    },
+                    create: {
+                        code: String(c.code),
+                        name: c.name,
+                        phone: String(c.phone || ''),
+                        address: c.address || ''
+                    }
+                });
+                count++;
+            }
+        }
+        revalidatePath('/admin/customers');
+        return { success: true, count };
+    } catch (e) {
+        console.error(e);
+        return { success: false, error: 'حدث خطأ أثناء الاستيراد' };
+    }
 }
 
 export async function deleteCustomer(id: string) {
@@ -178,10 +243,32 @@ export async function deleteCustomer(id: string) {
         await prisma.customer.delete({ where: { id } });
         revalidatePath('/admin/customers');
         return { success: true };
-    } catch (e) { return { success: false }; }
+    } catch (e) { return { success: false, error: 'لا يمكن حذف العميل لوجود طلبات مسجلة باسمه' }; }
+}
+
+// حذف مجموعة عملاء
+export async function deleteBulkCustomers(ids: string[]) {
+    try {
+        await prisma.customer.deleteMany({
+            where: { id: { in: ids } }
+        });
+        revalidatePath('/admin/customers');
+        return { success: true };
+    } catch (e) { return { success: false, error: 'حدث خطأ أثناء الحذف' }; }
+}
+
+// حذف جميع العملاء
+export async function deleteAllCustomers() {
+    try {
+        await prisma.customer.deleteMany({});
+        revalidatePath('/admin/customers');
+        return { success: true };
+    } catch (e) { return { success: false, error: 'لا يمكن حذف العملاء لوجود عمليات مرتبطة بهم' }; }
 }
 
 export async function getAdminCustomers() {
-    const custs = await prisma.customer.findMany({ orderBy: { name: 'asc' } });
+    // ترتيب العملاء حسب الأحدث إضافة (باستخدام id لأن createdAt غير موجود في السكيما الأصلية للعميل)
+    // إذا أضفت createdAt للعميل لاحقاً يمكنك استخدامه هنا
+    const custs = await prisma.customer.findMany({ orderBy: { id: 'desc' } });
     return JSON.parse(JSON.stringify(custs));
 }
