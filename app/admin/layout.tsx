@@ -2,16 +2,17 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
+import { authOptions } from "@/auth"; // 👈 1. استيراد ملف الإعدادات
 
 const prisma = new PrismaClient();
 
-// 👇 لاحظ كلمة export default هنا ضرورية جداً
 export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession();
+  // 👇 2. تمرير الإعدادات هنا لكي يتعرف على الجلسة
+  const session = await getServerSession(authOptions);
 
   if (!session?.user?.image) {
     redirect("/login");
@@ -21,6 +22,7 @@ export default async function AdminLayout({
     where: { id: session.user.image as string },
   });
 
+  // التحقق من الصلاحية (أدمن أو مالك فقط)
   if (!user || (user.role !== "ADMIN" && user.role !== "OWNER")) {
     redirect("/");
   }
