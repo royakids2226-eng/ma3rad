@@ -7,8 +7,8 @@ import Link from 'next/link';
 export default function OrdersListPage() {
   const { data: session } = useSession();
   const [orders, setOrders] = useState<any[]>([]);
-  const [filteredOrders, setFilteredOrders] = useState<any[]>([]); // 👈 حالة النتائج المفلترة
-  const [searchTerm, setSearchTerm] = useState(''); // 👈 نص البحث
+  const [filteredOrders, setFilteredOrders] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [userRole, setUserRole] = useState('EMPLOYEE');
   const [loading, setLoading] = useState(true);
 
@@ -16,23 +16,23 @@ export default function OrdersListPage() {
     if (session?.user?.image) {
       getUserOrders(session.user.image).then(res => {
         setOrders(res.orders);
-        setFilteredOrders(res.orders); // في البداية نعرض الكل
+        setFilteredOrders(res.orders);
         setUserRole(res.userRole || 'EMPLOYEE');
         setLoading(false);
       });
     }
   }, [session]);
 
-  // 👇 منطق البحث (يعمل كلما تغير نص البحث)
+  // منطق البحث
   useEffect(() => {
     if (!searchTerm) {
         setFilteredOrders(orders);
     } else {
         const lowerTerm = searchTerm.toLowerCase();
         const results = orders.filter(order => 
-            order.customer.name.toLowerCase().includes(lowerTerm) || // اسم العميل
-            order.orderNo.toString().includes(lowerTerm) ||          // رقم الأوردر
-            order.totalAmount.toString().includes(lowerTerm)         // قيمة الأوردر
+            order.customer.name.toLowerCase().includes(lowerTerm) || 
+            order.orderNo.toString().includes(lowerTerm) ||          
+            order.totalAmount.toString().includes(lowerTerm)         
         );
         setFilteredOrders(results);
     }
@@ -44,10 +44,8 @@ export default function OrdersListPage() {
         if (res.success) {
             const newOrders = orders.filter(o => o.id !== orderId);
             setOrders(newOrders);
-            // تحديث الفلتر أيضاً حتى لا يظهر العنصر المحذوف
             if (!searchTerm) setFilteredOrders(newOrders);
             else setFilteredOrders(filteredOrders.filter(o => o.id !== orderId));
-            
             alert('تم الحذف بنجاح');
         } else {
             alert('حدث خطأ أثناء الحذف');
@@ -56,7 +54,6 @@ export default function OrdersListPage() {
   };
 
   const getWhatsappLink = (phone: string, orderNo: number, total: number) => {
-      // تنظيف الرقم وإضافة كود مصر
       const cleanPhone = phone?.replace(/\D/g, '') || '';
       const finalPhone = cleanPhone.startsWith('2') ? cleanPhone : `2${cleanPhone}`;
       return `https://wa.me/${finalPhone}?text=${encodeURIComponent(`مرحباً، بخصوص أوردر رقم #${orderNo} بقيمة ${total} ج.م`)}`;
@@ -71,7 +68,7 @@ export default function OrdersListPage() {
             <Link href="/" className="bg-gray-500 text-white px-4 py-2 rounded text-sm">عودة</Link>
         </div>
 
-        {/* 👇 مربع البحث الجديد */}
+        {/* مربع البحث */}
         <div className="mb-6">
             <input 
                 type="text" 
@@ -117,13 +114,22 @@ export default function OrdersListPage() {
                             </a>
                         )}
 
+                        {/* 👇 هنا أعدنا زر التعديل والحذف للأدمن */}
                         {userRole === 'ADMIN' && (
-                            <button 
-                                onClick={() => handleDelete(order.id)}
-                                className="bg-red-100 text-red-700 px-3 py-1 rounded text-sm font-bold flex-1 text-center"
-                            >
-                                حذف 🗑️
-                            </button>
+                            <>
+                                <button 
+                                    onClick={() => alert('ميزة التعديل قادمة قريباً - حالياً يمكنك الحذف والإدخال من جديد')}
+                                    className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded text-sm font-bold flex-1 text-center"
+                                >
+                                    تعديل ✏️
+                                </button>
+                                <button 
+                                    onClick={() => handleDelete(order.id)}
+                                    className="bg-red-100 text-red-700 px-3 py-1 rounded text-sm font-bold flex-1 text-center"
+                                >
+                                    حذف 🗑️
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>
