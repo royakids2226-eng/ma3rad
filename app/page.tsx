@@ -1,14 +1,23 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { NextAuthOptions } from "next-auth"; // قد تحتاج استيراد الـ options لو معرفة في ملف منفصل، لكن هنا سنستخدم الطريقة البسيطة
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 export default async function Home() {
   const session = await getServerSession();
   
-  if (!session) {
+  if (!session?.user?.image) {
     redirect("/login");
   }
+
+  // جلب بيانات المستخدم لمعرفة الرول
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.image as string }
+  });
+
+  const isAdminOrOwner = user?.role === 'ADMIN' || user?.role === 'OWNER';
 
   return (
     <div className="min-h-screen bg-gray-50 p-4" dir="rtl">
@@ -16,9 +25,25 @@ export default async function Home() {
       <header className="flex justify-between items-center mb-8 bg-white p-4 rounded shadow">
         <div>
           <h1 className="text-lg font-bold">أهلاً، {session.user?.name}</h1>
-          <p className="text-xs text-gray-500">كود: {session.user?.email}</p>
+          <p className="text-xs text-gray-500">
+            {user?.role === 'ADMIN' && 'مدير النظام'}
+            {user?.role === 'OWNER' && 'صاحب الشركة'}
+            {user?.role === 'ACCOUNTANT' && 'محاسب'}
+            {user?.role === 'EMPLOYEE' && 'موظف مبيعات'}
+          </p>
         </div>
-        <Link href="/api/auth/signout" className="text-red-500 text-sm font-bold">خروج</Link>
+        
+        <div className="flex gap-2">
+            {/* 👇 زر لوحة التحكم يظهر فقط للأدمن والصاحب */}
+            {isAdminOrOwner && (
+                <Link href="/admin" className="bg-slate-900 text-white px-4 py-2 rounded text-sm font-bold hover:bg-slate-700">
+                    لوحة التحكم 🛡️
+                </Link>
+            )}
+            <Link href="/api/auth/signout" className="text-red-500 text-sm font-bold border border-red-100 px-3 py-2 rounded hover:bg-red-50">
+                خروج
+            </Link>
+        </div>
       </header>
 
       {/* Main Actions */}
@@ -39,7 +64,7 @@ export default async function Home() {
       </div>
       
       <div className="mt-10 text-center text-gray-400 text-xs">
-        نظام إدارة المبيعات v1.2
+        نظام إدارة المبيعات v1.3
       </div>
     </div>
   );
