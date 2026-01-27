@@ -1,20 +1,24 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getCurrentUser } from "./actions"; // 👈 نستدعي الدالة من هنا بدلاً من بريزما
+import { getCurrentUser } from "./actions"; 
+import { authOptions } from "@/auth"; // 👈 1. استيراد الإعدادات
 
 export default async function Home() {
-  const session = await getServerSession();
+  // 👇 2. تمرير الإعدادات هنا هو السر لحل المشكلة
+  const session = await getServerSession(authOptions);
   
-  // إذا لم يكن هناك جلسة، اذهب للدخول
   if (!session?.user?.image) {
     redirect("/login");
   }
 
-  // جلب بيانات المستخدم باستخدام الدالة الآمنة
   const user = await getCurrentUser(session.user.image as string);
+  
+  // حماية إضافية لو اليوزر اتحذف من الداتا بيس
+  if (!user) {
+     redirect("/api/auth/signout");
+  }
 
-  // تحديد هل هو أدمن أو صاحب شركة
   const isAdminOrOwner = user?.role === 'ADMIN' || user?.role === 'OWNER';
 
   return (
@@ -32,7 +36,6 @@ export default async function Home() {
         </div>
         
         <div className="flex gap-2">
-            {/* زر لوحة التحكم يظهر فقط للأدمن والصاحب */}
             {isAdminOrOwner && (
                 <Link href="/admin" className="bg-slate-900 text-white px-4 py-2 rounded text-sm font-bold hover:bg-slate-700 flex items-center">
                     لوحة التحكم 🛡️
@@ -64,7 +67,7 @@ export default async function Home() {
       </div>
       
       <div className="mt-10 text-center text-gray-400 text-xs">
-        نظام إدارة المبيعات v1.4
+        نظام إدارة المبيعات v1.5
       </div>
     </div>
   );
