@@ -32,13 +32,9 @@ export default async function PrintOrderPage(props: Props) {
     const deposit = order.deposit || 0;
     const remaining = order.totalAmount - deposit;
 
-    // 👇 رابط الواتساب (مصر +20)
     const whatsappLink = order.customer.phone 
         ? `https://wa.me/20${order.customer.phone}?text=${encodeURIComponent(
-            `*مرحباً ${order.customer.name}* \n` +
-            `مرفق تفاصيل فاتورة رقم #${order.orderNo} \n` +
-            `القيمة: ${order.totalAmount} ج.م \n` +
-            `شكراً لتعاملكم مع مصنع الملابس الجاهزة.`
+            `فاتورة #${order.orderNo}\nالمطلوب: ${remaining} ج.م`
           )}`
         : null;
 
@@ -46,19 +42,11 @@ export default async function PrintOrderPage(props: Props) {
         <div className="min-h-screen bg-gray-100 p-4 md:p-8 font-sans print:bg-white print:p-0">
             <div className="max-w-[210mm] mx-auto mb-6 flex flex-wrap gap-4 print:hidden" dir="rtl">
                 <PrintButton />
-                
-                {/* 👇 زر الواتساب الجديد */}
                 {whatsappLink && (
-                    <a 
-                        href={whatsappLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 shadow-lg flex items-center gap-2"
-                    >
+                    <a href={whatsappLink} target="_blank" rel="noreferrer" className="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 shadow-lg flex items-center gap-2">
                         إرسال واتس 📱
                     </a>
                 )}
-
                 <a href="/" className="bg-gray-500 text-white px-6 py-3 rounded-lg font-bold flex items-center">🏠 خروج</a>
             </div>
 
@@ -82,7 +70,11 @@ export default async function PrintOrderPage(props: Props) {
                                 <td className="font-bold w-20 md:w-24 py-2 align-top">العميل:</td>
                                 <td className="text-lg md:text-xl align-top">{order.customer.name}</td>
                                 <td className="font-bold w-20 md:w-24 text-left pl-4 align-top">الهاتف:</td>
-                                <td className="align-top">{order.customer.phone || '-'}</td>
+                                <td className="align-top font-mono">
+                                    {/* 👇 عرض الهاتفين */}
+                                    <div>{order.customer.phone || '-'}</div>
+                                    {order.customer.phone2 && <div>{order.customer.phone2}</div>}
+                                </td>
                             </tr>
                             <tr>
                                 <td className="font-bold py-2 align-top">العنوان:</td>

@@ -15,8 +15,8 @@ model User {
   password  String
   role      String   @default("EMPLOYEE")
   orders    Order[]
-  payments  Payment[] // 👈 تمت الإضافة
-  createdAt DateTime  @default(now()) // 👈 أضف هذا السطر
+  payments  Payment[]
+  createdAt DateTime  @default(now())
 }
 
 model Customer {
@@ -24,9 +24,10 @@ model Customer {
   code      String    @unique
   name      String
   phone     String?
+  phone2    String?   // 👈 التعديل: رقم الهاتف الثاني
   address   String?
   orders    Order[]
-  payments  Payment[] // 👈 تمت الإضافة
+  payments  Payment[]
 }
 
 model Product {
@@ -37,10 +38,7 @@ model Product {
   color       String
   stockQty    Int         @default(0)
   price       Float
-  
-  // 👇 الإضافة الجديدة: الحالة (OPEN أو CLOSED)
   status      String      @default("OPEN") 
-  
   orderItems  OrderItem[]
 
   @@unique([modelNo, color])
@@ -50,7 +48,7 @@ model Safe {
   id        String    @id @default(cuid())
   name      String
   orders    Order[]
-  payments  Payment[] // 👈 تمت الإضافة
+  payments  Payment[]
   createdAt DateTime  @default(now())
 }
 
@@ -84,13 +82,10 @@ model Payment {
   receiptNo  Int      @default(autoincrement())
   createdAt  DateTime @default(now())
   amount     Float
-  
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id])
-  
   userId     String
   user       User     @relation(fields: [userId], references: [id])
-  
   safeId     String
   safe       Safe     @relation(fields: [safeId], references: [id])
 }

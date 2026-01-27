@@ -74,7 +74,6 @@ export default function NewOrderPage() {
   const handleSelectAll = () => {
     const newMap: {[key: string]: number} = {};
     searchResults.forEach(p => { 
-        // لا نختار المغلق والمنتهي رصيده
         if (!(p.status === 'CLOSED' && p.stockQty <= 0)) {
             newMap[p.id] = 1; 
         }
@@ -185,9 +184,11 @@ export default function NewOrderPage() {
   const currentTotal = cart.reduce((acc, i) => acc + i.totalPrice, 0);
   const depositVal = parseFloat(deposit) || 0;
 
+  // 👇 تحديث فلتر البحث عن العميل
   const filteredCustomers = customers.filter(c => 
     c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) || 
-    (c.phone && c.phone.includes(customerSearchTerm))
+    (c.phone && c.phone.includes(customerSearchTerm)) ||
+    (c.phone2 && c.phone2.includes(customerSearchTerm)) // 👈 البحث بالهاتف الثاني
   );
 
   const filteredCart = cart.filter(item => 
@@ -207,13 +208,15 @@ export default function NewOrderPage() {
           <>
             <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-gray-100 relative" ref={customerListRef}>
               <label className="text-sm text-gray-500 font-bold mb-2 block">العميل</label>
-              <input type="text" placeholder="ابحث..." value={customerSearchTerm} onChange={(e) => { setCustomerSearchTerm(e.target.value); setShowCustomerList(true); if (e.target.value === '') setSelectedCustomer(null); }} onFocus={() => setShowCustomerList(true)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input type="text" placeholder="ابحث باسم العميل أو رقم التليفون (1 أو 2)..." value={customerSearchTerm} onChange={(e) => { setCustomerSearchTerm(e.target.value); setShowCustomerList(true); if (e.target.value === '') setSelectedCustomer(null); }} onFocus={() => setShowCustomerList(true)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
               {showCustomerList && filteredCustomers.length > 0 && (
                 <div className="absolute top-full left-0 right-0 bg-white border rounded-b-lg shadow-xl z-50 max-h-60 overflow-y-auto">
                   {filteredCustomers.map(c => (
                     <div key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearchTerm(c.name); setShowCustomerList(false); }} className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0">
                       <div className="font-bold">{c.name}</div>
-                      <div className="text-xs text-gray-500">{c.phone}</div>
+                      <div className="text-xs text-gray-500">
+                          {c.phone} {c.phone2 ? ` | ${c.phone2}` : ''}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -229,7 +232,6 @@ export default function NewOrderPage() {
                   <button onClick={() => setShowScanner(true)} className="bg-black text-white p-4 rounded-xl shadow-sm">📷</button>
                 </div>
 
-                {/* 👇 عرض النتائج (مع المنع) */}
                 {searchResults.length > 0 && (
                   <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6">
                      <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
@@ -238,7 +240,6 @@ export default function NewOrderPage() {
                     </div>
                     <div className="divide-y divide-gray-100">
                       {searchResults.map(prod => {
-                        // 👇 شرط المنع: لو مغلق والرصيد 0 أو أقل
                         const isClosedAndEmpty = prod.status === 'CLOSED' && prod.stockQty <= 0;
                         const isSelected = !!selectionMap[prod.id];
                         const qty = selectionMap[prod.id] || 1;
@@ -250,7 +251,7 @@ export default function NewOrderPage() {
                                 type="checkbox" 
                                 checked={isSelected} 
                                 onChange={(e) => toggleSelection(prod.id, e.target.checked)} 
-                                disabled={isClosedAndEmpty} // 👈 تعطيل الاختيار
+                                disabled={isClosedAndEmpty} 
                                 className="w-6 h-6 disabled:cursor-not-allowed" 
                               />
                               <div>
@@ -311,7 +312,6 @@ export default function NewOrderPage() {
 
         {step === 2 && (
           <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
-            {/* ... نفس كود الدفع ... */}
             <h3 className="text-center font-bold text-xl mb-6 border-b pb-4">مراجعة الحساب</h3>
             
             <div className="flex justify-between mb-4 text-sm bg-gray-50 p-3 rounded">

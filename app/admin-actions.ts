@@ -6,10 +6,7 @@ import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
-// ==========================================
-// 1. إدارة المستخدمين (Users)
-// ==========================================
-
+// --- 1. إدارة المستخدمين ---
 export async function addUser(data: any) {
   try {
     const hashedPassword = await bcrypt.hash(data.password, 10);
@@ -41,13 +38,9 @@ export async function getUsers() {
   return JSON.parse(JSON.stringify(users));
 }
 
-// ==========================================
-// 2. إدارة المنتجات (Products)
-// ==========================================
-
+// --- 2. إدارة المنتجات ---
 export async function addProduct(data: any) {
   try {
-    // نقوم بإضافة كل لون كمنتج منفصل في قاعدة البيانات
     for (const item of data.colors) {
         await prisma.product.create({
             data: {
@@ -64,11 +57,10 @@ export async function addProduct(data: any) {
     revalidatePath('/admin/products');
     return { success: true };
   } catch (e) {
-    return { success: false, error: 'حدث خطأ، ربما البيانات مكررة (الموديل واللون)' };
+    return { success: false, error: 'حدث خطأ، ربما البيانات مكررة' };
   }
 }
 
-// تعديل منتج واحد
 export async function updateProduct(id: string, data: any) {
     try {
         await prisma.product.update({
@@ -86,19 +78,16 @@ export async function updateProduct(id: string, data: any) {
         revalidatePath('/admin/products');
         return { success: true };
     } catch (e) {
-        return { success: false, error: 'فشل التعديل، تأكد من عدم تكرار الموديل واللون' };
+        return { success: false, error: 'فشل التعديل' };
     }
 }
 
-// استيراد المنتجات من إكسيل (Bulk Import)
 export async function addBulkProducts(products: any[]) {
     try {
         let count = 0;
         for (const p of products) {
             if(p.modelNo && p.color) {
                 const productStatus = (p.status && p.status.toUpperCase() === 'CLOSED') ? 'CLOSED' : 'OPEN';
-                
-                // Upsert: تحديث إذا وجد، إنشاء إذا لم يوجد
                 await prisma.product.upsert({
                     where: {
                         modelNo_color: {
@@ -141,39 +130,28 @@ export async function deleteProduct(id: string) {
   } catch (e) { return { success: false }; }
 }
 
-// حذف مجموعة منتجات
 export async function deleteBulkProducts(ids: string[]) {
     try {
-        await prisma.product.deleteMany({
-            where: {
-                id: { in: ids }
-            }
-        });
+        await prisma.product.deleteMany({ where: { id: { in: ids } } });
         revalidatePath('/admin/products');
         return { success: true };
     } catch (e) { return { success: false, error: 'حدث خطأ أثناء الحذف' }; }
 }
 
-// حذف جميع المنتجات
 export async function deleteAllProducts() {
     try {
         await prisma.product.deleteMany({});
         revalidatePath('/admin/products');
         return { success: true };
-    } catch (e) { return { success: false, error: 'لا يمكن حذف المنتجات لوجود طلبات مرتبطة بها' }; }
+    } catch (e) { return { success: false, error: 'لا يمكن حذف المنتجات' }; }
 }
 
 export async function getProducts() {
-  const products = await prisma.product.findMany({ 
-      orderBy: { id: 'desc' },
-      take: 200 
-  });
+  const products = await prisma.product.findMany({ orderBy: { id: 'desc' }, take: 200 });
   return JSON.parse(JSON.stringify(products));
 }
 
-// ==========================================
-// 3. إدارة العملاء (Customers)
-// ==========================================
+// --- 3. إدارة العملاء (تم التحديث للهاتف 2) ---
 
 export async function addCustomer(data: any) {
     try {
@@ -182,6 +160,7 @@ export async function addCustomer(data: any) {
               code: data.code,
               name: data.name,
               phone: data.phone,
+              phone2: data.phone2, // 👈
               address: data.address
           } 
       });
@@ -190,7 +169,6 @@ export async function addCustomer(data: any) {
     } catch (e) { return { success: false, error: 'كود العميل مكرر' }; }
 }
 
-// تعديل بيانات عميل
 export async function updateCustomer(id: string, data: any) {
     try {
         await prisma.customer.update({
@@ -199,15 +177,15 @@ export async function updateCustomer(id: string, data: any) {
                 code: data.code,
                 name: data.name,
                 phone: data.phone,
+                phone2: data.phone2, // 👈
                 address: data.address
             }
         });
         revalidatePath('/admin/customers');
         return { success: true };
-    } catch (e) { return { success: false, error: 'حدث خطأ، ربما الكود مكرر' }; }
+    } catch (e) { return { success: false, error: 'حدث خطأ' }; }
 }
 
-// استيراد عملاء من إكسيل
 export async function addBulkCustomers(customers: any[]) {
     try {
         let count = 0;
@@ -218,12 +196,14 @@ export async function addBulkCustomers(customers: any[]) {
                     update: {
                         name: c.name,
                         phone: String(c.phone || ''),
+                        phone2: String(c.phone2 || ''), // 👈
                         address: c.address || ''
                     },
                     create: {
                         code: String(c.code),
                         name: c.name,
                         phone: String(c.phone || ''),
+                        phone2: String(c.phone2 || ''), // 👈
                         address: c.address || ''
                     }
                 });
@@ -243,32 +223,26 @@ export async function deleteCustomer(id: string) {
         await prisma.customer.delete({ where: { id } });
         revalidatePath('/admin/customers');
         return { success: true };
-    } catch (e) { return { success: false, error: 'لا يمكن حذف العميل لوجود طلبات مسجلة باسمه' }; }
+    } catch (e) { return { success: false, error: 'لا يمكن الحذف' }; }
 }
 
-// حذف مجموعة عملاء
 export async function deleteBulkCustomers(ids: string[]) {
     try {
-        await prisma.customer.deleteMany({
-            where: { id: { in: ids } }
-        });
+        await prisma.customer.deleteMany({ where: { id: { in: ids } } });
         revalidatePath('/admin/customers');
         return { success: true };
-    } catch (e) { return { success: false, error: 'حدث خطأ أثناء الحذف' }; }
+    } catch (e) { return { success: false, error: 'حدث خطأ' }; }
 }
 
-// حذف جميع العملاء
 export async function deleteAllCustomers() {
     try {
         await prisma.customer.deleteMany({});
         revalidatePath('/admin/customers');
         return { success: true };
-    } catch (e) { return { success: false, error: 'لا يمكن حذف العملاء لوجود عمليات مرتبطة بهم' }; }
+    } catch (e) { return { success: false, error: 'لا يمكن الحذف' }; }
 }
 
 export async function getAdminCustomers() {
-    // ترتيب العملاء حسب الأحدث إضافة (باستخدام id لأن createdAt غير موجود في السكيما الأصلية للعميل)
-    // إذا أضفت createdAt للعميل لاحقاً يمكنك استخدامه هنا
     const custs = await prisma.customer.findMany({ orderBy: { id: 'desc' } });
     return JSON.parse(JSON.stringify(custs));
 }
