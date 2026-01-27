@@ -34,7 +34,6 @@ export async function deleteUser(id: string) {
 }
 
 export async function getUsers() {
-  // نستخدم الترتيب بـ id تنازلياً ليظهر الأحدث أولاً
   const users = await prisma.user.findMany({ orderBy: { id: 'desc' } });
   return JSON.parse(JSON.stringify(users));
 }
@@ -43,8 +42,6 @@ export async function getUsers() {
 
 export async function addProduct(data: any) {
   try {
-    // data = { modelNo, description, material, price, status, colors: [{color, stock}] }
-    // نقوم بإضافة كل لون كمنتج منفصل في قاعدة البيانات
     for (const item of data.colors) {
         await prisma.product.create({
             data: {
@@ -54,36 +51,67 @@ export async function addProduct(data: any) {
                 price: parseFloat(data.price),
                 color: item.color,
                 stockQty: parseInt(item.stock),
-                status: data.status || 'OPEN' // 👈 حفظ الحالة (مفتوح/مغلق)
+                status: data.status || 'OPEN'
             }
         });
     }
     revalidatePath('/admin/products');
     return { success: true };
   } catch (e) {
-    return { success: false, error: 'حدث خطأ، ربما البيانات مكررة' };
+    return { success: false, error: 'حدث خطأ، ربما البيانات مكررة (الموديل واللون)' };
   }
 }
 
-// 👇 دالة الاستيراد من الإكسيل (Bulk Import)
+// تعديل منتج واحد
+export async function updateProduct(id: string, data: any) {
+    try {
+        await prisma.product.update({
+            where: { id },
+            data: {
+                modelNo: data.modelNo,
+                description: data.description,
+                material: data.material,
+                color: data.color,
+                price: parseFloat(data.price),
+                stockQty: parseInt(data.stockQty),
+                status: data.status
+            }
+        });
+        revalidatePath('/admin/products');
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: 'فشل التعديل، تأكد من عدم تكرار الموديل واللون' };
+    }
+}
+
 export async function addBulkProducts(products: any[]) {
     try {
         let count = 0;
         for (const p of products) {
-            // نتأكد من وجود البيانات الأساسية (الموديل واللون)
             if(p.modelNo && p.color) {
-                // تحويل الحالة من النص للتنسيق المناسب
-                // نفترض أن في الإكسيل العمود اسمه status وقيمته OPEN أو CLOSED
                 const productStatus = (p.status && p.status.toUpperCase() === 'CLOSED') ? 'CLOSED' : 'OPEN';
-
-                await prisma.product.create({
-                    data: {
+                
+                // نستخدم upsert لتحديث المنتج إذا كان موجوداً أو إنشائه إذا لم يكن
+                await prisma.product.upsert({
+                    where: {
+                        modelNo_color: {
+                            modelNo: String(p.modelNo),
+                            color: String(p.color)
+                        }
+                    },
+                    update: {
+                        stockQty: parseInt(p.stockQty) || 0,
+                        price: parseFloat(p.price) || 0,
+                        description: p.description || '',
+                        status: productStatus
+                    },
+                    create: {
                         modelNo: String(p.modelNo),
                         description: p.description || '',
                         material: p.material || '',
                         color: String(p.color),
                         price: parseFloat(p.price) || 0,
-                        stockQty: parseInt(p.stockQty) || 0, // لاحظ: يجب أن يكون اسم العمود في الاكسيل stockQty
+                        stockQty: parseInt(p.stockQty) || 0,
                         status: productStatus
                     }
                 });
@@ -94,7 +122,7 @@ export async function addBulkProducts(products: any[]) {
         return { success: true, count };
     } catch (e) {
         console.error(e);
-        return { success: false, error: 'حدث خطأ أثناء الاستيراد، تأكد من عدم تكرار الموديل واللون' };
+        return { success: false, error: 'حدث خطأ أثناء الاستيراد' };
     }
 }
 
@@ -106,10 +134,32 @@ export async function deleteProduct(id: string) {
   } catch (e) { return { success: false }; }
 }
 
+// حذف مجموعة منتجات مختارة
+export async function deleteBulkProducts(ids: string[]) {
+    try {
+        await prisma.product.deleteMany({
+            where: {
+                id: { in: ids }
+            }
+        });
+        revalidatePath('/admin/products');
+        return { success: true };
+    } catch (e) { return { success: false, error: 'حدث خطأ أثناء الحذف' }; }
+}
+
+// حذف جميع المنتجات (تصفير المخزن)
+export async function deleteAllProducts() {
+    try {
+        await prisma.product.deleteMany({});
+        revalidatePath('/admin/products');
+        return { success: true };
+    } catch (e) { return { success: false, error: 'لا يمكن حذف المنتجات لوجود طلبات مرتبطة بها' }; }
+}
+
 export async function getProducts() {
   const products = await prisma.product.findMany({ 
       orderBy: { id: 'desc' },
-      take: 100 // جلب آخر 100 صنف
+      take: 200 // زيادة العدد قليلاً
   });
   return JSON.parse(JSON.stringify(products));
 }
