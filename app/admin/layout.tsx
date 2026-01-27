@@ -1,101 +1,45 @@
-'use server'
+import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
+import { PrismaClient } from "@prisma/client";
+import Link from "next/link";
 
-import { PrismaClient } from '@prisma/client'
-import { revalidatePath } from 'next/cache'
-import bcrypt from 'bcryptjs'
+const prisma = new PrismaClient();
 
-const prisma = new PrismaClient()
+// 👇 لاحظ كلمة export default هنا ضرورية جداً
+export default async function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const session = await getServerSession();
 
-// --- 1. إدارة المستخدمين ---
-export async function addUser(data: any) {
-  try {
-    const hashedPassword = await bcrypt.hash(data.password, 10);
-    await prisma.user.create({
-      data: {
-        code: data.code,
-        name: data.name,
-        password: hashedPassword,
-        role: data.role
-      }
-    });
-    revalidatePath('/admin/users');
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: 'الكود مستخدم من قبل' };
+  if (!session?.user?.image) {
+    redirect("/login");
   }
-}
 
-export async function deleteUser(id: string) {
-  try {
-    await prisma.user.delete({ where: { id } });
-    revalidatePath('/admin/users');
-    return { success: true };
-  } catch (e) { return { success: false }; }
-}
-
-export async function getUsers() {
-  const users = await prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
-  return JSON.parse(JSON.stringify(users));
-}
-
-// --- 2. إدارة المنتجات ---
-export async function addProduct(data: any) {
-  try {
-    // data = { modelNo, description, material, price, colors: [{color, stock}] }
-    // سنقوم بإضافة كل لون كمنتج منفصل حسب تصميمنا
-    for (const item of data.colors) {
-        await prisma.product.create({
-            data: {
-                modelNo: data.modelNo,
-                description: data.description,
-                material: data.material,
-                price: parseFloat(data.price),
-                color: item.color,
-                stockQty: parseInt(item.stock)
-            }
-        });
-    }
-    revalidatePath('/admin/products');
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: 'حدث خطأ، ربما الموديل واللون مكرر' };
-  }
-}
-
-export async function deleteProduct(id: string) {
-  try {
-    await prisma.product.delete({ where: { id } });
-    revalidatePath('/admin/products');
-    return { success: true };
-  } catch (e) { return { success: false }; }
-}
-
-export async function getProducts() {
-  const products = await prisma.product.findMany({ 
-      orderBy: { createdAt: 'desc' },
-      take: 50 // آخر 50 منتج
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.image as string },
   });
-  return JSON.parse(JSON.stringify(products));
-}
 
-// --- 3. إدارة العملاء ---
-export async function addCustomer(data: any) {
-    try {
-      await prisma.customer.create({ data });
-      revalidatePath('/admin/customers');
-      return { success: true };
-    } catch (e) { return { success: false, error: 'الكود مكرر' }; }
-}
+  if (!user || (user.role !== "ADMIN" && user.role !== "OWNER")) {
+    redirect("/");
+  }
 
-export async function deleteCustomer(id: string) {
-    try {
-        await prisma.customer.delete({ where: { id } });
-        revalidatePath('/admin/customers');
-        return { success: true };
-    } catch (e) { return { success: false }; }
-}
-
-export async function getAdminCustomers() {
-    const custs = await prisma.customer.findMany({ orderBy: { createdAt: 'desc' } });
-    return JSON.parse(JSON.stringify(custs));
+  return (
+    <div className="min-h-screen bg-gray-100 font-sans" dir="rtl">
+      <nav className="bg-slate-900 text-white p-4 shadow-md mb-6">
+        <div className="container mx-auto flex justify-between items-center">
+          <div className="text-xl font-bold">لوحة التحكم 🛡️</div>
+          <div className="flex gap-4 text-sm">
+            <Link href="/admin" className="hover:text-yellow-400">الرئيسية</Link>
+            <Link href="/" className="hover:text-yellow-400">تطبيق البيع</Link>
+          </div>
+        </div>
+      </nav>
+      
+      <main className="container mx-auto p-4">
+        {children}
+      </main>
+    </div>
+  );
 }
