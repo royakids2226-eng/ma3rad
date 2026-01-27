@@ -37,6 +37,10 @@ model Product {
   color       String
   stockQty    Int         @default(0)
   price       Float
+  
+  // 👇 الإضافة الجديدة: الحالة (OPEN أو CLOSED)
+  status      String      @default("OPEN") 
+  
   orderItems  OrderItem[]
 
   @@unique([modelNo, color])
