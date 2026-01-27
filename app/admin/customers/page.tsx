@@ -26,7 +26,7 @@ export default function CustomersPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<any>(null);
 
-  // 👇 حالات الرفع والتقدم
+  // Upload States
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatusText, setUploadStatusText] = useState('');
@@ -72,7 +72,6 @@ export default function CustomersPage() {
     const file = e.target.files[0];
     if(!file) return;
 
-    // تصفير التقدم
     setUploadProgress(0);
     setUploadStatusText('');
 
@@ -86,21 +85,18 @@ export default function CustomersPage() {
         
         if(confirm(`تم قراءة ${data.length} عميل. هل تريد البدء في الرفع؟`)) {
             setIsUploading(true);
-            const BATCH_SIZE = 200; // 👈 حجم الدفعة
+            const BATCH_SIZE = 200;
             let successCount = 0;
             const total = data.length;
 
             for (let i = 0; i < total; i += BATCH_SIZE) {
                 const chunk = data.slice(i, i + BATCH_SIZE);
-                
                 setUploadStatusText(`جاري معالجة العملاء من ${i + 1} إلى ${Math.min(i + BATCH_SIZE, total)} ...`);
                 
-                // إرسال الدفعة للسيرفر
                 const res = await addBulkCustomers(chunk as any[]);
                 if (res.success) {
                     successCount += (res.count || 0);
                 }
-
                 const percent = Math.round(((i + chunk.length) / total) * 100);
                 setUploadProgress(percent);
             }
@@ -115,26 +111,45 @@ export default function CustomersPage() {
     reader.readAsBinaryString(file);
   };
 
-  // --- Delete Logic ---
+  // --- Delete Logic (Updated) ---
+  
+  // حذف عميل واحد
   const handleDelete = async (id: string) => {
     if (confirm('حذف هذا العميل؟')) {
-      await deleteCustomer(id);
-      refreshCustomers();
+      const res = await deleteCustomer(id);
+      if(res.success) {
+          refreshCustomers();
+      } else {
+          // عرض السبب القادم من السيرفر
+          alert("❌ فشل الحذف: " + res.error);
+      }
     }
   };
 
+  // حذف المحدد
   const handleDeleteSelected = async () => {
     if(selectedIds.length === 0) return;
-    if(confirm(`حذف ${selectedIds.length} عميل؟`)) {
-        await deleteBulkCustomers(selectedIds);
-        refreshCustomers();
+    if(confirm(`هل أنت متأكد من محاولة حذف ${selectedIds.length} عميل؟\n(لن يتم حذف العملاء الذين لديهم طلبات)`)) {
+        const res = await deleteBulkCustomers(selectedIds);
+        if(res.success) {
+            alert(`✅ تقرير الحذف:\n- تم حذف: ${res.deleted} عميل.\n- فشل حذف: ${res.failed} عميل (لوجود طلبات سابقة لهم).`);
+            refreshCustomers();
+        } else {
+            alert("حدث خطأ غير متوقع");
+        }
     }
   };
 
+  // حذف الجميع
   const handleDeleteAll = async () => {
-    if(confirm("⚠️ سيتم حذف جميع العملاء! هل أنت متأكد؟")) {
-        await deleteAllCustomers();
-        refreshCustomers();
+    if(confirm("⚠️ سيتم محاولة حذف جميع العملاء من النظام!\nسيتم فقط حذف العملاء الذين ليس لديهم أي تعاملات مالية أو طلبات.\nهل أنت متأكد؟")) {
+        const res = await deleteAllCustomers();
+        if(res.success) {
+             alert(`✅ تقرير الحذف الشامل:\n- تم حذف: ${res.deleted} عميل.\n- متبقي: ${res.failed} عميل (لم يتم حذفهم لوجود بيانات مرتبطة).`);
+             refreshCustomers();
+        } else {
+            alert("حدث خطأ: " + res.error);
+        }
     }
   };
 
@@ -192,7 +207,6 @@ export default function CustomersPage() {
             <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} disabled={isUploading} className="text-sm bg-white p-2 border rounded cursor-pointer" />
           </div>
 
-          {/* 👇 شريط التقدم */}
           {(isUploading || uploadProgress > 0) && (
              <div className="w-full bg-white p-4 rounded shadow-sm border border-indigo-100">
                 <div className="flex justify-between text-xs font-bold text-indigo-800 mb-1">
@@ -200,10 +214,7 @@ export default function CustomersPage() {
                     <span>{uploadProgress}%</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                    <div 
-                        className="bg-indigo-600 h-4 rounded-full transition-all duration-300 ease-in-out" 
-                        style={{ width: `${uploadProgress}%` }}
-                    ></div>
+                    <div className="bg-indigo-600 h-4 rounded-full transition-all duration-300 ease-in-out" style={{ width: `${uploadProgress}%` }}></div>
                 </div>
              </div>
           )}

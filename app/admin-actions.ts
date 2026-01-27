@@ -88,7 +88,6 @@ export async function updateProduct(id: string, data: any) {
     }
 }
 
-// استيراد المنتجات (يقبل دفعة ويرجع عدد الناجحين فيها)
 export async function addBulkProducts(products: any[]) {
     try {
         let count = 0;
@@ -139,11 +138,17 @@ export async function deleteProduct(id: string) {
 }
 
 export async function deleteBulkProducts(ids: string[]) {
-    try {
-        await prisma.product.deleteMany({ where: { id: { in: ids } } });
-        revalidatePath('/admin/products');
-        return { success: true };
-    } catch (e) { return { success: false, error: 'حدث خطأ أثناء الحذف' }; }
+    // تم التعديل هنا أيضاً للتعامل بالمثل (اختياري، لكن مفضل)
+    let deleted = 0;
+    let failed = 0;
+    for(const id of ids) {
+        try {
+            await prisma.product.delete({ where: { id } });
+            deleted++;
+        } catch(e) { failed++; }
+    }
+    revalidatePath('/admin/products');
+    return { success: true, deleted, failed };
 }
 
 export async function deleteAllProducts() {
@@ -160,7 +165,7 @@ export async function getProducts() {
 }
 
 // ==========================================
-// 3. إدارة العملاء (Customers)
+// 3. إدارة العملاء (Customers) - (محدث بالكامل لحل مشكلة الحذف)
 // ==========================================
 
 export async function addCustomer(data: any) {
@@ -228,28 +233,63 @@ export async function addBulkCustomers(customers: any[]) {
     }
 }
 
+// حذف عميل واحد (إرجاع السبب)
 export async function deleteCustomer(id: string) {
     try {
         await prisma.customer.delete({ where: { id } });
         revalidatePath('/admin/customers');
         return { success: true };
-    } catch (e) { return { success: false, error: 'لا يمكن حذف العميل' }; }
+    } catch (e) { 
+        // في الغالب الخطأ هو Foreign Key constraint failed
+        return { success: false, error: 'لا يمكن حذف العميل لوجود طلبات أو مدفوعات مسجلة باسمه' }; 
+    }
 }
 
+// 👇 التعديل الجوهري: حذف المحدد واحداً تلو الآخر
 export async function deleteBulkCustomers(ids: string[]) {
-    try {
-        await prisma.customer.deleteMany({ where: { id: { in: ids } } });
-        revalidatePath('/admin/customers');
-        return { success: true };
-    } catch (e) { return { success: false, error: 'حدث خطأ' }; }
+    let deleted = 0;
+    let failed = 0;
+
+    for (const id of ids) {
+        try {
+            await prisma.customer.delete({ where: { id } });
+            deleted++;
+        } catch (e) {
+            // فشل الحذف بسبب وجود علاقات (أوردرات/دفعات)
+            failed++;
+        }
+    }
+    
+    revalidatePath('/admin/customers');
+    return { success: true, deleted, failed };
 }
 
+// 👇 التعديل الجوهري: حذف الكل (عن طريق جلب الجميع ثم المحاولة)
 export async function deleteAllCustomers() {
     try {
-        await prisma.customer.deleteMany({});
+        // نجلب كل الـ IDs أولاً
+        const allCustomers = await prisma.customer.findMany({ select: { id: true } });
+        const ids = allCustomers.map(c => c.id);
+        
+        // نعيد استخدام منطق الحذف بالتكرار
+        let deleted = 0;
+        let failed = 0;
+
+        for (const id of ids) {
+            try {
+                await prisma.customer.delete({ where: { id } });
+                deleted++;
+            } catch (e) {
+                failed++;
+            }
+        }
+        
         revalidatePath('/admin/customers');
-        return { success: true };
-    } catch (e) { return { success: false, error: 'لا يمكن حذف العملاء' }; }
+        return { success: true, deleted, failed };
+        
+    } catch (e) { 
+        return { success: false, error: 'حدث خطأ غير متوقع', deleted: 0, failed: 0 }; 
+    }
 }
 
 export async function getAdminCustomers() {
