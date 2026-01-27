@@ -3,8 +3,10 @@ const bcrypt = require('bcryptjs')
 const prisma = new PrismaClient()
 
 async function main() {
-  // 1. إنشاء موظف (أدمن)
+  // تجهيز الباسورد المشفر الموحد (123456)
   const hashedPassword = await bcrypt.hash('123456', 10)
+
+  // 1. إنشاء موظف (أدمن)
   await prisma.user.upsert({
     where: { code: '1001' },
     update: {},
@@ -13,6 +15,30 @@ async function main() {
       name: 'مدير النظام',
       password: hashedPassword,
       role: 'ADMIN',
+    },
+  })
+
+  // 👇 1-ب. إنشاء محاسب (جديد)
+  await prisma.user.upsert({
+    where: { code: '2000' },
+    update: {},
+    create: {
+      code: '2000',
+      name: 'المحاسب العام',
+      password: hashedPassword,
+      role: 'ACCOUNTANT',
+    },
+  })
+
+  // 👇 1-ج. إنشاء صاحب الشركة (جديد)
+  await prisma.user.upsert({
+    where: { code: '3000' },
+    update: {},
+    create: {
+      code: '3000',
+      name: 'صاحب الشركة',
+      password: hashedPassword,
+      role: 'OWNER',
     },
   })
 
@@ -48,17 +74,16 @@ async function main() {
     })
   }
 
-  // 👇 4. إضافة الخزن (الجديد)
+  // 4. إضافة الخزن
   const safes = ['الخزنة الرئيسية', 'درج الكاشير', 'فودافون كاش'];
   for (const safeName of safes) {
-    // نتأكد ألا نضيفها مرتين
     const existing = await prisma.safe.findFirst({ where: { name: safeName } });
     if (!existing) {
       await prisma.safe.create({ data: { name: safeName } });
     }
   }
   
-  console.log("Seeding completed.");
+  console.log("Seeding completed successfully (Users, Roles, Customers, Products, Safes).");
 }
 
 main()

@@ -16,6 +16,7 @@ model User {
   role      String   @default("EMPLOYEE")
   orders    Order[]
   payments  Payment[] // 👈 تمت الإضافة
+  createdAt DateTime  @default(now()) // 👈 أضف هذا السطر
 }
 
 model Customer {
