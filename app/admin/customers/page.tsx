@@ -19,12 +19,17 @@ export default function CustomersPage() {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [phone2, setPhone2] = useState(''); // 👈 جديد
+  const [phone2, setPhone2] = useState('');
   const [address, setAddress] = useState('');
 
   // Edit States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<any>(null);
+
+  // 👇 حالات الرفع والتقدم
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatusText, setUploadStatusText] = useState('');
 
   useEffect(() => {
     refreshCustomers();
@@ -41,7 +46,7 @@ export default function CustomersPage() {
     e.preventDefault();
     if (!code || !name) return alert('الكود والاسم مطلوبان');
 
-    const res = await addCustomer({ code, name, phone, phone2, address }); // 👈
+    const res = await addCustomer({ code, name, phone, phone2, address });
     if (res.success) {
       alert('تمت إضافة العميل');
       setCode(''); setName(''); setPhone(''); setPhone2(''); setAddress('');
@@ -67,6 +72,10 @@ export default function CustomersPage() {
     const file = e.target.files[0];
     if(!file) return;
 
+    // تصفير التقدم
+    setUploadProgress(0);
+    setUploadStatusText('');
+
     const reader = new FileReader();
     reader.onload = async (evt: any) => {
         const bstr = evt.target.result;
@@ -75,14 +84,32 @@ export default function CustomersPage() {
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws);
         
-        if(confirm(`تم قراءة ${data.length} عميل. هل تريد حفظهم؟`)) {
-            const res = await addBulkCustomers(data);
-            if(res.success) {
-                alert(`تم بنجاح`);
-                refreshCustomers();
-            } else {
-                alert('خطأ: ' + res.error);
+        if(confirm(`تم قراءة ${data.length} عميل. هل تريد البدء في الرفع؟`)) {
+            setIsUploading(true);
+            const BATCH_SIZE = 200; // 👈 حجم الدفعة
+            let successCount = 0;
+            const total = data.length;
+
+            for (let i = 0; i < total; i += BATCH_SIZE) {
+                const chunk = data.slice(i, i + BATCH_SIZE);
+                
+                setUploadStatusText(`جاري معالجة العملاء من ${i + 1} إلى ${Math.min(i + BATCH_SIZE, total)} ...`);
+                
+                // إرسال الدفعة للسيرفر
+                const res = await addBulkCustomers(chunk as any[]);
+                if (res.success) {
+                    successCount += (res.count || 0);
+                }
+
+                const percent = Math.round(((i + chunk.length) / total) * 100);
+                setUploadProgress(percent);
             }
+
+            setIsUploading(false);
+            setUploadStatusText(`✅ تم الانتهاء! تم إضافة/تحديث ${successCount} عميل.`);
+            alert(`تمت العملية بنجاح. العدد الكلي: ${successCount}`);
+            refreshCustomers();
+            e.target.value = '';
         }
     };
     reader.readAsBinaryString(file);
@@ -121,7 +148,6 @@ export default function CustomersPage() {
       else setSelectedIds([...selectedIds, id]);
   };
 
-  // --- Edit Logic ---
   const handleEditClick = (cust: any) => {
       setEditingCustomer({ ...cust });
       setIsEditModalOpen(true);
@@ -156,12 +182,31 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      <div className="bg-indigo-50 p-4 rounded border border-indigo-200 flex justify-between items-center">
-          <div>
-              <h3 className="font-bold text-indigo-800">📥 استيراد Excel</h3>
-              <button onClick={downloadTemplate} className="text-xs text-indigo-600 underline">تحميل النموذج (phone2 added)</button>
+      <div className="bg-indigo-50 p-6 rounded border border-indigo-200">
+          <div className="flex justify-between items-center gap-4 mb-4">
+            <div>
+                <h3 className="font-bold text-indigo-800 text-lg">📥 استيراد Excel (يدعم الملفات الكبيرة)</h3>
+                <p className="text-sm text-indigo-600">سيتم التقسيم إلى دفعات تلقائياً.</p>
+                <button onClick={downloadTemplate} className="text-sm text-indigo-700 underline font-bold mt-1">تحميل النموذج</button>
+            </div>
+            <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} disabled={isUploading} className="text-sm bg-white p-2 border rounded cursor-pointer" />
           </div>
-          <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} className="text-sm" />
+
+          {/* 👇 شريط التقدم */}
+          {(isUploading || uploadProgress > 0) && (
+             <div className="w-full bg-white p-4 rounded shadow-sm border border-indigo-100">
+                <div className="flex justify-between text-xs font-bold text-indigo-800 mb-1">
+                    <span>{uploadStatusText}</span>
+                    <span>{uploadProgress}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                    <div 
+                        className="bg-indigo-600 h-4 rounded-full transition-all duration-300 ease-in-out" 
+                        style={{ width: `${uploadProgress}%` }}
+                    ></div>
+                </div>
+             </div>
+          )}
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded shadow space-y-4 border-t-4 border-blue-600">

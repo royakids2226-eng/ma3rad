@@ -6,7 +6,10 @@ import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
-// --- 1. إدارة المستخدمين ---
+// ==========================================
+// 1. إدارة المستخدمين (Users)
+// ==========================================
+
 export async function addUser(data: any) {
   try {
     const hashedPassword = await bcrypt.hash(data.password, 10);
@@ -38,7 +41,10 @@ export async function getUsers() {
   return JSON.parse(JSON.stringify(users));
 }
 
-// --- 2. إدارة المنتجات ---
+// ==========================================
+// 2. إدارة المنتجات (Products)
+// ==========================================
+
 export async function addProduct(data: any) {
   try {
     for (const item of data.colors) {
@@ -82,12 +88,14 @@ export async function updateProduct(id: string, data: any) {
     }
 }
 
+// استيراد المنتجات (يقبل دفعة ويرجع عدد الناجحين فيها)
 export async function addBulkProducts(products: any[]) {
     try {
         let count = 0;
         for (const p of products) {
             if(p.modelNo && p.color) {
                 const productStatus = (p.status && p.status.toUpperCase() === 'CLOSED') ? 'CLOSED' : 'OPEN';
+                
                 await prisma.product.upsert({
                     where: {
                         modelNo_color: {
@@ -143,7 +151,7 @@ export async function deleteAllProducts() {
         await prisma.product.deleteMany({});
         revalidatePath('/admin/products');
         return { success: true };
-    } catch (e) { return { success: false, error: 'لا يمكن حذف المنتجات' }; }
+    } catch (e) { return { success: false, error: 'لا يمكن حذف المنتجات لوجود طلبات مرتبطة بها' }; }
 }
 
 export async function getProducts() {
@@ -151,7 +159,9 @@ export async function getProducts() {
   return JSON.parse(JSON.stringify(products));
 }
 
-// --- 3. إدارة العملاء (تم التحديث للهاتف 2) ---
+// ==========================================
+// 3. إدارة العملاء (Customers)
+// ==========================================
 
 export async function addCustomer(data: any) {
     try {
@@ -160,7 +170,7 @@ export async function addCustomer(data: any) {
               code: data.code,
               name: data.name,
               phone: data.phone,
-              phone2: data.phone2, // 👈
+              phone2: data.phone2,
               address: data.address
           } 
       });
@@ -177,7 +187,7 @@ export async function updateCustomer(id: string, data: any) {
                 code: data.code,
                 name: data.name,
                 phone: data.phone,
-                phone2: data.phone2, // 👈
+                phone2: data.phone2,
                 address: data.address
             }
         });
@@ -196,14 +206,14 @@ export async function addBulkCustomers(customers: any[]) {
                     update: {
                         name: c.name,
                         phone: String(c.phone || ''),
-                        phone2: String(c.phone2 || ''), // 👈
+                        phone2: String(c.phone2 || ''),
                         address: c.address || ''
                     },
                     create: {
                         code: String(c.code),
                         name: c.name,
                         phone: String(c.phone || ''),
-                        phone2: String(c.phone2 || ''), // 👈
+                        phone2: String(c.phone2 || ''),
                         address: c.address || ''
                     }
                 });
@@ -223,7 +233,7 @@ export async function deleteCustomer(id: string) {
         await prisma.customer.delete({ where: { id } });
         revalidatePath('/admin/customers');
         return { success: true };
-    } catch (e) { return { success: false, error: 'لا يمكن الحذف' }; }
+    } catch (e) { return { success: false, error: 'لا يمكن حذف العميل' }; }
 }
 
 export async function deleteBulkCustomers(ids: string[]) {
@@ -239,7 +249,7 @@ export async function deleteAllCustomers() {
         await prisma.customer.deleteMany({});
         revalidatePath('/admin/customers');
         return { success: true };
-    } catch (e) { return { success: false, error: 'لا يمكن الحذف' }; }
+    } catch (e) { return { success: false, error: 'لا يمكن حذف العملاء' }; }
 }
 
 export async function getAdminCustomers() {
