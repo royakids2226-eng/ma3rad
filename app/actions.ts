@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 
 const prisma = new PrismaClient()
 
-// 1. العملاء (للتحميل الأولي فقط - اختياري)
+// 1. العملاء (للتحميل الأولي)
 export async function getCustomers() {
   try {
     const customers = await prisma.customer.findMany({ take: 20, orderBy: { name: 'asc' } });
@@ -13,16 +13,11 @@ export async function getCustomers() {
   } catch (error) { return []; }
 }
 
-// ⭐ دالة البحث الذكي الجديدة (تحل مشكلة العدد والهمزات)
+// ⭐ دالة البحث الذكي
 export async function searchCustomers(term: string) {
   if (!term) return [];
-  
-  // توحيد النص المدخل من المستخدم (تحويل أ إ آ إلى ا)
   const normalizedTerm = term.replace(/[أإآ]/g, 'ا');
-
   try {
-    // نستخدم Raw Query للتعامل مع تجاهل الهمزات في قاعدة البيانات
-    // TRANSLATE تقوم باستبدال أ إ آ بـ ا داخل قاعدة البيانات مؤقتاً للمقارنة
     const customers = await prisma.$queryRaw`
       SELECT id, name, phone, "phone2", address 
       FROM "Customer"
@@ -32,7 +27,6 @@ export async function searchCustomers(term: string) {
         OR "phone2" LIKE ${'%' + term + '%'}
       LIMIT 50;
     `;
-    
     return JSON.parse(JSON.stringify(customers));
   } catch (error) {
     console.error("Search Error:", error);
@@ -63,10 +57,8 @@ export async function searchProducts(term: string) {
 // 4. حفظ الأوردر
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, safeId } = data; 
-  
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // إنشاء الأوردر
       const order = await tx.order.create({
         data: {
           userId, customerId, totalAmount: total, deposit: deposit || 0,
@@ -74,7 +66,6 @@ export async function createOrder(data: any, userId: string) {
         }
       });
 
-      // الأصناف
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
           await tx.orderItem.create({
@@ -96,7 +87,6 @@ export async function createOrder(data: any, userId: string) {
       }
       return order;
     });
-    
     revalidatePath('/');
     return JSON.parse(JSON.stringify(result));
   } catch (error) {
@@ -127,6 +117,7 @@ export async function createPayment(data: any, userId: string) {
   } catch (error) { return { success: false }; }
 }
 
+// 7. الأوردرات السابقة (تم التعديل لجلب الأصناف items للطباعة)
 export async function getUserOrders(userId: string) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -136,7 +127,11 @@ export async function getUserOrders(userId: string) {
     }
     const orders = await prisma.order.findMany({
       where: whereCondition,
-      include: { customer: true, user: true },
+      include: { 
+          customer: true, 
+          user: true, 
+          items: { include: { product: true } } // 👈 التعديل الهام هنا
+      },
       orderBy: { createdAt: 'desc' },
       take: 100
     });
