@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react';
-import { getCustomers, getSafes, createPayment } from '@/app/actions';
+import { getCustomers, getSafes, createPayment, searchCustomers } from '@/app/actions'; // 👈 استيراد
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
@@ -8,19 +8,23 @@ export default function NewPaymentPage() {
   const { data: session } = useSession();
   const router = useRouter();
 
-  const [customers, setCustomers] = useState<any[]>([]);
   const [safes, setSafes] = useState<any[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [selectedSafeId, setSelectedSafeId] = useState('');
   const [amount, setAmount] = useState('');
   const [date] = useState(new Date().toLocaleDateString('ar-EG')); 
 
+  // حالات البحث عن العميل
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [customerResults, setCustomerResults] = useState<any[]>([]); // النتائج
   const [showCustomerList, setShowCustomerList] = useState(false);
+  const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
   const customerListRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    getCustomers().then(setCustomers);
+    // تحميل أولي للعملاء
+    getCustomers().then(setCustomerResults);
+    
     getSafes().then(data => {
         setSafes(data);
         if (data.length > 0) setSelectedSafeId(data[0].id);
@@ -34,6 +38,22 @@ export default function NewPaymentPage() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // 👇 البحث الحي عند الكتابة
+  useEffect(() => {
+      const delayDebounceFn = setTimeout(async () => {
+        if (customerSearchTerm.length > 0) {
+            setIsSearchingCustomer(true);
+            const results = await searchCustomers(customerSearchTerm);
+            setCustomerResults(results);
+            setIsSearchingCustomer(false);
+        } else {
+             getCustomers().then(setCustomerResults);
+        }
+      }, 300);
+
+      return () => clearTimeout(delayDebounceFn);
+  }, [customerSearchTerm]);
 
   const handleSave = async () => {
     if (!selectedCustomerId || !amount || !selectedSafeId) {
@@ -56,13 +76,6 @@ export default function NewPaymentPage() {
     }
   };
 
-  // 👇 تحديث الفلترة
-  const filteredCustomers = customers.filter(c => 
-    c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) || 
-    (c.phone && c.phone.includes(customerSearchTerm)) ||
-    (c.phone2 && c.phone2.includes(customerSearchTerm)) // 👈
-  );
-
   return (
     <div className="min-h-screen bg-gray-50 p-4" dir="rtl">
         <div className="flex justify-between items-center mb-6">
@@ -78,43 +91,44 @@ export default function NewPaymentPage() {
 
             <div className="relative" ref={customerListRef}>
                 <label className="block text-gray-500 text-sm mb-1 font-bold">العميل</label>
-                <input 
-                    type="text"
-                    placeholder="ابحث باسم العميل أو رقم الهاتف (1 أو 2)..."
-                    value={customerSearchTerm}
-                    onChange={(e) => {
-                        setCustomerSearchTerm(e.target.value);
-                        setShowCustomerList(true);
-                        if (e.target.value === '') setSelectedCustomerId('');
-                    }}
-                    onFocus={() => setShowCustomerList(true)}
-                    className="w-full p-3 border rounded-lg bg-gray-50 text-lg outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="relative">
+                    <input 
+                        type="text"
+                        placeholder="ابحث باسم العميل (بدون همزات) أو الهاتف..."
+                        value={customerSearchTerm}
+                        onChange={(e) => {
+                            setCustomerSearchTerm(e.target.value);
+                            setShowCustomerList(true);
+                            if (e.target.value === '') setSelectedCustomerId('');
+                        }}
+                        onFocus={() => setShowCustomerList(true)}
+                        className="w-full p-3 border rounded-lg bg-gray-50 text-lg outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    {isSearchingCustomer && <span className="absolute left-3 top-3 text-gray-400 text-xs">جاري البحث...</span>}
+                </div>
 
-                {showCustomerList && filteredCustomers.length > 0 && (
+                {showCustomerList && (
                     <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-xl z-50 max-h-60 overflow-y-auto">
-                        {filteredCustomers.map(c => (
-                            <div 
-                                key={c.id}
-                                onClick={() => {
-                                    setSelectedCustomerId(c.id);
-                                    setCustomerSearchTerm(c.name);
-                                    setShowCustomerList(false);
-                                }}
-                                className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0"
-                            >
-                                <div className="font-bold">{c.name}</div>
-                                <div className="text-xs text-gray-500">
-                                    {c.phone} {c.phone2 ? ` | ${c.phone2}` : ''}
+                        {customerResults.length > 0 ? (
+                             customerResults.map(c => (
+                                <div 
+                                    key={c.id}
+                                    onClick={() => {
+                                        setSelectedCustomerId(c.id);
+                                        setCustomerSearchTerm(c.name);
+                                        setShowCustomerList(false);
+                                    }}
+                                    className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0"
+                                >
+                                    <div className="font-bold">{c.name}</div>
+                                    <div className="text-xs text-gray-500">
+                                        {c.phone} {c.phone2 ? ` | ${c.phone2}` : ''}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-                
-                {showCustomerList && filteredCustomers.length === 0 && (
-                    <div className="absolute top-full left-0 right-0 bg-white border p-3 text-center text-gray-500 shadow-xl z-50">
-                        لا يوجد عميل بهذا الاسم أو الرقم
+                            ))
+                        ) : (
+                            <div className="p-3 text-center text-gray-500">لا توجد نتائج</div>
+                        )}
                     </div>
                 )}
             </div>

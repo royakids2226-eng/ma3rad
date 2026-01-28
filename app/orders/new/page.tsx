@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react';
-import { getCustomers, searchProducts, createOrder, getSafes } from '@/app/actions';
+import { getCustomers, searchProducts, createOrder, getSafes, searchCustomers } from '@/app/actions'; // 👈 استيراد دالة البحث الجديدة
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Scanner } from '@yudiel/react-qr-scanner';
@@ -12,14 +12,17 @@ export default function NewOrderPage() {
   const router = useRouter();
   
   const [step, setStep] = useState(1);
-  const [customers, setCustomers] = useState<any[]>([]);
   const [safes, setSafes] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   
+  // حالات البحث عن العميل
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [customerResults, setCustomerResults] = useState<any[]>([]); // 👈 النتائج القادمة من السيرفر
   const [showCustomerList, setShowCustomerList] = useState(false);
+  const [isSearchingCustomer, setIsSearchingCustomer] = useState(false); // مؤشر تحميل للبحث
   const customerListRef = useRef<HTMLDivElement>(null);
 
+  // حالات البحث عن المنتج
   const [searchTerm, setSearchTerm] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -30,8 +33,9 @@ export default function NewOrderPage() {
   const [deposit, setDeposit] = useState<string>('');
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
 
+  // 1. تحميل الخزنات والعملاء الافتراضيين (أول 20 مثلاً)
   useEffect(() => {
-    getCustomers().then(setCustomers);
+    getCustomers().then(setCustomerResults); // تحميل مبدئي
     getSafes().then(data => {
       setSafes(data);
       if (data.length > 0) setSelectedSafeId(data[0].id);
@@ -46,6 +50,25 @@ export default function NewOrderPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // 2. البحث الحي عن العملاء عند الكتابة
+  useEffect(() => {
+      const delayDebounceFn = setTimeout(async () => {
+        if (customerSearchTerm.length > 0) {
+            setIsSearchingCustomer(true);
+            const results = await searchCustomers(customerSearchTerm);
+            setCustomerResults(results);
+            setIsSearchingCustomer(false);
+        } else {
+             // إعادة تحميل القائمة الافتراضية إذا مسح النص
+             getCustomers().then(setCustomerResults);
+        }
+      }, 300); // انتظار 300ms بعد التوقف عن الكتابة
+
+      return () => clearTimeout(delayDebounceFn);
+  }, [customerSearchTerm]);
+
+
+  // 3. البحث عن المنتجات
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (searchTerm.length >= 2) {
@@ -184,13 +207,6 @@ export default function NewOrderPage() {
   const currentTotal = cart.reduce((acc, i) => acc + i.totalPrice, 0);
   const depositVal = parseFloat(deposit) || 0;
 
-  // 👇 تحديث فلتر البحث عن العميل
-  const filteredCustomers = customers.filter(c => 
-    c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) || 
-    (c.phone && c.phone.includes(customerSearchTerm)) ||
-    (c.phone2 && c.phone2.includes(customerSearchTerm)) // 👈 البحث بالهاتف الثاني
-  );
-
   const filteredCart = cart.filter(item => 
     item.modelNo.toLowerCase().includes(cartSearchTerm.toLowerCase()) ||
     item.displayDescription.toLowerCase().includes(cartSearchTerm.toLowerCase())
@@ -208,17 +224,36 @@ export default function NewOrderPage() {
           <>
             <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-gray-100 relative" ref={customerListRef}>
               <label className="text-sm text-gray-500 font-bold mb-2 block">العميل</label>
-              <input type="text" placeholder="ابحث باسم العميل أو رقم التليفون (1 أو 2)..." value={customerSearchTerm} onChange={(e) => { setCustomerSearchTerm(e.target.value); setShowCustomerList(true); if (e.target.value === '') setSelectedCustomer(null); }} onFocus={() => setShowCustomerList(true)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-              {showCustomerList && filteredCustomers.length > 0 && (
+              <div className="relative">
+                  <input 
+                    type="text" 
+                    placeholder="ابحث باسم العميل (بدون همزات) أو الهاتف..." 
+                    value={customerSearchTerm} 
+                    onChange={(e) => { 
+                        setCustomerSearchTerm(e.target.value); 
+                        setShowCustomerList(true); 
+                        if (e.target.value === '') setSelectedCustomer(null); 
+                    }} 
+                    onFocus={() => setShowCustomerList(true)} 
+                    className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" 
+                  />
+                  {isSearchingCustomer && <span className="absolute left-3 top-3 text-gray-400 text-xs">جاري البحث...</span>}
+              </div>
+
+              {showCustomerList && (
                 <div className="absolute top-full left-0 right-0 bg-white border rounded-b-lg shadow-xl z-50 max-h-60 overflow-y-auto">
-                  {filteredCustomers.map(c => (
-                    <div key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearchTerm(c.name); setShowCustomerList(false); }} className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0">
-                      <div className="font-bold">{c.name}</div>
-                      <div className="text-xs text-gray-500">
-                          {c.phone} {c.phone2 ? ` | ${c.phone2}` : ''}
-                      </div>
-                    </div>
-                  ))}
+                  {customerResults.length > 0 ? (
+                      customerResults.map(c => (
+                        <div key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearchTerm(c.name); setShowCustomerList(false); }} className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0">
+                          <div className="font-bold">{c.name}</div>
+                          <div className="text-xs text-gray-500">
+                              {c.phone} {c.phone2 ? ` | ${c.phone2}` : ''}
+                          </div>
+                        </div>
+                      ))
+                  ) : (
+                      <div className="p-3 text-center text-gray-500">لا توجد نتائج</div>
+                  )}
                 </div>
               )}
             </div>

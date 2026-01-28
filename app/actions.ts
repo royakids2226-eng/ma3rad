@@ -5,12 +5,39 @@ import { revalidatePath } from 'next/cache'
 
 const prisma = new PrismaClient()
 
-// 1. العملاء
+// 1. العملاء (للتحميل الأولي فقط - اختياري)
 export async function getCustomers() {
   try {
-    const customers = await prisma.customer.findMany({ take: 100, orderBy: { name: 'asc' } });
+    const customers = await prisma.customer.findMany({ take: 20, orderBy: { name: 'asc' } });
     return JSON.parse(JSON.stringify(customers));
   } catch (error) { return []; }
+}
+
+// ⭐ دالة البحث الذكي الجديدة (تحل مشكلة العدد والهمزات)
+export async function searchCustomers(term: string) {
+  if (!term) return [];
+  
+  // توحيد النص المدخل من المستخدم (تحويل أ إ آ إلى ا)
+  const normalizedTerm = term.replace(/[أإآ]/g, 'ا');
+
+  try {
+    // نستخدم Raw Query للتعامل مع تجاهل الهمزات في قاعدة البيانات
+    // TRANSLATE تقوم باستبدال أ إ آ بـ ا داخل قاعدة البيانات مؤقتاً للمقارنة
+    const customers = await prisma.$queryRaw`
+      SELECT id, name, phone, "phone2", address 
+      FROM "Customer"
+      WHERE 
+        TRANSLATE(name, 'أإآ', 'ااا') LIKE ${'%' + normalizedTerm + '%'}
+        OR phone LIKE ${'%' + term + '%'}
+        OR "phone2" LIKE ${'%' + term + '%'}
+      LIMIT 50;
+    `;
+    
+    return JSON.parse(JSON.stringify(customers));
+  } catch (error) {
+    console.error("Search Error:", error);
+    return [];
+  }
 }
 
 // 2. الخزن
@@ -21,7 +48,7 @@ export async function getSafes() {
   } catch (error) { return []; }
 }
 
-// 3. البحث (يجب أن يعيد الحالة والمخزون)
+// 3. البحث في المنتجات
 export async function searchProducts(term: string) {
   if (!term || term.length < 2) return [];
   try {
@@ -33,14 +60,13 @@ export async function searchProducts(term: string) {
   } catch (error) { return []; }
 }
 
-// 4. حفظ الأوردر (مع خصم المخزون)
+// 4. حفظ الأوردر
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, safeId } = data; 
   
-  // نستخدم Transaction لضمان خصم المخزون وإنشاء الأوردر معاً
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // 1. إنشاء الأوردر
+      // إنشاء الأوردر
       const order = await tx.order.create({
         data: {
           userId, customerId, totalAmount: total, deposit: deposit || 0,
@@ -48,31 +74,22 @@ export async function createOrder(data: any, userId: string) {
         }
       });
 
-      // 2. معالجة الأصناف وخصم المخزون
+      // الأصناف
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
-          // إضافة للصنف في الأوردر
           await tx.orderItem.create({
             data: {
               orderId: order.id,
               productId: variant.productId,
-              quantity: variant.quantity, // بالدستة
+              quantity: variant.quantity,
               price: variant.price
             }
           });
 
-          // 👇 خصم من المخزون الرئيسي
-          // ملاحظة: المخزون مخزن بالقطعة أم بالدستة؟ 
-          // بناء على كود الأدمن السابق (stockQty: parseInt(item.stock)) 
-          // وسياق كلامك (العدد 1 = 4 قطع)، سنفترض أن المخزون مخزن بـ "الوحدة" (الدستة)
-          // إذا كان المخزون بالقطعة، اضرب variant.quantity * 4
-          
           await tx.product.update({
             where: { id: variant.productId },
             data: {
-              stockQty: {
-                decrement: variant.quantity // خصم عدد الدست المباعة
-              }
+              stockQty: { decrement: variant.quantity }
             }
           });
         }
@@ -110,7 +127,6 @@ export async function createPayment(data: any, userId: string) {
   } catch (error) { return { success: false }; }
 }
 
-// 7. الأوردرات السابقة
 export async function getUserOrders(userId: string) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -130,8 +146,6 @@ export async function getUserOrders(userId: string) {
 
 export async function deleteOrder(orderId: string) {
   try {
-    // عند الحذف يجب إعادة المخزون (اختياري، لكن مفضل)
-    // للتبسيط الآن سنحذف فقط، لكن المحاسبياً يجب عمل "مرتجع"
     await prisma.orderItem.deleteMany({ where: { orderId } });
     await prisma.order.delete({ where: { id: orderId } });
     revalidatePath('/orders/list');
