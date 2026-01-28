@@ -1,5 +1,6 @@
 import { getOrderById } from "@/app/actions";
 import PrintButton from "./PrintButton";
+import SharePdfButton from "./SharePdfButton"; // 👈 استدعاء الزر الجديد
 
 function groupOrderItems(items: any[]) {
     const grouped: any = {};
@@ -32,25 +33,24 @@ export default async function PrintOrderPage(props: Props) {
     const deposit = order.deposit || 0;
     const remaining = order.totalAmount - deposit;
 
-    const whatsappLink = order.customer.phone 
-        ? `https://wa.me/20${order.customer.phone}?text=${encodeURIComponent(
-            `فاتورة #${order.orderNo}\nالمطلوب: ${remaining} ج.م`
-          )}`
-        : null;
-
     return (
         <div className="min-h-screen bg-gray-100 p-4 md:p-8 font-sans print:bg-white print:p-0">
+            {/* أزرار التحكم (لا تظهر في الطباعة ولا في ملف الـ PDF) */}
             <div className="max-w-[210mm] mx-auto mb-6 flex flex-wrap gap-4 print:hidden" dir="rtl">
                 <PrintButton />
-                {whatsappLink && (
-                    <a href={whatsappLink} target="_blank" rel="noreferrer" className="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 shadow-lg flex items-center gap-2">
-                        إرسال واتس 📱
-                    </a>
-                )}
+                
+                {/* 👇 زر مشاركة PDF الجديد */}
+                <SharePdfButton 
+                    customerName={order.customer.name} 
+                    orderNo={order.orderNo} 
+                    phone={order.customer.phone} 
+                />
+
                 <a href="/" className="bg-gray-500 text-white px-6 py-3 rounded-lg font-bold flex items-center">🏠 خروج</a>
             </div>
 
-            <div className="max-w-[210mm] mx-auto bg-white p-6 md:p-10 shadow-2xl print:shadow-none print:w-full print:max-w-none" dir="rtl">
+            {/* 👇 إضافة ID هنا ليتمكن الكود من التقاط صورة للفاتورة */}
+            <div id="invoice-content" className="max-w-[210mm] mx-auto bg-white p-6 md:p-10 shadow-2xl print:shadow-none print:w-full print:max-w-none" dir="rtl">
                 <header className="border-b-4 border-black pb-6 mb-6 flex flex-col md:flex-row justify-between items-start gap-4">
                     <div>
                         <h1 className="text-3xl md:text-4xl font-extrabold mb-2">مصنع الملابس الجاهزة</h1>
@@ -71,7 +71,6 @@ export default async function PrintOrderPage(props: Props) {
                                 <td className="text-lg md:text-xl align-top">{order.customer.name}</td>
                                 <td className="font-bold w-20 md:w-24 text-left pl-4 align-top">الهاتف:</td>
                                 <td className="align-top font-mono">
-                                    {/* 👇 عرض الهاتفين */}
                                     <div>{order.customer.phone || '-'}</div>
                                     {order.customer.phone2 && <div>{order.customer.phone2}</div>}
                                 </td>
