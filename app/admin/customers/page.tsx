@@ -31,8 +31,9 @@ export default function CustomersPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatusText, setUploadStatusText] = useState('');
 
-  // Deleting State
+  // 👇 Deleting State (للمؤشر)
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteStatusText, setDeleteStatusText] = useState('');
 
   useEffect(() => {
     refreshCustomers();
@@ -114,11 +115,14 @@ export default function CustomersPage() {
     reader.readAsBinaryString(file);
   };
 
-  // --- Delete Logic ---
+  // --- Delete Logic (Faster) ---
   const handleDelete = async (id: string) => {
     if (confirm('حذف هذا العميل؟')) {
       setIsDeleting(true); 
+      setDeleteStatusText('جاري الحذف...');
+      
       const res = await deleteCustomer(id);
+      
       setIsDeleting(false);
 
       if(res.success) {
@@ -133,11 +137,14 @@ export default function CustomersPage() {
     if(selectedIds.length === 0) return;
     if(confirm(`هل أنت متأكد من محاولة حذف ${selectedIds.length} عميل؟`)) {
         setIsDeleting(true); 
+        setDeleteStatusText('جاري حذف المحدد...');
+
         const res = await deleteBulkCustomers(selectedIds);
+        
         setIsDeleting(false); 
 
         if(res.success) {
-            alert(`✅ تقرير الحذف:\n- تم حذف: ${res.deleted} عميل.\n- فشل حذف: ${res.failed} عميل (لوجود طلبات سابقة لهم).`);
+            alert(`✅ تقرير الحذف:\n- تم حذف: ${res.deleted} عميل.\n- فشل حذف: ${res.failed} عميل (لوجود تعاملات سابقة).`);
             refreshCustomers();
         } else {
             alert("حدث خطأ غير متوقع");
@@ -146,13 +153,16 @@ export default function CustomersPage() {
   };
 
   const handleDeleteAll = async () => {
-    if(confirm("⚠️ سيتم محاولة حذف جميع العملاء من النظام! هل أنت متأكد؟")) {
+    if(confirm("⚠️ سيتم حذف جميع العملاء الذين ليس لديهم أي تعاملات مالية أو أوردرات.\nهل أنت متأكد تماماً؟")) {
         setIsDeleting(true); 
+        setDeleteStatusText('جاري حذف قاعدة البيانات (الآمن)...');
+
         const res = await deleteAllCustomers();
+        
         setIsDeleting(false); 
 
         if(res.success) {
-             alert(`✅ تقرير الحذف الشامل:\n- تم حذف: ${res.deleted} عميل.\n- متبقي: ${res.failed} عميل.`);
+             alert(`✅ تقرير الحذف الشامل:\n- تم حذف: ${res.deleted} عميل.\n- متبقي: ${res.failed} عميل (لديهم بيانات هامة).`);
              refreshCustomers();
         } else {
             alert("حدث خطأ: " + res.error);
@@ -192,6 +202,16 @@ export default function CustomersPage() {
 
   return (
     <div className="space-y-6 relative pb-20" dir="rtl">
+       
+       {/* 👇 Full Screen Loader Overlay */}
+       {isDeleting && (
+            <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex flex-col justify-center items-center text-white">
+                <div className="w-16 h-16 border-4 border-t-transparent border-white rounded-full animate-spin mb-4"></div>
+                <div className="text-xl font-bold animate-pulse">{deleteStatusText}</div>
+                <p className="text-sm mt-2 text-gray-200">يرجى الانتظار...</p>
+            </div>
+       )}
+
        {/* Header */}
        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded shadow-sm">
         <h1 className="text-xl md:text-2xl font-bold text-gray-800">إدارة العملاء</h1>
@@ -202,7 +222,7 @@ export default function CustomersPage() {
                     onClick={handleDeleteSelected} 
                     disabled={isDeleting}
                     className={`flex-1 md:flex-none text-white px-4 py-2 rounded text-sm font-bold shadow transition-all ${isDeleting ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600 animate-pulse'}`}>
-                    {isDeleting ? '⏳...' : `حذف (${selectedIds.length})`}
+                    حذف المحدد ({selectedIds.length})
                 </button>
             )}
             
@@ -210,7 +230,7 @@ export default function CustomersPage() {
                 onClick={handleDeleteAll} 
                 disabled={isDeleting}
                 className={`flex-1 md:flex-none text-white px-4 py-2 rounded text-sm font-bold shadow transition-all ${isDeleting ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-800 hover:bg-red-900'}`}>
-                {isDeleting ? '⏳...' : '⚠️ حذف الكل'}
+                ⚠️ حذف الكل
             </button>
         </div>
       </div>
@@ -255,12 +275,7 @@ export default function CustomersPage() {
 
       {/* --- Responsive List (Cards on Mobile, Table on Desktop) --- */}
       <div className="relative">
-        {isDeleting && (
-            <div className="absolute inset-0 bg-white bg-opacity-80 z-20 flex justify-center items-center rounded-lg">
-                <div className="text-red-600 font-bold text-lg animate-pulse">⏳ جاري الحذف...</div>
-            </div>
-        )}
-
+        
         {/* 1. Mobile View (Cards) */}
         <div className="grid grid-cols-1 gap-4 md:hidden">
             <div className="flex justify-between items-center px-2">

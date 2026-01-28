@@ -42,7 +42,7 @@ export async function getUsers() {
 }
 
 // ==========================================
-// 2. إدارة المنتجات (Products) - (معدل)
+// 2. إدارة المنتجات (Products)
 // ==========================================
 
 export async function addProduct(data: any) {
@@ -129,7 +129,6 @@ export async function addBulkProducts(products: any[]) {
     }
 }
 
-// حذف منتج واحد
 export async function deleteProduct(id: string) {
   try {
     await prisma.product.delete({ where: { id } });
@@ -140,38 +139,38 @@ export async function deleteProduct(id: string) {
   }
 }
 
-// حذف مجموعة منتجات (مع التخطي)
 export async function deleteBulkProducts(ids: string[]) {
-    let deleted = 0;
-    let failed = 0;
-    for(const id of ids) {
-        try {
-            await prisma.product.delete({ where: { id } });
-            deleted++;
-        } catch(e) { failed++; }
+    // حذف الأصناف التي ليس لها مبيعات فقط من القائمة المحددة
+    try {
+        const res = await prisma.product.deleteMany({
+            where: {
+                id: { in: ids },
+                orderItems: { none: {} } // 👈 الشرط السحري: ليس له مبيعات
+            }
+        });
+        
+        revalidatePath('/admin/products');
+        // عدد الفاشلين = العدد الكلي - عدد المحذوفين
+        return { success: true, deleted: res.count, failed: ids.length - res.count };
+    } catch (e) {
+        return { success: false, error: 'حدث خطأ أثناء الحذف' };
     }
-    revalidatePath('/admin/products');
-    return { success: true, deleted, failed };
 }
 
-// حذف جميع المنتجات (مع التخطي)
 export async function deleteAllProducts() {
     try {
-        // جلب كل الآيديهات
-        const all = await prisma.product.findMany({ select: { id: true } });
-        const ids = all.map(p => p.id);
+        // حذف كل الأصناف التي ليس لها مبيعات
+        const res = await prisma.product.deleteMany({
+            where: {
+                orderItems: { none: {} }
+            }
+        });
 
-        let deleted = 0;
-        let failed = 0;
-        for(const id of ids) {
-            try {
-                await prisma.product.delete({ where: { id } });
-                deleted++;
-            } catch(e) { failed++; }
-        }
+        // لحساب الفاشلين (المتبقين)
+        const remaining = await prisma.product.count();
 
         revalidatePath('/admin/products');
-        return { success: true, deleted, failed };
+        return { success: true, deleted: res.count, failed: remaining };
     } catch (e) { return { success: false, error: 'حدث خطأ غير متوقع' }; }
 }
 
@@ -181,7 +180,7 @@ export async function getProducts() {
 }
 
 // ==========================================
-// 3. إدارة العملاء (Customers)
+// 3. إدارة العملاء (Customers) - (تم التسريع)
 // ==========================================
 
 export async function addCustomer(data: any) {
@@ -259,38 +258,53 @@ export async function deleteCustomer(id: string) {
     }
 }
 
+// 👇 التعديل الجوهري: حذف المحدد (دفعة واحدة سريعة جداً)
 export async function deleteBulkCustomers(ids: string[]) {
-    let deleted = 0;
-    let failed = 0;
-    for (const id of ids) {
-        try {
-            await prisma.customer.delete({ where: { id } });
-            deleted++;
-        } catch (e) { failed++; }
+    try {
+        // احذف العملاء الذين في القائمة AND (ليس لديهم طلبات AND ليس لديهم مدفوعات)
+        const res = await prisma.customer.deleteMany({
+            where: {
+                id: { in: ids },
+                orders: { none: {} },
+                payments: { none: {} }
+            }
+        });
+        
+        revalidatePath('/admin/customers');
+        // عدد المحذوفين الفعلي vs العدد المطلوب
+        return { success: true, deleted: res.count, failed: ids.length - res.count };
+    } catch (e) {
+        return { success: false, error: 'حدث خطأ في قاعدة البيانات' };
     }
-    revalidatePath('/admin/customers');
-    return { success: true, deleted, failed };
 }
 
+// 👇 التعديل الجوهري: حذف الكل (دفعة واحدة سريعة جداً)
 export async function deleteAllCustomers() {
     try {
-        const allCustomers = await prisma.customer.findMany({ select: { id: true } });
-        const ids = allCustomers.map(c => c.id);
+        // 1. حساب العدد الكلي قبل الحذف
+        const totalBefore = await prisma.customer.count();
+
+        // 2. حذف كل من ليس له روابط (Query واحد سريع)
+        const res = await prisma.customer.deleteMany({
+            where: {
+                orders: { none: {} },
+                payments: { none: {} }
+            }
+        });
         
-        let deleted = 0;
-        let failed = 0;
-        for (const id of ids) {
-            try {
-                await prisma.customer.delete({ where: { id } });
-                deleted++;
-            } catch (e) { failed++; }
-        }
+        // 3. المتبقي
+        const remaining = totalBefore - res.count;
+
         revalidatePath('/admin/customers');
-        return { success: true, deleted, failed };
-    } catch (e) { return { success: false, error: 'حدث خطأ غير متوقع', deleted: 0, failed: 0 }; }
+        return { success: true, deleted: res.count, failed: remaining };
+        
+    } catch (e) { 
+        return { success: false, error: 'حدث خطأ غير متوقع', deleted: 0, failed: 0 }; 
+    }
 }
 
 export async function getAdminCustomers() {
-    const custs = await prisma.customer.findMany({ orderBy: { id: 'desc' } });
+    // جلب آخر 500 عميل فقط لتحسين أداء الصفحة
+    const custs = await prisma.customer.findMany({ orderBy: { id: 'desc' }, take: 500 });
     return JSON.parse(JSON.stringify(custs));
 }
