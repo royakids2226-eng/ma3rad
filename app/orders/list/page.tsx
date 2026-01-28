@@ -41,7 +41,6 @@ export default function OrdersListPage() {
     if (session?.user?.image) {
       getUserOrders(session.user.image).then(res => {
         setOrders(res.orders);
-        // إصلاح خطأ TypeScript بإضافة قيمة افتراضية
         setUserRole(res.userRole || 'EMPLOYEE');
         setLoading(false);
       });
@@ -134,7 +133,8 @@ export default function OrdersListPage() {
   if (loading) return <div className="p-10 text-center font-bold">جاري التحميل...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-24 font-sans text-gray-800" dir="rtl">
+    // 👇 إضافة overflow-x-hidden لمنع السكرول الأفقي نهائياً في الصفحة
+    <div className="min-h-screen bg-gray-50 pb-24 font-sans text-gray-800 overflow-x-hidden" dir="rtl">
       
       {/* Header */}
       <div className="bg-white p-4 shadow mb-4 sticky top-0 z-20 flex justify-between items-center">
@@ -186,14 +186,11 @@ export default function OrdersListPage() {
                         <div className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">بواسطة: {order.user.name}</div>
                     </div>
 
-                    {/* 👇 تم تعديل الشبكة لتكون 3 أعمدة لإضافة زر التعديل */}
                     <div className="grid grid-cols-3 gap-2 mt-3">
-                        {/* زر الطباعة */}
                         <Link href={`/orders/${order.id}/print`} className="bg-blue-100 text-blue-700 py-2 rounded-lg text-center font-bold text-xs md:text-sm hover:bg-blue-200 flex items-center justify-center">
                             🖨️ طباعة
                         </Link>
                         
-                        {/* زر واتساب PDF */}
                         <button 
                             onClick={() => handlePdfClick(order)}
                             disabled={isGeneratingPdf}
@@ -202,7 +199,6 @@ export default function OrdersListPage() {
                             📤 PDF
                         </button>
 
-                        {/* 👇 زر التعديل (تمت إعادته) */}
                         <Link href={`/orders/${order.id}/edit`} className="bg-yellow-100 text-yellow-700 py-2 rounded-lg text-center font-bold text-xs md:text-sm hover:bg-yellow-200 flex items-center justify-center">
                             تعديل ✏️
                         </Link>
@@ -218,9 +214,14 @@ export default function OrdersListPage() {
         </div>
       </div>
 
-      {/* Hidden Invoice for PDF Generation */}
-      <div style={{ position: 'absolute', top: 0, left: '-10000px', width: '210mm' }}>
-         <div id="hidden-invoice-content" ref={hiddenInvoiceRef} className="bg-white p-10 text-right" style={{ width: '210mm', minHeight: '297mm', direction: 'rtl' }}>
+      {/* 
+          👇 التعديل الهام هنا:
+          استخدام position: fixed و z-index بالسالب
+          هذا يخرج العنصر من حسابات أبعاد الصفحة تماماً فلا يظهر السكرول
+      */}
+      <div style={{ position: 'fixed', top: 0, left: '-10000px', width: '210mm', zIndex: -100, visibility: 'hidden' }}>
+         {/* ملاحظة: استخدمنا visibility hidden للحاوية الخارجية ولكن html2canvas سيقرأ المحتوى الداخلي عند استنساخه */}
+         <div id="hidden-invoice-content" ref={hiddenInvoiceRef} className="bg-white p-10 text-right" style={{ width: '210mm', minHeight: '297mm', direction: 'rtl', visibility: 'visible' }}>
             {pdfOrder && (
                 <>
                     <header className="border-b-4 border-black pb-6 mb-6 flex justify-between items-start">
