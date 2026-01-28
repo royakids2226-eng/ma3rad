@@ -7,7 +7,7 @@ import Link from 'next/link';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
-// دالة تجميع الأصناف (نفس المستخدمة في الطباعة)
+// دالة تجميع الأصناف
 function groupOrderItems(items: any[]) {
     const grouped: any = {};
     items?.forEach(item => {
@@ -33,7 +33,7 @@ export default function OrdersListPage() {
   const [searchTerm, setSearchTerm] = useState('');
 
   // حالات طباعة PDF
-  const [pdfOrder, setPdfOrder] = useState<any>(null); // الأوردر الجاري طباعته
+  const [pdfOrder, setPdfOrder] = useState<any>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const hiddenInvoiceRef = useRef<HTMLDivElement>(null);
 
@@ -41,14 +41,14 @@ export default function OrdersListPage() {
     if (session?.user?.image) {
       getUserOrders(session.user.image).then(res => {
         setOrders(res.orders);
-        // 👇 التعديل هنا: إضافة قيمة احتياطية لمنع الخطأ
+        // إصلاح خطأ TypeScript بإضافة قيمة افتراضية
         setUserRole(res.userRole || 'EMPLOYEE');
         setLoading(false);
       });
     }
   }, [session]);
 
-  // 🔄 مراقب لعملية الطباعة: بمجرد وضع أوردر في pdfOrder، نقوم بتصويره
+  // مراقب لعملية الطباعة
   useEffect(() => {
     if (pdfOrder && hiddenInvoiceRef.current) {
         generateAndSharePdf();
@@ -62,21 +62,17 @@ export default function OrdersListPage() {
     }
   };
 
-  // دالة بدء عملية الـ PDF
   const handlePdfClick = (order: any) => {
       setIsGeneratingPdf(true);
-      setPdfOrder(order); // هذا سيقوم بتحديث الفاتورة المخفية وتشغيل الـ useEffect
+      setPdfOrder(order);
   };
 
   const generateAndSharePdf = async () => {
       try {
-          // انتظار بسيط لضمان تحديث الـ DOM بالبيانات الجديدة
           await new Promise(resolve => setTimeout(resolve, 500));
-
           const input = hiddenInvoiceRef.current;
           if (!input) return;
 
-          // 1. التقاط الصورة
           const canvas = await html2canvas(input, {
               scale: 2,
               useCORS: true,
@@ -92,11 +88,9 @@ export default function OrdersListPage() {
               }
           });
 
-          // 2. إعداد PDF
           const imgData = canvas.toDataURL('image/jpeg', 0.95);
           const pdf = new jsPDF('p', 'mm', 'a4');
           const pdfWidth = 210;
-          const pdfHeight = 297;
           const margin = 10;
           const imgProps = pdf.getImageProperties(imgData);
           const contentWidth = pdfWidth - (margin * 2);
@@ -104,7 +98,6 @@ export default function OrdersListPage() {
 
           pdf.addImage(imgData, 'JPEG', margin, margin, contentWidth, contentHeight);
 
-          // 3. المشاركة
           const fileName = `Invoice_${pdfOrder.orderNo}.pdf`;
           const pdfBlob = pdf.output('blob');
           const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
@@ -129,7 +122,7 @@ export default function OrdersListPage() {
           alert("حدث خطأ أثناء إنشاء الملف");
       } finally {
           setIsGeneratingPdf(false);
-          setPdfOrder(null); // تنظيف
+          setPdfOrder(null);
       }
   };
 
@@ -167,7 +160,7 @@ export default function OrdersListPage() {
             </div>
         )}
 
-        {/* Orders List (Responsive) */}
+        {/* Orders List */}
         <div className="space-y-4">
             {filteredOrders.length === 0 && <div className="text-center text-gray-500 mt-10">لا توجد أوردرات</div>}
             
@@ -193,20 +186,26 @@ export default function OrdersListPage() {
                         <div className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">بواسطة: {order.user.name}</div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 mt-3">
-                        {/* زر الطباعة العادي */}
-                        <Link href={`/orders/${order.id}/print`} className="bg-blue-100 text-blue-700 py-2 rounded-lg text-center font-bold text-sm hover:bg-blue-200">
+                    {/* 👇 تم تعديل الشبكة لتكون 3 أعمدة لإضافة زر التعديل */}
+                    <div className="grid grid-cols-3 gap-2 mt-3">
+                        {/* زر الطباعة */}
+                        <Link href={`/orders/${order.id}/print`} className="bg-blue-100 text-blue-700 py-2 rounded-lg text-center font-bold text-xs md:text-sm hover:bg-blue-200 flex items-center justify-center">
                             🖨️ طباعة
                         </Link>
                         
-                        {/* زر واتساب PDF الجديد */}
+                        {/* زر واتساب PDF */}
                         <button 
                             onClick={() => handlePdfClick(order)}
                             disabled={isGeneratingPdf}
-                            className="bg-green-100 text-green-700 py-2 rounded-lg text-center font-bold text-sm hover:bg-green-200 flex items-center justify-center gap-1"
+                            className="bg-green-100 text-green-700 py-2 rounded-lg text-center font-bold text-xs md:text-sm hover:bg-green-200 flex items-center justify-center gap-1"
                         >
-                            📤 PDF واتساب
+                            📤 PDF
                         </button>
+
+                        {/* 👇 زر التعديل (تمت إعادته) */}
+                        <Link href={`/orders/${order.id}/edit`} className="bg-yellow-100 text-yellow-700 py-2 rounded-lg text-center font-bold text-xs md:text-sm hover:bg-yellow-200 flex items-center justify-center">
+                            تعديل ✏️
+                        </Link>
                     </div>
 
                     {(userRole === 'ADMIN' || userRole === 'OWNER') && (
@@ -219,10 +218,7 @@ export default function OrdersListPage() {
         </div>
       </div>
 
-      {/* =========================================================================
-          HIDDEN INVOICE SECTION (Used for generating PDF)
-          This is invisible to the user but visible to html2canvas
-         ========================================================================= */}
+      {/* Hidden Invoice for PDF Generation */}
       <div style={{ position: 'absolute', top: 0, left: '-10000px', width: '210mm' }}>
          <div id="hidden-invoice-content" ref={hiddenInvoiceRef} className="bg-white p-10 text-right" style={{ width: '210mm', minHeight: '297mm', direction: 'rtl' }}>
             {pdfOrder && (
