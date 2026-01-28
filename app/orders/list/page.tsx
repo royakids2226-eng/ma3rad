@@ -41,7 +41,8 @@ export default function OrdersListPage() {
     if (session?.user?.image) {
       getUserOrders(session.user.image).then(res => {
         setOrders(res.orders);
-        setUserRole(res.userRole);
+        // 👇 التعديل هنا: إضافة قيمة احتياطية لمنع الخطأ
+        setUserRole(res.userRole || 'EMPLOYEE');
         setLoading(false);
       });
     }
@@ -75,7 +76,7 @@ export default function OrdersListPage() {
           const input = hiddenInvoiceRef.current;
           if (!input) return;
 
-          // 1. التقاط الصورة (نفس كود SharePdfButton)
+          // 1. التقاط الصورة
           const canvas = await html2canvas(input, {
               scale: 2,
               useCORS: true,
