@@ -32,7 +32,7 @@ export default function ProductsPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatusText, setUploadStatusText] = useState('');
 
-  // 👇 Deleting State
+  // Deleting State
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
@@ -130,8 +130,7 @@ export default function ProductsPage() {
     reader.readAsBinaryString(file);
   };
 
-  // --- Delete Logic (Updated) ---
-  
+  // --- Delete Logic ---
   const handleDelete = async (id: string) => {
     if (confirm('حذف هذا الصنف نهائياً؟')) {
       setIsDeleting(true);
@@ -148,7 +147,7 @@ export default function ProductsPage() {
 
   const handleDeleteSelected = async () => {
     if(selectedIds.length === 0) return;
-    if(confirm(`هل أنت متأكد من محاولة حذف ${selectedIds.length} صنف؟\n(لن يتم حذف الأصناف المرتبطة بطلبات)`)) {
+    if(confirm(`هل أنت متأكد من محاولة حذف ${selectedIds.length} صنف؟`)) {
         setIsDeleting(true);
         const res = await deleteBulkProducts(selectedIds);
         setIsDeleting(false);
@@ -171,7 +170,7 @@ export default function ProductsPage() {
             setIsDeleting(false);
 
             if(res.success) {
-                alert(`✅ تقرير الحذف الشامل:\n- تم حذف: ${res.deleted} صنف.\n- متبقي: ${res.failed} صنف (لم يتم حذفهم لوجود مبيعات).`);
+                alert(`✅ تقرير الحذف الشامل:\n- تم حذف: ${res.deleted} صنف.\n- متبقي: ${res.failed} صنف.`);
                 refreshProducts();
             } else {
                 alert("خطأ: " + res.error);
@@ -213,159 +212,192 @@ export default function ProductsPage() {
   };
 
   return (
-    <div className="space-y-8 relative">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <h1 className="text-2xl font-bold">إدارة الأصناف والمخزون</h1>
+    <div className="space-y-6 relative pb-20" dir="rtl">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded shadow-sm">
+        <h1 className="text-xl md:text-2xl font-bold text-gray-800">إدارة الأصناف</h1>
         
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 w-full md:w-auto">
             {selectedIds.length > 0 && (
                 <button 
                     onClick={handleDeleteSelected} 
                     disabled={isDeleting}
-                    className={`text-white px-4 py-2 rounded text-sm font-bold shadow transition-all ${isDeleting ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600 animate-pulse'}`}>
-                    {isDeleting ? '⏳ جاري الحذف...' : `حذف المحدد (${selectedIds.length})`}
+                    className={`flex-1 md:flex-none text-white px-4 py-2 rounded text-sm font-bold shadow transition-all ${isDeleting ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600 animate-pulse'}`}>
+                    {isDeleting ? '⏳...' : `حذف (${selectedIds.length})`}
                 </button>
             )}
             <button 
                 onClick={handleDeleteAll} 
                 disabled={isDeleting}
-                className={`text-white px-4 py-2 rounded text-sm font-bold shadow transition-all ${isDeleting ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-800 hover:bg-red-900'}`}>
-                {isDeleting ? '⏳ جاري العملية...' : '⚠️ حذف جميع الأصناف'}
+                className={`flex-1 md:flex-none text-white px-4 py-2 rounded text-sm font-bold shadow transition-all ${isDeleting ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-800 hover:bg-red-900'}`}>
+                {isDeleting ? '⏳...' : '⚠️ حذف الكل'}
             </button>
         </div>
       </div>
 
-      {/* قسم الاستيراد */}
-      <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-4">
-            <div className="flex-1">
-                <h3 className="font-bold text-blue-800 text-lg mb-1">📥 استيراد من Excel (يدعم الملفات الكبيرة)</h3>
-                <p className="text-sm text-blue-600 mb-2">سيقوم النظام بتقسيم الملف ورفعه على دفعات لتجنب المشاكل.</p>
-                <button onClick={downloadTemplate} className="bg-white border border-blue-400 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-100 transition">
-                    📄 تحميل نموذج Excel
-                </button>
-            </div>
-            <div className="flex-1 flex flex-col items-end">
-                <label className="text-sm font-bold text-gray-700 mb-2">رفع الملف:</label>
-                <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} disabled={isUploading || isDeleting} className="text-sm bg-white p-2 rounded border cursor-pointer w-full md:w-auto" />
+      {/* Upload Section */}
+      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-2">
+            <div className="w-full">
+                <h3 className="font-bold text-blue-800 text-sm md:text-lg">📥 استيراد Excel</h3>
+                <div className="flex justify-between items-center mt-1">
+                    <button onClick={downloadTemplate} className="text-xs text-blue-700 underline font-bold">تحميل النموذج</button>
+                    <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} disabled={isUploading || isDeleting} className="text-xs bg-white p-2 rounded border cursor-pointer w-1/2" />
+                </div>
             </div>
           </div>
 
           {(isUploading || uploadProgress > 0) && (
-             <div className="w-full bg-white p-4 rounded shadow-sm border border-blue-100">
-                <div className="flex justify-between text-xs font-bold text-blue-800 mb-1">
+             <div className="w-full bg-white p-2 rounded shadow-sm border border-blue-100 mt-2">
+                <div className="flex justify-between text-[10px] font-bold text-blue-800 mb-1">
                     <span>{uploadStatusText}</span>
                     <span>{uploadProgress}%</span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                    <div 
-                        className="bg-blue-600 h-4 rounded-full transition-all duration-300 ease-in-out striped-progress" 
-                        style={{ width: `${uploadProgress}%` }}
-                    ></div>
+                <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                    <div className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-in-out striped-progress" style={{ width: `${uploadProgress}%` }}></div>
                 </div>
              </div>
           )}
       </div>
 
       {/* Form Adding */}
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow space-y-6 border-t-4 border-green-600">
-        <h2 className="font-bold text-gray-700 border-b pb-2">إضافة صنف يدوياً</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">رقم الموديل</label><input type="text" className="w-full border p-2 rounded bg-gray-50" value={modelNo} onChange={e => setModelNo(e.target.value)} required /></div>
-            <div className="col-span-2"><label className="block text-xs font-bold text-gray-500 mb-1">الوصف</label><input type="text" className="w-full border p-2 rounded" value={description} onChange={e => setDescription(e.target.value)} /></div>
-            <div className="col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">سعر البيع</label><input type="number" className="w-full border p-2 rounded font-bold" value={price} onChange={e => setPrice(e.target.value)} required /></div>
+      <form onSubmit={handleSubmit} className="bg-white p-4 rounded-lg shadow space-y-4 border-t-4 border-green-600">
+        <h2 className="font-bold text-gray-700 text-sm border-b pb-2">إضافة صنف يدوياً</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">الموديل</label><input type="text" className="w-full border p-2 rounded bg-gray-50 focus:bg-white" value={modelNo} onChange={e => setModelNo(e.target.value)} required /></div>
+            <div className="col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">السعر</label><input type="number" className="w-full border p-2 rounded font-bold focus:bg-white" value={price} onChange={e => setPrice(e.target.value)} required /></div>
+            <div className="col-span-2"><label className="block text-xs font-bold text-gray-500 mb-1">الوصف</label><input type="text" className="w-full border p-2 rounded focus:bg-white" value={description} onChange={e => setDescription(e.target.value)} /></div>
         </div>
-        <div>
-            <label className="block text-xs font-bold text-gray-500 mb-1">حالة الطلب</label>
-            <div className="flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="status" value="OPEN" checked={status === 'OPEN'} onChange={() => setStatus('OPEN')} /><span className="text-green-600 font-bold">مفتوح</span></label>
-                <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="status" value="CLOSED" checked={status === 'CLOSED'} onChange={() => setStatus('CLOSED')} /><span className="text-red-600 font-bold">مغلق</span></label>
-            </div>
+        
+        {/* حالة الطلب */}
+        <div className="flex gap-4 items-center bg-gray-50 p-2 rounded">
+             <span className="text-xs font-bold text-gray-500">الحالة:</span>
+             <label className="flex items-center gap-1 cursor-pointer"><input type="radio" name="status" value="OPEN" checked={status === 'OPEN'} onChange={() => setStatus('OPEN')} /><span className="text-green-600 text-xs font-bold">مفتوح</span></label>
+             <label className="flex items-center gap-1 cursor-pointer"><input type="radio" name="status" value="CLOSED" checked={status === 'CLOSED'} onChange={() => setStatus('CLOSED')} /><span className="text-red-600 text-xs font-bold">مغلق</span></label>
         </div>
-        <div className="bg-gray-50 p-4 rounded border">
-            <label className="block text-sm font-bold mb-3">الألوان والعدد المتاح</label>
+
+        <div className="bg-gray-50 p-3 rounded border">
+            <label className="block text-xs font-bold mb-2">الألوان والمخزون</label>
             {colors.map((item, idx) => (
                 <div key={idx} className="flex gap-2 mb-2">
-                    <input type="text" placeholder="اللون" className="border p-2 rounded flex-1" value={item.color} onChange={e => handleColorChange(idx, 'color', e.target.value)} required />
-                    <input type="number" placeholder="العدد" className="border p-2 rounded w-24 text-center" value={item.stock} onChange={e => handleColorChange(idx, 'stock', e.target.value)} required />
+                    <input type="text" placeholder="اللون" className="border p-2 rounded flex-1 text-sm" value={item.color} onChange={e => handleColorChange(idx, 'color', e.target.value)} required />
+                    <input type="number" placeholder="العدد" className="border p-2 rounded w-20 text-center text-sm" value={item.stock} onChange={e => handleColorChange(idx, 'stock', e.target.value)} required />
                 </div>
             ))}
-            <button type="button" onClick={handleAddColorField} className="text-sm text-blue-600 font-bold mt-2">+ إضافة لون</button>
+            <button type="button" onClick={handleAddColorField} className="text-xs text-blue-600 font-bold mt-1">+ إضافة لون</button>
         </div>
-        <button type="submit" disabled={isDeleting} className="bg-green-600 text-white px-6 py-3 rounded font-bold w-full hover:bg-green-700 disabled:opacity-50">حفظ</button>
+        <button type="submit" disabled={isDeleting} className="bg-green-600 text-white px-6 py-3 rounded font-bold w-full hover:bg-green-700 disabled:opacity-50 transition">حفظ</button>
       </form>
 
-      {/* Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden relative">
-        {/* 👇 Overlay أثناء الحذف */}
+      {/* --- Responsive List --- */}
+      <div className="relative">
         {isDeleting && (
-            <div className="absolute inset-0 bg-white bg-opacity-70 z-10 flex justify-center items-center">
-                <div className="text-red-600 font-bold text-lg animate-pulse">⏳ جاري تنفيذ عمليات الحذف...</div>
+            <div className="absolute inset-0 bg-white bg-opacity-80 z-20 flex justify-center items-center rounded-lg">
+                <div className="text-red-600 font-bold text-lg animate-pulse">⏳ جاري الحذف...</div>
             </div>
         )}
 
-        <div className="p-2 bg-gray-50 border-b flex justify-between items-center text-xs text-gray-500">
-            <span>عدد الأصناف: {products.length}</span>
-            <span>المحدد: {selectedIds.length}</span>
-        </div>
-        <table className="w-full text-sm text-right">
-          <thead className="bg-gray-100 text-gray-700">
-            <tr>
-              <th className="p-3 w-10 text-center"><input type="checkbox" onChange={handleSelectAll} checked={products.length > 0 && selectedIds.length === products.length} /></th>
-              <th className="p-3">الموديل</th>
-              <th className="p-3">اللون</th>
-              <th className="p-3">الحالة</th>
-              <th className="p-3">المخزون</th>
-              <th className="p-3">السعر</th>
-              <th className="p-3 text-center">تحكم</th>
-            </tr>
-          </thead>
-          <tbody>
+        {/* 1. Mobile View (Cards) */}
+        <div className="grid grid-cols-1 gap-4 md:hidden">
+            <div className="flex justify-between items-center px-2">
+                <span className="text-xs font-bold text-gray-500">العدد: {products.length}</span>
+                <label className="flex items-center gap-2 text-xs font-bold bg-gray-100 px-3 py-1 rounded">
+                    <input type="checkbox" onChange={handleSelectAll} checked={products.length > 0 && selectedIds.length === products.length} />
+                    تحديد الكل
+                </label>
+            </div>
             {products.map(p => (
-              <tr key={p.id} className={`border-b hover:bg-gray-50 ${selectedIds.includes(p.id) ? 'bg-blue-50' : ''}`}>
-                <td className="p-3 text-center"><input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => handleSelectOne(p.id)} /></td>
-                <td className="p-3 font-bold">{p.modelNo}</td>
-                <td className="p-3">{p.color}</td>
-                <td className="p-3">{p.status === 'CLOSED' ? <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">مغلق</span> : <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">مفتوح</span>}</td>
-                <td className={`p-3 font-bold ${p.stockQty <= 0 ? 'text-red-500' : 'text-blue-600'}`}>{p.stockQty}</td>
-                <td className="p-3">{p.price}</td>
-                <td className="p-3 flex justify-center gap-2">
-                  <button onClick={() => handleEditClick(p)} className="text-blue-600 hover:text-blue-800 font-bold bg-blue-100 px-2 py-1 rounded text-xs">تعديل</button>
-                  <button onClick={() => handleDelete(p.id)} disabled={isDeleting} className="text-red-600 hover:text-red-800 font-bold bg-red-100 px-2 py-1 rounded text-xs disabled:opacity-50">حذف</button>
-                </td>
-              </tr>
+                <div key={p.id} className={`bg-white p-4 rounded-lg shadow border-l-4 ${selectedIds.includes(p.id) ? 'border-l-blue-500 bg-blue-50' : 'border-l-gray-300'}`}>
+                    <div className="flex justify-between items-start mb-2">
+                         <div className="flex items-center gap-3">
+                            <input type="checkbox" className="w-5 h-5" checked={selectedIds.includes(p.id)} onChange={() => handleSelectOne(p.id)} />
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="font-bold text-gray-800 text-lg">{p.modelNo}</h3>
+                                    {p.status === 'CLOSED' && <span className="text-[10px] bg-red-100 text-red-600 px-1 rounded">مغلق</span>}
+                                </div>
+                                <span className="text-xs text-gray-500">{p.color}</span>
+                            </div>
+                         </div>
+                         <div className="text-left">
+                             <div className="font-bold text-blue-600 text-lg">{p.price} ج.م</div>
+                             <div className={`text-xs font-bold ${p.stockQty > 0 ? 'text-green-600' : 'text-red-500'}`}>متاح: {p.stockQty}</div>
+                         </div>
+                    </div>
+                    <div className="flex justify-between items-center border-t pt-2 mt-2">
+                        <span className="text-xs text-gray-400">ID: {p.id.substring(0, 6)}</span>
+                        <div className="flex gap-2">
+                            <button onClick={() => handleEditClick(p)} className="bg-blue-100 text-blue-600 px-3 py-1 rounded text-xs font-bold">تعديل</button>
+                            <button onClick={() => handleDelete(p.id)} className="bg-red-100 text-red-600 px-3 py-1 rounded text-xs font-bold">حذف</button>
+                        </div>
+                    </div>
+                </div>
             ))}
-          </tbody>
-        </table>
+        </div>
+
+        {/* 2. Desktop View (Table) */}
+        <div className="hidden md:block bg-white rounded-lg shadow overflow-hidden">
+            <div className="p-2 bg-gray-50 border-b flex justify-between items-center text-xs text-gray-500">
+                <span>عدد الأصناف: {products.length}</span>
+                <span>المحدد: {selectedIds.length}</span>
+            </div>
+            <table className="w-full text-sm text-right">
+            <thead className="bg-gray-100 text-gray-700">
+                <tr>
+                <th className="p-3 w-10 text-center"><input type="checkbox" onChange={handleSelectAll} checked={products.length > 0 && selectedIds.length === products.length} /></th>
+                <th className="p-3">الموديل</th>
+                <th className="p-3">اللون</th>
+                <th className="p-3">الحالة</th>
+                <th className="p-3">المخزون</th>
+                <th className="p-3">السعر</th>
+                <th className="p-3 text-center">تحكم</th>
+                </tr>
+            </thead>
+            <tbody>
+                {products.map(p => (
+                <tr key={p.id} className={`border-b hover:bg-gray-50 ${selectedIds.includes(p.id) ? 'bg-blue-50' : ''}`}>
+                    <td className="p-3 text-center"><input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => handleSelectOne(p.id)} /></td>
+                    <td className="p-3 font-bold">{p.modelNo}</td>
+                    <td className="p-3">{p.color}</td>
+                    <td className="p-3">{p.status === 'CLOSED' ? <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">مغلق</span> : <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">مفتوح</span>}</td>
+                    <td className={`p-3 font-bold ${p.stockQty <= 0 ? 'text-red-500' : 'text-blue-600'}`}>{p.stockQty}</td>
+                    <td className="p-3">{p.price}</td>
+                    <td className="p-3 flex justify-center gap-2">
+                    <button onClick={() => handleEditClick(p)} className="text-blue-600 hover:text-blue-800 font-bold bg-blue-100 px-2 py-1 rounded text-xs">تعديل</button>
+                    <button onClick={() => handleDelete(p.id)} disabled={isDeleting} className="text-red-600 hover:text-red-800 font-bold bg-red-100 px-2 py-1 rounded text-xs disabled:opacity-50">حذف</button>
+                    </td>
+                </tr>
+                ))}
+            </tbody>
+            </table>
+        </div>
       </div>
 
-      {/* Edit Modal */}
+      {/* Edit Modal (Responsive) */}
       {isEditModalOpen && editingProduct && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-              <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
-                  <h3 className="text-xl font-bold mb-4 border-b pb-2">تعديل بيانات الصنف</h3>
-                  <form onSubmit={handleEditSave} className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                          <div><label className="block text-xs text-gray-500 mb-1">الموديل</label><input type="text" className="w-full border p-2 rounded bg-gray-100" value={editingProduct.modelNo} readOnly /></div>
-                          <div><label className="block text-xs text-gray-500 mb-1">اللون</label><input type="text" className="w-full border p-2 rounded bg-gray-100" value={editingProduct.color} readOnly /></div>
-                      </div>
-                      <div><label className="block text-xs text-gray-500 mb-1">الوصف</label><input type="text" className="w-full border p-2 rounded" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({...editingProduct, description: e.target.value})} /></div>
-                      <div className="grid grid-cols-2 gap-4">
-                          <div><label className="block text-xs text-gray-500 mb-1">الكمية</label><input type="number" className="w-full border p-2 rounded" value={editingProduct.stockQty} onChange={(e) => setEditingProduct({...editingProduct, stockQty: e.target.value})} /></div>
-                          <div><label className="block text-xs text-gray-500 mb-1">السعر</label><input type="number" className="w-full border p-2 rounded" value={editingProduct.price} onChange={(e) => setEditingProduct({...editingProduct, price: e.target.value})} /></div>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">الحالة</label>
-                        <select className="w-full border p-2 rounded" value={editingProduct.status} onChange={(e) => setEditingProduct({...editingProduct, status: e.target.value})}>
-                            <option value="OPEN">مفتوح</option>
-                            <option value="CLOSED">مغلق</option>
-                        </select>
-                      </div>
-                      <div className="flex justify-end gap-2 mt-6">
-                          <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-200 rounded hover:bg-gray-300">إلغاء</button>
-                          <button type="submit" className="px-4 py-2 text-white bg-blue-600 rounded hover:bg-blue-700">حفظ</button>
-                      </div>
-                  </form>
+              <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 space-y-4">
+                  <h3 className="font-bold border-b pb-2 text-lg">تعديل بيانات الصنف</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-xs text-gray-500">الموديل</label><input type="text" className="w-full border p-2 rounded bg-gray-100" value={editingProduct.modelNo} readOnly /></div>
+                      <div><label className="text-xs text-gray-500">اللون</label><input type="text" className="w-full border p-2 rounded bg-gray-100" value={editingProduct.color} readOnly /></div>
+                  </div>
+                  <div><label className="text-xs text-gray-500">الوصف</label><input type="text" className="w-full border p-2 rounded" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({...editingProduct, description: e.target.value})} /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-xs text-gray-500">الكمية</label><input type="number" className="w-full border p-2 rounded font-bold" value={editingProduct.stockQty} onChange={(e) => setEditingProduct({...editingProduct, stockQty: e.target.value})} /></div>
+                      <div><label className="text-xs text-gray-500">السعر</label><input type="number" className="w-full border p-2 rounded font-bold" value={editingProduct.price} onChange={(e) => setEditingProduct({...editingProduct, price: e.target.value})} /></div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">الحالة</label>
+                    <select className="w-full border p-2 rounded bg-white" value={editingProduct.status} onChange={(e) => setEditingProduct({...editingProduct, status: e.target.value})}>
+                        <option value="OPEN">مفتوح</option>
+                        <option value="CLOSED">مغلق</option>
+                    </select>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                      <button onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 bg-gray-200 rounded font-bold">إلغاء</button>
+                      <button onClick={handleEditSave} className="px-4 py-2 text-white bg-blue-600 rounded font-bold">حفظ</button>
+                  </div>
               </div>
           </div>
       )}
