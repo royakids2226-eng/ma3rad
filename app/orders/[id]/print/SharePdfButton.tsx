@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf'; // 👈 تغيير طريقة الاستيراد (مهم جداً)
+import { jsPDF } from 'jspdf';
 
 interface Props {
   customerName: string;
@@ -22,19 +22,25 @@ export default function SharePdfButton({ customerName, orderNo, phone }: Props) 
 
     setLoading(true);
     try {
-      // 1. التقاط الصورة
+      // 1. التقاط الصورة مع إجبار الألوان
       const canvas = await html2canvas(input, {
-        scale: 2,
-        useCORS: true, // للسماح بتحميل الصور إن وجدت
+        scale: 2, // جودة عالية
+        useCORS: true,
         logging: false,
-        allowTaint: true, // محاولة تجاوز مشاكل التلوين
-        backgroundColor: '#ffffff' // ضمان خلفية بيضاء
+        backgroundColor: '#ffffff', // خلفية بيضاء صريحة (HEX)
+        onclone: (documentClone) => {
+            // هذه الخطوة تضمن أن العنصر المنسوخ يستخدم ألواناً بسيطة
+            const element = documentClone.getElementById('invoice-content');
+            if (element) {
+                element.style.backgroundColor = '#ffffff';
+                element.style.color = '#000000';
+            }
+        }
       });
 
-      // 2. إعداد PDF
-      const imgData = canvas.toDataURL('image/jpeg', 1.0); // استخدام JPEG لتقليل الحجم وتسريع المعالجة
+      // 2. إعداد ملف PDF
+      const imgData = canvas.toDataURL('image/jpeg', 0.95); // استخدام JPEG لتقليل الحجم
       
-      // هنا الإصلاح الرئيسي: استخدام new jsPDF بشكل مباشر
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -47,12 +53,12 @@ export default function SharePdfButton({ customerName, orderNo, phone }: Props) 
 
       pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
 
-      // 3. إنشاء الملف والمشاركة
+      // 3. تجهيز الملف للمشاركة
       const fileName = `Invoice_${orderNo}.pdf`;
       const pdfBlob = pdf.output('blob');
       const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
 
-      // محاولة المشاركة (للموبايل)
+      // 4. المحاولة: مشاركة عبر الموبايل (Native Share)
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
@@ -60,21 +66,21 @@ export default function SharePdfButton({ customerName, orderNo, phone }: Props) 
           text: `مرحباً ${customerName}، مرفق فاتورة طلبك.`,
         });
       } else {
-        // البديل (للكمبيوتر أو إذا فشلت المشاركة)
+        // 5. البديل: التحميل المباشر وفتح واتساب ويب
         pdf.save(fileName);
         
-        // فتح الواتساب (اختياري، لن يرفق الملف أوتوماتيكياً في الويب لكنه يفتح المحادثة)
         if (phone) {
-             const waUrl = `https://wa.me/20${phone}?text=${encodeURIComponent('مرفق الفاتورة التي تم تحميلها...')}`;
+             // فتح واتساب ويب (يجب على المستخدم سحب الملف يدوياً)
+             const waUrl = `https://wa.me/20${phone}?text=${encodeURIComponent('مرفق الفاتورة (يرجى سحب ملف PDF المحمل هنا)...')}`;
              window.open(waUrl, '_blank');
         } else {
-             alert("تم تحميل ملف PDF على جهازك بنجاح.");
+             alert("تم تحميل ملف PDF بنجاح.");
         }
       }
 
     } catch (error: any) {
       console.error("Error generating PDF:", error);
-      // 👇 إظهار رسالة الخطأ الحقيقية لمعرفة السبب
+      // عرض تفاصيل الخطأ للمساعدة
       alert("حدث خطأ تقني: " + (error.message || JSON.stringify(error)));
     } finally {
       setLoading(false);

@@ -24,3 +24,73 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* 👇👇👇 الإضافة الهامة لحل مشكلة PDF 👇👇👇 */
+/* 
+   مكتبة html2canvas لا تفهم ألوان Tailwind v4 الحديثة (oklch/lab).
+   هنا نجبر الألوان المستخدمة في الفاتورة أن تكون (HEX) تقليدية لتعمل الطباعة.
+*/
+@layer utilities {
+  /* الخلفيات */
+  .bg-white { background-color: #ffffff !important; }
+  .bg-black { background-color: #000000 !important; }
+  .bg-gray-50 { background-color: #f9fafb !important; }
+  .bg-gray-100 { background-color: #f3f4f6 !important; }
+  .bg-gray-200 { background-color: #e5e7eb !important; }
+  
+  /* ألوان النصوص */
+  .text-black { color: #000000 !important; }
+  .text-white { color: #ffffff !important; }
+  .text-gray-500 { color: #6b7280 !important; }
+  .text-gray-600 { color: #4b5563 !important; }
+  .text-gray-700 { color: #374151 !important; }
+  
+  /* ألوان الحالات (أخضر/أحمر/أزرق) */
+  .bg-green-100 { background-color: #dcfce7 !important; }
+  .text-green-700 { color: #15803d !important; }
+  
+  .bg-red-100 { background-color: #fee2e2 !important; }
+  .text-red-500 { color: #ef4444 !important; }
+  .text-red-700 { color: #b91c1c !important; }
+  
+  .text-blue-600 { color: #2563eb !important; }
+  .text-blue-700 { color: #1d4ed8 !important; }
+
+  /* الحدود */
+  .border-black { border-color: #000000 !important; }
+  .border-gray-200 { border-color: #e5e7eb !important; }
+  .border-gray-300 { border-color: #d1d5db !important; }
+  .border-gray-400 { border-color: #9ca3af !important; }
+}
+/* 
+   ==========================================================================
+   إصلاح مشاكل الطباعة وتحويل PDF (Fix for html2canvas)
+   هذا الكود يجبر الألوان المستخدمة في الفاتورة على أن تكون HEX
+   لأن المكتبة لا تفهم نظام ألوان Tailwind الحديث.
+   ==========================================================================
+*/
+
+/* الخلفيات */
+.bg-white { background-color: #ffffff !important; }
+.bg-black { background-color: #000000 !important; }
+.bg-gray-50 { background-color: #f9fafb !important; }
+.bg-gray-100 { background-color: #f3f4f6 !important; }
+.bg-gray-200 { background-color: #e5e7eb !important; }
+
+/* ألوان النصوص */
+.text-black { color: #000000 !important; }
+.text-white { color: #ffffff !important; }
+.text-gray-500 { color: #6b7280 !important; }
+.text-gray-600 { color: #4b5563 !important; }
+.text-gray-700 { color: #374151 !important; }
+
+/* الحدود */
+.border-black { border-color: #000000 !important; }
+.border-gray-200 { border-color: #e5e7eb !important; }
+.border-gray-300 { border-color: #d1d5db !important; }
+.border-gray-400 { border-color: #9ca3af !important; }
+
+/* ألوان إضافية مستخدمة في الأزرار والتنبيهات */
+.bg-green-600 { background-color: #16a34a !important; }
+.bg-blue-600 { background-color: #2563eb !important; }
+.bg-red-600 { background-color: #dc2626 !important; }
