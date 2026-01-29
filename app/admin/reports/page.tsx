@@ -9,7 +9,7 @@ export default function ReportsPage() {
     <div className="min-h-screen bg-gray-50 p-4" dir="rtl">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800">📊 التقارير المركزية</h1>
-        {/* زر الطباعة (يطبع الشاشة الحالية) */}
+        {/* زر الطباعة */}
         <button onClick={() => window.print()} className="bg-gray-800 text-white px-4 py-2 rounded shadow hover:bg-black print:hidden">
             🖨️ طباعة التقرير
         </button>
@@ -51,8 +51,9 @@ function InventoryReportView() {
     useEffect(() => {
         getInventoryReport().then(res => {
             if(res.success) {
-                setData(res.data);
-                setSummary(res.summary);
+                // 👇 التعديل هنا: إضافة || [] لمنع الخطأ
+                setData(res.data || []);
+                setSummary(res.summary || {});
             }
             setLoading(false);
         });
@@ -133,8 +134,12 @@ function SafeLedgerView() {
         setLoading(true);
         const res = await getSafeLedger(selectedSafe, startDate, endDate);
         if(res.success) {
-            setLedger(res.data);
-            setSummary({ totalIn: res.totalIn, currentBalance: res.currentBalance });
+            // 👇 التعديل هنا أيضاً للأمان
+            setLedger(res.data || []);
+            setSummary({ 
+                totalIn: res.totalIn || 0, 
+                currentBalance: res.currentBalance || 0 
+            });
         }
         setLoading(false);
     };
