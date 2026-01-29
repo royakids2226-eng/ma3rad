@@ -24,7 +24,7 @@ model Customer {
   code      String    @unique
   name      String
   phone     String?
-  phone2    String?   // 👈 التعديل: رقم الهاتف الثاني
+  phone2    String?
   address   String?
   orders    Order[]
   payments  Payment[]
@@ -68,13 +68,14 @@ model Order {
 }
 
 model OrderItem {
-  id        String  @id @default(cuid())
-  orderId   String
-  order     Order   @relation(fields: [orderId], references: [id])
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-  quantity  Int
-  price     Float
+  id              String  @id @default(cuid())
+  orderId         String
+  order           Order   @relation(fields: [orderId], references: [id])
+  productId       String
+  product         Product @relation(fields: [productId], references: [id])
+  quantity        Int
+  price           Float
+  discountPercent Int     @default(0) // 👈 الإضافة الجديدة: نسبة الخصم
 }
 
 model Payment {

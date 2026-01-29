@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 
 const prisma = new PrismaClient()
 
-// 1. العملاء (للتحميل الأولي)
+// 1. العملاء
 export async function getCustomers() {
   try {
     const customers = await prisma.customer.findMany({ take: 20, orderBy: { name: 'asc' } });
@@ -13,7 +13,7 @@ export async function getCustomers() {
   } catch (error) { return []; }
 }
 
-// ⭐ دالة البحث الذكي
+// البحث عن العملاء
 export async function searchCustomers(term: string) {
   if (!term) return [];
   const normalizedTerm = term.replace(/[أإآ]/g, 'ا');
@@ -54,11 +54,13 @@ export async function searchProducts(term: string) {
   } catch (error) { return []; }
 }
 
-// 4. حفظ الأوردر
+// 4. حفظ الأوردر (تم التعديل لقبول الخصم)
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, safeId } = data; 
+  
   try {
     const result = await prisma.$transaction(async (tx) => {
+      // 1. إنشاء الأوردر
       const order = await tx.order.create({
         data: {
           userId, customerId, totalAmount: total, deposit: deposit || 0,
@@ -66,17 +68,21 @@ export async function createOrder(data: any, userId: string) {
         }
       });
 
+      // 2. إضافة الأصناف
       for (const cartItem of items) {
+        // cartItem هنا يمثل صنف منتج (تمت معالجة الخصومات في الفرونت إند)
         for (const variant of cartItem.variants) {
           await tx.orderItem.create({
             data: {
               orderId: order.id,
               productId: variant.productId,
               quantity: variant.quantity,
-              price: variant.price
+              price: variant.price, // هذا السعر بعد الخصم
+              discountPercent: variant.discountPercent || 0 // 👈 حفظ نسبة الخصم
             }
           });
 
+          // خصم المخزون
           await tx.product.update({
             where: { id: variant.productId },
             data: {
@@ -87,6 +93,7 @@ export async function createOrder(data: any, userId: string) {
       }
       return order;
     });
+    
     revalidatePath('/');
     return JSON.parse(JSON.stringify(result));
   } catch (error) {
@@ -117,7 +124,7 @@ export async function createPayment(data: any, userId: string) {
   } catch (error) { return { success: false }; }
 }
 
-// 7. الأوردرات السابقة (تم التعديل لجلب الأصناف items للطباعة)
+// 7. الأوردرات السابقة
 export async function getUserOrders(userId: string) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -130,7 +137,7 @@ export async function getUserOrders(userId: string) {
       include: { 
           customer: true, 
           user: true, 
-          items: { include: { product: true } } // 👈 التعديل الهام هنا
+          items: { include: { product: true } } 
       },
       orderBy: { createdAt: 'desc' },
       take: 100
