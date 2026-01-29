@@ -1,20 +1,43 @@
 import { getOrderById } from "@/app/actions";
 import PrintButton from "./PrintButton";
-import SharePdfButton from "./SharePdfButton"; // 👈 استدعاء الزر الجديد
+import SharePdfButton from "./SharePdfButton";
+
+const PIECES_PER_UNIT = 4;
 
 function groupOrderItems(items: any[]) {
     const grouped: any = {};
     items.forEach(item => {
-        const modelNo = item.product.modelNo;
-        if (!grouped[modelNo]) {
-            grouped[modelNo] = {
-                modelNo, desc: item.product.description, price: item.price,
-                totalPrice: 0, totalQty: 0, details: []
+        // نجمع حسب الموديل + نسبة الخصم
+        // (عشان لو نفس الموديل اخد خصمين مختلفين يظهروا في سطرين)
+        const key = `${item.product.modelNo}_${item.discountPercent}`;
+        
+        if (!grouped[key]) {
+            // استرجاع السعر الأصلي قبل الخصم رياضياً
+            const finalPrice = item.price;
+            const discountPct = item.discountPercent || 0;
+            // المعادلة: السعر الأصلي = السعر النهائي / (1 - نسبة الخصم)
+            const originalPrice = discountPct > 0 
+                ? finalPrice / (1 - (discountPct / 100)) 
+                : finalPrice;
+
+            grouped[key] = {
+                modelNo: item.product.modelNo,
+                desc: item.product.description,
+                
+                originalPrice: originalPrice, // السعر قبل الخصم
+                finalPrice: finalPrice,       // السعر بعد الخصم
+                discountPercent: discountPct,
+                
+                totalQty: 0,
+                totalPrice: 0, // الإجمالي النهائي (بعد الخصم)
+                details: []
             };
         }
-        grouped[modelNo].totalQty += item.quantity;
-        grouped[modelNo].totalPrice += (item.quantity * 4 * item.price);
-        grouped[modelNo].details.push(`${item.quantity * 4} (${item.product.color})`);
+        
+        grouped[key].totalQty += item.quantity;
+        // السعر المخزن في الداتا بيز هو سعر القطعة الواحدة * 4 قطع في الدسته * الكمية
+        grouped[key].totalPrice += (item.quantity * PIECES_PER_UNIT * item.price);
+        grouped[key].details.push(`${item.quantity * PIECES_PER_UNIT} (${item.product.color})`);
     });
     return Object.values(grouped);
 }
@@ -29,27 +52,31 @@ export default async function PrintOrderPage(props: Props) {
     if (!order) return <div className="p-10 text-center font-bold text-red-600 text-xl">الأوردر غير موجود</div>;
 
     const groupedItems = groupOrderItems(order.items);
-    const totalPieces = order.items.reduce((acc: number, item: any) => acc + (item.quantity * 4), 0);
+    
+    const totalPieces = order.items.reduce((acc: number, item: any) => acc + (item.quantity * PIECES_PER_UNIT), 0);
     const deposit = order.deposit || 0;
-    const remaining = order.totalAmount - deposit;
+    const totalAmount = order.totalAmount; // هذا الصافي بعد الخصم
+    const remaining = totalAmount - deposit;
+
+    // حساب إجمالي قيمة الخصم (كم وفر العميل؟)
+    const totalDiscountValue = groupedItems.reduce((acc: number, item: any) => {
+        const totalOriginal = item.originalPrice * (item.totalQty * PIECES_PER_UNIT);
+        const totalFinal = item.finalPrice * (item.totalQty * PIECES_PER_UNIT);
+        return acc + (totalOriginal - totalFinal);
+    }, 0);
 
     return (
         <div className="min-h-screen bg-gray-100 p-4 md:p-8 font-sans print:bg-white print:p-0">
-            {/* أزرار التحكم (لا تظهر في الطباعة ولا في ملف الـ PDF) */}
             <div className="max-w-[210mm] mx-auto mb-6 flex flex-wrap gap-4 print:hidden" dir="rtl">
                 <PrintButton />
-                
-                {/* 👇 زر مشاركة PDF الجديد */}
                 <SharePdfButton 
                     customerName={order.customer.name} 
                     orderNo={order.orderNo} 
                     phone={order.customer.phone} 
                 />
-
                 <a href="/" className="bg-gray-500 text-white px-6 py-3 rounded-lg font-bold flex items-center">🏠 خروج</a>
             </div>
 
-            {/* 👇 إضافة ID هنا ليتمكن الكود من التقاط صورة للفاتورة */}
             <div id="invoice-content" className="max-w-[210mm] mx-auto bg-white p-6 md:p-10 shadow-2xl print:shadow-none print:w-full print:max-w-none" dir="rtl">
                 <header className="border-b-4 border-black pb-6 mb-6 flex flex-col md:flex-row justify-between items-start gap-4">
                     <div>
@@ -88,9 +115,10 @@ export default async function PrintOrderPage(props: Props) {
                         <thead>
                             <tr className="bg-gray-200 text-black text-sm font-bold print:bg-gray-300">
                                 <th className="p-3 border border-black w-24">الموديل</th>
-                                <th className="p-3 border border-black text-right">الألوان (بالقطعة)</th>
-                                <th className="p-3 border border-black w-24">العدد (قطعة)</th>
-                                <th className="p-3 border border-black w-24">سعر القطعة</th>
+                                <th className="p-3 border border-black text-right">التفاصيل</th>
+                                <th className="p-3 border border-black w-24">العدد</th>
+                                <th className="p-3 border border-black w-24">السعر</th>
+                                <th className="p-3 border border-black w-20">خصم %</th>
                                 <th className="p-3 border border-black w-32">الإجمالي</th>
                             </tr>
                         </thead>
@@ -103,7 +131,24 @@ export default async function PrintOrderPage(props: Props) {
                                         <div className="text-xs text-gray-600 leading-relaxed">{item.details.join(' + ')}</div>
                                     </td>
                                     <td className="p-3 border-x border-black text-center text-lg font-bold">{item.totalQty * 4}</td>
-                                    <td className="p-3 border-x border-black text-center">{item.price}</td>
+                                    <td className="p-3 border-x border-black text-center">
+                                        {/* إذا كان هناك خصم، نظهر السعر القديم مشطوباً */}
+                                        {item.discountPercent > 0 ? (
+                                            <>
+                                                <div className="line-through text-gray-400 text-xs">{item.originalPrice.toFixed(2)}</div>
+                                                <div className="font-bold">{item.finalPrice.toFixed(2)}</div>
+                                            </>
+                                        ) : (
+                                            item.finalPrice.toFixed(2)
+                                        )}
+                                    </td>
+                                    <td className="p-3 border-x border-black text-center font-bold">
+                                        {item.discountPercent > 0 ? (
+                                            <span className="bg-black text-white px-2 py-1 rounded text-xs">
+                                                {item.discountPercent}%
+                                            </span>
+                                        ) : '-'}
+                                    </td>
                                     <td className="p-3 border-x border-black text-center font-bold text-lg">{item.totalPrice.toFixed(0)}</td>
                                 </tr>
                             ))}
@@ -117,9 +162,18 @@ export default async function PrintOrderPage(props: Props) {
                             <span className="font-bold">إجمالي القطع:</span>
                             <span>{totalPieces} قطعة</span>
                         </div>
+                        
+                        {/* 👇 سطر إجمالي الخصم (يظهر فقط إذا وجد خصم) */}
+                        {totalDiscountValue > 0 && (
+                            <div className="flex justify-between p-3 border-b border-black bg-gray-50 text-red-600">
+                                <span className="font-bold">إجمالي الخصم (توفير):</span>
+                                <span className="font-bold">- {totalDiscountValue.toFixed(0)} ج.م</span>
+                            </div>
+                        )}
+
                         <div className="flex justify-between p-3 border-b border-black bg-gray-100 font-bold text-lg">
-                            <span>إجمالي الفاتورة:</span>
-                            <span>{order.totalAmount.toFixed(2)} ج.م</span>
+                            <span>صافي الفاتورة:</span>
+                            <span>{totalAmount.toFixed(2)} ج.م</span>
                         </div>
                         {deposit > 0 && (
                             <div className="flex justify-between p-3 border-b border-black bg-white font-bold text-gray-700">

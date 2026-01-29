@@ -7,20 +7,34 @@ import Link from 'next/link';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
-// دالة تجميع الأصناف
+const PIECES_PER_UNIT = 4;
+
+// دالة تجميع الأصناف (المحدثة للخصم)
 function groupOrderItems(items: any[]) {
     const grouped: any = {};
     items?.forEach(item => {
-        const modelNo = item.product.modelNo;
-        if (!grouped[modelNo]) {
-            grouped[modelNo] = {
-                modelNo, desc: item.product.description, price: item.price,
-                totalPrice: 0, totalQty: 0, details: []
+        const key = `${item.product.modelNo}_${item.discountPercent}`;
+        if (!grouped[key]) {
+            const finalPrice = item.price;
+            const discountPct = item.discountPercent || 0;
+            const originalPrice = discountPct > 0 
+                ? finalPrice / (1 - (discountPct / 100)) 
+                : finalPrice;
+
+            grouped[key] = {
+                modelNo: item.product.modelNo,
+                desc: item.product.description,
+                originalPrice: originalPrice,
+                finalPrice: finalPrice,
+                discountPercent: discountPct,
+                totalQty: 0,
+                totalPrice: 0,
+                details: []
             };
         }
-        grouped[modelNo].totalQty += item.quantity;
-        grouped[modelNo].totalPrice += (item.quantity * 4 * item.price);
-        grouped[modelNo].details.push(`${item.quantity * 4} (${item.product.color})`);
+        grouped[key].totalQty += item.quantity;
+        grouped[key].totalPrice += (item.quantity * PIECES_PER_UNIT * item.price);
+        grouped[key].details.push(`${item.quantity * PIECES_PER_UNIT} (${item.product.color})`);
     });
     return Object.values(grouped);
 }
@@ -37,6 +51,9 @@ export default function OrdersListPage() {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const hiddenInvoiceRef = useRef<HTMLDivElement>(null);
 
+  // لحساب قيمة الخصم الكلية للـ PDF
+  const [pdfTotalDiscount, setPdfTotalDiscount] = useState(0);
+
   useEffect(() => {
     if (session?.user?.image) {
       getUserOrders(session.user.image).then(res => {
@@ -47,9 +64,18 @@ export default function OrdersListPage() {
     }
   }, [session]);
 
-  // مراقب لعملية الطباعة
+  // مراقب الطباعة
   useEffect(() => {
     if (pdfOrder && hiddenInvoiceRef.current) {
+        // حساب إجمالي الخصم للفاتورة الحالية
+        const grouped = groupOrderItems(pdfOrder.items);
+        const discountVal = grouped.reduce((acc: number, item: any) => {
+            const totalOriginal = item.originalPrice * (item.totalQty * PIECES_PER_UNIT);
+            const totalFinal = item.finalPrice * (item.totalQty * PIECES_PER_UNIT);
+            return acc + (totalOriginal - totalFinal);
+        }, 0);
+        setPdfTotalDiscount(discountVal);
+
         generateAndSharePdf();
     }
   }, [pdfOrder]);
@@ -133,7 +159,6 @@ export default function OrdersListPage() {
   if (loading) return <div className="p-10 text-center font-bold">جاري التحميل...</div>;
 
   return (
-    // 👇 إضافة overflow-x-hidden لمنع السكرول الأفقي نهائياً في الصفحة
     <div className="min-h-screen bg-gray-50 pb-24 font-sans text-gray-800 overflow-x-hidden" dir="rtl">
       
       {/* Header */}
@@ -214,13 +239,10 @@ export default function OrdersListPage() {
         </div>
       </div>
 
-      {/* 
-          👇 التعديل الهام هنا:
-          استخدام position: fixed و z-index بالسالب
-          هذا يخرج العنصر من حسابات أبعاد الصفحة تماماً فلا يظهر السكرول
-      */}
+      {/* =========================================================================
+          HIDDEN INVOICE SECTION (Used for generating PDF)
+         ========================================================================= */}
       <div style={{ position: 'fixed', top: 0, left: '-10000px', width: '210mm', zIndex: -100, visibility: 'hidden' }}>
-         {/* ملاحظة: استخدمنا visibility hidden للحاوية الخارجية ولكن html2canvas سيقرأ المحتوى الداخلي عند استنساخه */}
          <div id="hidden-invoice-content" ref={hiddenInvoiceRef} className="bg-white p-10 text-right" style={{ width: '210mm', minHeight: '297mm', direction: 'rtl', visibility: 'visible' }}>
             {pdfOrder && (
                 <>
@@ -263,6 +285,7 @@ export default function OrdersListPage() {
                                 <th className="p-3 border border-black text-right">التفاصيل</th>
                                 <th className="p-3 border border-black w-24">العدد</th>
                                 <th className="p-3 border border-black w-24">السعر</th>
+                                <th className="p-3 border border-black w-20">خصم</th>
                                 <th className="p-3 border border-black w-32">الإجمالي</th>
                             </tr>
                         </thead>
@@ -275,7 +298,28 @@ export default function OrdersListPage() {
                                         <div className="text-xs text-gray-600">{item.details.join(' + ')}</div>
                                     </td>
                                     <td className="p-3 border-x border-black text-center text-lg font-bold">{item.totalQty * 4}</td>
-                                    <td className="p-3 border-x border-black text-center">{item.price}</td>
+                                    
+                                    {/* السعر */}
+                                    <td className="p-3 border-x border-black text-center">
+                                        {item.discountPercent > 0 ? (
+                                            <>
+                                                <div className="line-through text-gray-400 text-xs">{item.originalPrice.toFixed(2)}</div>
+                                                <div className="font-bold">{item.finalPrice.toFixed(2)}</div>
+                                            </>
+                                        ) : (
+                                            item.finalPrice.toFixed(2)
+                                        )}
+                                    </td>
+
+                                    {/* الخصم */}
+                                    <td className="p-3 border-x border-black text-center font-bold">
+                                        {item.discountPercent > 0 ? (
+                                            <span className="bg-black text-white px-2 py-1 rounded text-xs">
+                                                {item.discountPercent}%
+                                            </span>
+                                        ) : '-'}
+                                    </td>
+
                                     <td className="p-3 border-x border-black text-center font-bold text-lg">{item.totalPrice.toFixed(0)}</td>
                                 </tr>
                             ))}
@@ -284,8 +328,17 @@ export default function OrdersListPage() {
 
                     <div className="flex justify-end mb-16">
                         <div className="w-1/2 border-2 border-black rounded-lg overflow-hidden">
+                            
+                            {/* إجمالي الخصم في الفوتر */}
+                            {pdfTotalDiscount > 0 && (
+                                <div className="flex justify-between p-3 border-b border-black bg-gray-50 text-red-600">
+                                    <span className="font-bold">إجمالي الخصم:</span>
+                                    <span className="font-bold">- {pdfTotalDiscount.toFixed(0)} ج.م</span>
+                                </div>
+                            )}
+
                             <div className="flex justify-between p-3 border-b border-black bg-gray-100 font-bold text-lg">
-                                <span>الإجمالي:</span>
+                                <span>صافي الفاتورة:</span>
                                 <span>{pdfOrder.totalAmount.toFixed(2)} ج.م</span>
                             </div>
                             {pdfOrder.deposit > 0 && (
