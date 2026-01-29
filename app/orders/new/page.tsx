@@ -29,12 +29,11 @@ export default function NewOrderPage() {
   const [selectionMap, setSelectionMap] = useState<{[key: string]: number}>({});
 
   // Cart & Discount Logic
-  // السلة الآن يمكن أن تحتوي على منتجات أو "فواصل خصم"
   const [cart, setCart] = useState<any[]>([]);
   const [cartSearchTerm, setCartSearchTerm] = useState('');
   const [deposit, setDeposit] = useState<string>('');
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
-  const [showDiscountOptions, setShowDiscountOptions] = useState(false); // لإظهار قائمة الخصومات
+  const [showDiscountOptions, setShowDiscountOptions] = useState(false);
 
   useEffect(() => {
     getCustomers().then(setCustomerResults);
@@ -101,7 +100,7 @@ export default function NewOrderPage() {
     setSelectionMap(newMap);
   };
 
-  // Add Products to Cart
+  // 👇 المنطق المعدل لإضافة الأصناف (يدعم الدمج الذكي)
   const handleAddToCart = () => {
     const selectedIds = Object.keys(selectionMap);
     if (selectedIds.length === 0) return;
@@ -116,25 +115,76 @@ export default function NewOrderPage() {
     let updatedCart = [...cart];
 
     Object.keys(groupedByModel).forEach(modelNo => {
-      const newVariants = groupedByModel[modelNo];
+      const newVariants = groupedByModel[modelNo]; // المصفوفة المختارة لهذا الموديل
+
+      // 1. نبحث عن الصنف في السلة، لكن نتوقف إذا وجدنا "خصم"
+      // (لأننا نريد الدمج فقط في المنطقة النشطة قبل الخصم)
+      let existingItemIndex = -1;
       
-      const finalVariants = newVariants.map((v: any) => ({
-          productId: v.id, quantity: v.qty, price: v.price, color: v.color
-      }));
+      for (let i = 0; i < updatedCart.length; i++) {
+          if (updatedCart[i].type === 'discount') {
+              break; // توقف! وصلنا لحاجز خصم، لا يمكن الدمج بعده
+          }
+          if (updatedCart[i].modelNo === modelNo) {
+              existingItemIndex = i;
+              break; // وجدنا الموديل في المنطقة المسموح بها
+          }
+      }
 
-      const totalQty = finalVariants.reduce((sum, v) => sum + v.quantity, 0);
-      const originalPrice = finalVariants[0].price; // السعر الأصلي للقطعة
-      // ملاحظة: السعر سيتم حسابه لاحقاً بناءً على الخصم
+      if (existingItemIndex > -1) {
+          // --- حالة الدمج (Merge) ---
+          const existingItem = updatedCart[existingItemIndex];
+          
+          // نستخدم Map لسهولة الوصول للألوان الموجودة
+          const variantsMap: any = {};
+          existingItem.variants.forEach((v: any) => { variantsMap[v.productId] = { ...v }; });
 
-      updatedCart.unshift({
-        type: 'product', // 👈 تمييز النوع
-        id: Date.now() + Math.random(),
-        modelNo: modelNo,
-        baseDescription: newVariants[0].description,
-        totalQty: totalQty,
-        unitPrice: originalPrice,
-        variants: finalVariants
-      });
+          // إضافة الكميات الجديدة
+          newVariants.forEach((nv: any) => {
+              if (variantsMap[nv.id]) {
+                  variantsMap[nv.id].quantity += nv.qty;
+              } else {
+                  variantsMap[nv.id] = { 
+                      productId: nv.id, 
+                      quantity: nv.qty, 
+                      price: nv.price, 
+                      color: nv.color 
+                  };
+              }
+          });
+
+          // إعادة تجميع الفارينتس
+          const finalVariants = Object.values(variantsMap);
+          const totalQty = finalVariants.reduce((sum: number, v: any) => sum + v.quantity, 0);
+
+          // تحديث السطر في السلة
+          updatedCart[existingItemIndex] = {
+              ...existingItem,
+              totalQty: totalQty,
+              variants: finalVariants,
+              // نحتفظ بنفس المعرف ونفس الموديل
+          };
+
+      } else {
+          // --- حالة صنف جديد (Add New) ---
+          const finalVariants = newVariants.map((v: any) => ({
+              productId: v.id, quantity: v.qty, price: v.price, color: v.color
+          }));
+
+          const totalQty = finalVariants.reduce((sum: any, v: any) => sum + v.quantity, 0);
+          const originalPrice = newVariants[0].price;
+
+          // إضافة لأعلى القائمة
+          updatedCart.unshift({
+            type: 'product', 
+            id: Date.now() + Math.random(),
+            modelNo: modelNo,
+            baseDescription: newVariants[0].description,
+            totalQty: totalQty,
+            unitPrice: originalPrice,
+            variants: finalVariants
+          });
+      }
     });
 
     setCart(updatedCart);
@@ -144,9 +194,7 @@ export default function NewOrderPage() {
     setShowScanner(false);
   };
 
-  // 👇 إضافة خصم جديد (كسطر فاصل)
   const handleAddDiscount = (percent: number) => {
-      // نتأكد أن السطر الأول ليس خصماً بالفعل (لتجنب التكرار غير المنطقي)
       if (cart.length > 0 && cart[0].type === 'discount') {
           alert("يوجد خصم مضاف بالفعل في البداية");
           return;
@@ -160,7 +208,7 @@ export default function NewOrderPage() {
   };
 
   const handleEditItem = async (item: any) => {
-    if (item.type === 'discount') return; // لا يمكن تعديل الخصم (احذفه وأضفه)
+    if (item.type === 'discount') return;
 
     setSearchTerm(item.modelNo);
     const results = await searchProducts(item.modelNo);
@@ -179,46 +227,26 @@ export default function NewOrderPage() {
       }
   };
 
-  // 👇 المنطق الذكي لحساب الإجمالي وتوزيع الخصومات
-  // هذه الدالة تعيد قائمة المنتجات النهائية مع أسعارها بعد الخصم (للعرض وللحفظ)
+  // دالة الحسابات ومعالجة الخصم
   const getProcessedCart = () => {
       let processedItems: any[] = [];
-      // نبدأ من الأسفل للأعلى (من الأقدم للأحدث) لأن الخصم يطبق على "السطور السابقة"
-      // لكن المصفوفة cart مرتبة (الأحدث في index 0).
-      // لذا سنعكس المصفوفة مؤقتاً لنحاكي الترتيب الزمني للإضافة
-      const chronologicalCart = [...cart].reverse(); 
-
-      let currentDiscount = 0; // الخصم النشط الحالي
-
-      // نمشي من الأقدم للأحدث
-      // إذا وجدنا خصم، نحدث قيمة currentDiscount
-      // إذا وجدنا منتج، نطبق عليه currentDiscount
-      // لكن الطلب: "عند اختيار الخصم يطبق على السطور السابقة فقط"
-      // هذا يعني في المصفوفة المعكوسة (الزمنية): المنتج يضاف أولاً، ثم يضاف الخصم لاحقاً ليؤثر عليه.
-      // إذن: نمشي من "الآخِر" (الأحدث، وهو الخصم) ونطبق على ما قبله؟
-      // لا، الأسهل: نمشي في الـ cart الأصلية (حيث index 0 هو الأحدث).
-      // إذا وجدنا خصم في index 0، فهو يطبق على index 1, 2, 3... حتى نجد خصم آخر.
-      
       let activeDiscount = 0;
 
-      // نمر على عناصر السلة (من الأحدث للأقدم)
+      // نمر من الأحدث (index 0) إلى الأقدم
       cart.forEach(item => {
           if (item.type === 'discount') {
-              activeDiscount = item.percent; // تغيير نسبة الخصم للأسطر التالية (الأقدم)
+              activeDiscount = item.percent; // تعيين الخصم لما يلي
           } else {
-              // هذا منتج، نطبق عليه الخصم النشط حالياً
               const discountVal = activeDiscount;
               const unitPrice = item.unitPrice;
               const discountedPrice = unitPrice * (1 - discountVal / 100);
               const totalPrice = item.variants.reduce((sum: number, v: any) => sum + (v.quantity * PIECES_PER_UNIT * discountedPrice), 0);
               
-              // نضيف تفاصيل الخصم للمنتج
               processedItems.push({
                   ...item,
                   appliedDiscount: discountVal,
                   finalPrice: discountedPrice,
                   totalLinePrice: totalPrice,
-                  // تحديث الفارينتس بالسعر الجديد
                   variants: item.variants.map((v: any) => ({
                       ...v,
                       price: discountedPrice,
@@ -228,13 +256,12 @@ export default function NewOrderPage() {
           }
       });
 
-      return processedItems; // هذه القائمة تحتوي المنتجات فقط مع الأسعار النهائية
+      return processedItems; 
   };
 
   const handleSaveOrder = async () => {
     if(!session?.user) return;
     
-    // تحويل السلة المختلطة إلى سلة منتجات صافية بأسعار نهائية
     const cleanCart = getProcessedCart();
     
     const total = cleanCart.reduce((acc, item) => acc + item.totalLinePrice, 0);
@@ -246,7 +273,7 @@ export default function NewOrderPage() {
 
     const newOrder = await createOrder({
       customerId: selectedCustomer.id,
-      items: cleanCart, // نرسل القائمة النظيفة
+      items: cleanCart, 
       total,
       deposit: depositVal,
       safeId: selectedSafeId
@@ -259,12 +286,10 @@ export default function NewOrderPage() {
     }
   };
 
-  // للحسابات في الواجهة
   const processedDisplayCart = getProcessedCart(); 
   const currentTotal = processedDisplayCart.reduce((acc, i) => acc + i.totalLinePrice, 0);
   const depositVal = parseFloat(deposit) || 0;
 
-  // الفلترة للعرض فقط (مع الحفاظ على الفواصل)
   const filteredDisplayList = cart.filter(item => {
       if (item.type === 'discount') return true;
       return item.modelNo.toLowerCase().includes(cartSearchTerm.toLowerCase());
@@ -378,7 +403,6 @@ export default function NewOrderPage() {
               <div className="mt-8">
                 <div className="flex justify-between items-center mb-3">
                     <h3 className="font-bold text-gray-700 text-lg">محتويات السلة</h3>
-                    {/* 👇 زر إضافة الخصم */}
                     <div className="relative">
                         <button 
                             onClick={() => setShowDiscountOptions(!showDiscountOptions)} 
@@ -387,7 +411,6 @@ export default function NewOrderPage() {
                             + إضافة خصم 🏷️
                         </button>
                         
-                        {/* قائمة الخصومات */}
                         {showDiscountOptions && (
                             <div className="absolute top-full left-0 bg-white border rounded-lg shadow-xl z-20 w-48 mt-1 p-2 grid grid-cols-3 gap-2">
                                 {[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60].map(p => (
@@ -407,8 +430,6 @@ export default function NewOrderPage() {
                 <div className="mb-4"><input type="text" placeholder="🔎 بحث..." value={cartSearchTerm} onChange={(e) => setCartSearchTerm(e.target.value)} className="w-full p-2 border rounded-lg bg-gray-50" /></div>
                 
                 <div className="space-y-3">
-                  {/* نقوم بعرض العناصر مع حساب السعر النهائي "للعرض فقط" */}
-                  {/* هنا نستخدم filteredDisplayList لكن نحتاج لحساب القيم لها */}
                   {filteredDisplayList.map((item, index) => {
                     if (item.type === 'discount') {
                         return (
@@ -419,12 +440,10 @@ export default function NewOrderPage() {
                         );
                     }
 
-                    // البحث عن العنصر المعالج (المحتوي على السعر النهائي)
                     const processedItem = processedDisplayCart.find((p:any) => p.id === item.id) || item;
 
                     return (
                         <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative overflow-hidden">
-                            {/* شارة الخصم */}
                             {processedItem.appliedDiscount > 0 && (
                                 <div className="absolute top-0 left-0 bg-red-500 text-white text-[10px] px-2 py-1 rounded-br font-bold">
                                     خصم {processedItem.appliedDiscount}%
@@ -463,7 +482,6 @@ export default function NewOrderPage() {
                   })}
                 </div>
                 
-                {/* Total Bar */}
                 <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
                     <div className="max-w-2xl mx-auto flex justify-between items-center">
                         <div>
