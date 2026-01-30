@@ -4,38 +4,81 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
+// ثابت التحويل (لو كنت تستخدمه في مكان آخر، هنا سنعرض العدد كما هو مخزن)
+// const PIECES_PER_UNIT = 4; 
+
 // ==========================================
-// 1. تقارير المخزون (Inventory)
+// 1. تقارير المخزون وحركة الصنف (Inventory & Movement)
 // ==========================================
 
 export async function getInventoryReport() {
   try {
-    // جلب جميع الأصناف
+    // جلب الأصناف مع تفاصيل مبيعاتها (OrderItems) والعميل المرتبط بكل بيعة
     const products = await prisma.product.findMany({
-      orderBy: { modelNo: 'asc' }
+      orderBy: { modelNo: 'asc' },
+      include: {
+        orderItems: {
+            include: {
+                order: {
+                    include: { customer: true }
+                }
+            }
+        }
+      }
     });
 
-    // تحويل البيانات لتناسب العرض
-    const report = products.map(p => ({
-      id: p.id,
-      modelNo: p.modelNo,
-      color: p.color,
-      stockQty: p.stockQty, // عدد الدست المتبقية
-      price: p.price,
-      // قيمة البضاعة بسعر البيع (المخزون * 4 قطع * السعر)
-      totalValue: p.stockQty * 4 * p.price, 
-      status: p.status
-    }));
+    // تحويل البيانات وحساب الحركة
+    const report = products.map(p => {
+        // 1. حساب إجمالي ما تم بيعه من هذا الصنف
+        const totalSold = p.orderItems.reduce((sum, item) => sum + item.quantity, 0);
+        
+        // 2. الرصيد الحالي (الموجود في الخانة stockQty)
+        const currentStock = p.stockQty;
+
+        // 3. استنتاج الرصيد الأولي (بافتراض: الأولي = الحالي + ما تم بيعه)
+        // (هذا الرقم دقيق طالما لم يتم إضافة بضاعة جديدة، لو تم إضافة بضاعة سيعتبرها جزء من الأولي)
+        const initialStock = currentStock + totalSold;
+
+        // 4. تجهيز تفاصيل الحركة (للعرض عند الضغط)
+        const movementHistory = p.orderItems.map(item => ({
+            orderId: item.orderId,
+            orderNo: item.order.orderNo,
+            date: item.order.createdAt,
+            customer: item.order.customer.name,
+            quantity: item.quantity,
+            price: item.price // سعر البيع في وقتها
+        }));
+
+        return {
+            id: p.id,
+            modelNo: p.modelNo,
+            color: p.color,
+            
+            initialStock: initialStock, // الرصيد الأولي
+            totalSold: totalSold,       // الخارج (مبيعات)
+            currentStock: currentStock, // الرصيد الحالي
+            
+            price: p.price,
+            // القيمة الحالية = الرصيد الحالي * السعر
+            // (أزلت الضرب في 4 بناء على طلبك بأن الكمية قطعة)
+            currentValue: currentStock * p.price, 
+            
+            status: p.status,
+            history: movementHistory // التفاصيل
+        };
+    });
 
     // إجماليات للملخص
     const summary = {
       totalItems: report.length,
-      totalStockDozens: report.reduce((acc, item) => acc + item.stockQty, 0),
-      totalValue: report.reduce((acc, item) => acc + item.totalValue, 0)
+      totalCurrentStock: report.reduce((acc, item) => acc + item.currentStock, 0),
+      totalSoldUnits: report.reduce((acc, item) => acc + item.totalSold, 0),
+      totalValue: report.reduce((acc, item) => acc + item.currentValue, 0)
     };
 
     return { success: true, data: report, summary };
   } catch (e) {
+    console.error(e);
     return { success: false, error: 'فشل جلب بيانات المخزون' };
   }
 }
@@ -51,38 +94,26 @@ export async function getSafesList() {
 
 export async function getSafeLedger(safeId: string, startDate?: string, endDate?: string) {
   try {
-    // إعداد فلتر التاريخ
     const dateFilter: any = {};
     if (startDate) dateFilter.gte = new Date(startDate);
     if (endDate) {
         const end = new Date(endDate);
-        end.setHours(23, 59, 59); // لنهاية اليوم
+        end.setHours(23, 59, 59); 
         dateFilter.lte = end;
     }
 
-    // 1. جلب المدفوعات المباشرة (تحصيل نقدية)
     const payments = await prisma.payment.findMany({
-      where: { 
-          safeId,
-          createdAt: startDate || endDate ? dateFilter : undefined
-      },
+      where: { safeId, createdAt: startDate || endDate ? dateFilter : undefined },
       include: { customer: true, user: true }
     });
 
-    // 2. جلب عربون الأوردرات (مقدمات)
     const orders = await prisma.order.findMany({
-      where: { 
-          safeId,
-          deposit: { gt: 0 }, // فقط التي بها عربون
-          createdAt: startDate || endDate ? dateFilter : undefined
-      },
+      where: { safeId, deposit: { gt: 0 }, createdAt: startDate || endDate ? dateFilter : undefined },
       include: { customer: true, user: true }
     });
 
-    // 3. دمج العمليات في قائمة واحدة (Ledger)
     let transactions: any[] = [];
 
-    // إضافة التحصيلات
     payments.forEach(p => {
         transactions.push({
             id: p.id,
@@ -95,7 +126,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         });
     });
 
-    // إضافة العرابين
     orders.forEach(o => {
         transactions.push({
             id: o.id,
@@ -108,10 +138,8 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         });
     });
 
-    // ترتيب العمليات حسب التاريخ (من الأقدم للأحدث) لحساب الرصيد التراكمي
     transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // حساب الرصيد التراكمي
     let runningBalance = 0;
     const finalTransactions = transactions.map(t => {
         runningBalance += (t.inAmount - t.outAmount);
@@ -126,7 +154,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
     };
 
   } catch (e) {
-    console.error(e);
     return { success: false, error: 'فشل جلب دفتر الخزنة' };
   }
 }
