@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { getUserOrders, deleteOrder } from '@/app/actions';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
@@ -45,6 +45,7 @@ export default function OrdersListPage() {
   const [userRole, setUserRole] = useState('EMPLOYEE');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [newOrderAlert, setNewOrderAlert] = useState(false); // تنبيه الأوردر الجديد
 
   // حالات طباعة PDF
   const [pdfOrder, setPdfOrder] = useState<any>(null);
@@ -54,15 +55,35 @@ export default function OrdersListPage() {
   // لحساب قيمة الخصم الكلية للـ PDF
   const [pdfTotalDiscount, setPdfTotalDiscount] = useState(0);
 
-  useEffect(() => {
+  // --- دالة جلب البيانات (محدثة لدعم التحديث التلقائي) ---
+  const fetchOrdersData = useCallback(async (isRefresh = false) => {
     if (session?.user?.image) {
-      getUserOrders(session.user.image).then(res => {
-        setOrders(res.orders);
-        setUserRole(res.userRole || 'EMPLOYEE');
-        setLoading(false);
-      });
+      const res = await getUserOrders(session.user.image);
+      
+      // منطق التنبيه: إذا زاد عدد الأوردرات عما هو موجود في الـ State
+      if (isRefresh && res.orders.length > orders.length && orders.length > 0) {
+        setNewOrderAlert(true);
+        setTimeout(() => setNewOrderAlert(false), 6000); // إخفاء التنبيه بعد 6 ثواني
+      }
+
+      setOrders(res.orders);
+      setUserRole(res.userRole || 'EMPLOYEE');
+      if(!isRefresh) setLoading(false);
     }
-  }, [session]);
+  }, [session, orders.length]);
+
+  // التحميل الأول للملف
+  useEffect(() => {
+    fetchOrdersData();
+  }, [session, fetchOrdersData]);
+
+  // --- إضافة التحديث التلقائي (كل 7 ثواني) ---
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchOrdersData(true);
+    }, 7000); 
+    return () => clearInterval(interval);
+  }, [fetchOrdersData]);
 
   // مراقب الطباعة
   useEffect(() => {
@@ -161,9 +182,20 @@ export default function OrdersListPage() {
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans text-gray-800 overflow-x-hidden" dir="rtl">
       
+      {/* تنبيه الأوردر الجديد العائم */}
+      {newOrderAlert && (
+          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-green-600 text-white px-8 py-4 rounded-full shadow-2xl font-bold animate-bounce flex items-center gap-3">
+              <span className="text-xl">🔔</span>
+              <span>وصل أوردر جديد الآن! يتم التحديث...</span>
+          </div>
+      )}
+
       {/* Header */}
       <div className="bg-white p-4 shadow mb-4 sticky top-0 z-20 flex justify-between items-center">
-        <h2 className="font-bold text-lg text-gray-800">📋 سجل الأوردرات</h2>
+        <h2 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+            📋 سجل الأوردرات
+            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+        </h2>
         <Link href="/" className="bg-gray-100 px-4 py-2 rounded font-bold text-sm">عودة 🏠</Link>
       </div>
 
@@ -172,7 +204,7 @@ export default function OrdersListPage() {
         <input 
             type="text" 
             placeholder="🔍 ابحث برقم الأوردر أو اسم العميل..." 
-            className="w-full p-3 border rounded-lg bg-white shadow-sm"
+            className="w-full p-3 border rounded-lg bg-white shadow-sm focus:ring-2 focus:ring-blue-500 outline-none"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
         />
@@ -190,7 +222,7 @@ export default function OrdersListPage() {
             {filteredOrders.length === 0 && <div className="text-center text-gray-500 mt-10">لا توجد أوردرات</div>}
             
             {filteredOrders.map(order => (
-                <div key={order.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:border-blue-200 transition-colors">
+                <div key={order.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:border-blue-200 transition-all transform hover:scale-[1.01]">
                     <div className="flex justify-between items-start border-b pb-2 mb-2">
                         <div>
                             <div className="font-bold text-lg text-blue-800">#{order.orderNo}</div>
@@ -240,7 +272,7 @@ export default function OrdersListPage() {
       </div>
 
       {/* =========================================================================
-          HIDDEN INVOICE SECTION (Used for generating PDF)
+          HIDDEN INVOICE SECTION (تمت إعادته بالكامل كما في كودك الأصلي)
          ========================================================================= */}
       <div style={{ position: 'fixed', top: 0, left: '-10000px', width: '210mm', zIndex: -100, visibility: 'hidden' }}>
          <div id="hidden-invoice-content" ref={hiddenInvoiceRef} className="bg-white p-10 text-right" style={{ width: '210mm', minHeight: '297mm', direction: 'rtl', visibility: 'visible' }}>

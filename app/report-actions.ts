@@ -6,7 +6,7 @@ const prisma = new PrismaClient()
 const PIECES_PER_UNIT = 4; 
 
 // ==========================================
-// 1. تقارير المخزون (حركة الأصناف)
+// 1. تقارير المخزون (حركة الأصناف) - كامل بدون حذف
 // ==========================================
 export async function getInventoryReport() {
   try {
@@ -64,7 +64,7 @@ export async function getInventoryReport() {
 }
 
 // ==========================================
-// 2. تقارير الخزنة (دفتر الأستاذ)
+// 2. تقارير الخزنة (دفتر الأستاذ) - كامل بدون حذف
 // ==========================================
 export async function getSafesList() {
     const safes = await prisma.safe.findMany();
@@ -82,7 +82,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
     }
 
     // 1. جلب المدفوعات (وارد، صادر، تحويل)
-    // نبحث عن أي حركة تكون فيها الخزنة هي المصدر (safeId) أو المستلم (targetSafeId)
     const payments = await prisma.payment.findMany({
       where: {
         OR: [
@@ -102,7 +101,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
 
     let transactions: any[] = [];
 
-    // استخدمنا (p: any) لتجاوز أخطاء التايب سكريبت المرتبطة بالحقول الجديدة
     payments.forEach((p: any) => {
         let desc = '';
         let inAmt = 0;
@@ -110,35 +108,27 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         let typeLabel = '';
 
         if (p.type === 'IN') {
-             // --- سند قبض ---
              typeLabel = 'سند قبض';
              const custName = p.customer?.name || 'عميل';
              desc = p.customer ? `إيصال #${p.receiptNo} - ${custName}` : `إيصال #${p.receiptNo}`;
              inAmt = p.amount;
-
         } else if (p.type === 'OUT') {
-             // --- سند صرف ---
              typeLabel = 'سند صرف';
              desc = p.description || 'مصروفات';
              outAmt = p.amount;
-
         } else if (p.type === 'TRANSFER') {
-             // --- تحويل نقدية ---
              if (p.safeId === safeId) {
-                // الخزنة الحالية هي التي حولت المبلغ (صادر)
                 typeLabel = 'تحويل صادر';
                 const targetName = p.targetSafe?.name || 'غير معروف';
                 desc = `تحويل إلى: ${targetName} - ${p.description || ''}`;
                 outAmt = p.amount;
              } else {
-                // الخزنة الحالية هي التي استلمت المبلغ (وارد)
                 typeLabel = 'تحويل وارد';
                 const sourceName = p.safe?.name || 'غير معروف';
                 desc = `تحويل من: ${sourceName} - ${p.description || ''}`;
                 inAmt = p.amount;
              }
         } else {
-             // دعم السجلات القديمة التي ليس لها نوع (تعتبر قبض)
              typeLabel = 'تحصيل قديم';
              desc = `إيصال #${p.receiptNo}`;
              inAmt = p.amount;
@@ -155,7 +145,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         });
     });
 
-    // إضافة العرابين
     orders.forEach(o => {
         transactions.push({
             id: o.id, date: o.createdAt, type: 'عربون أوردر',
@@ -164,10 +153,8 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         });
     });
 
-    // ترتيب حسب التاريخ
     transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // حساب الرصيد التراكمي
     let runningBalance = 0;
     const finalTransactions = transactions.map(t => {
         runningBalance += (t.inAmount - t.outAmount);
@@ -189,16 +176,15 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
 }
 
 // ==========================================
-// 3. تقرير أداء الموظفين
+// 3. تقرير أداء الموظفين (تم التعديل لحساب الخصم من الأصناف)
 // ==========================================
 export async function getEmployeePerformance() {
     try {
         const users = await prisma.user.findMany({
             include: {
                 orders: {
-                    select: {
-                        totalAmount: true,
-                        discount: true // التأكد من وجود الحقل في السكيما
+                    include: {
+                        items: true // جلب الأصناف لحساب الخصومات بشكل دقيق
                     }
                 }
             }
@@ -207,7 +193,25 @@ export async function getEmployeePerformance() {
         const report = users.map(user => {
             const orderCount = user.orders.length;
             const totalSales = user.orders.reduce((sum, o) => sum + o.totalAmount, 0);
-            const totalDiscount = user.orders.reduce((sum, o) => sum + (o.discount || 0), 0);
+            
+            // حساب إجمالي قيمة الخصومات التي منحها الموظف برمجياً من واقع الأصناف
+            let totalDiscountValue = 0;
+            user.orders.forEach(order => {
+                order.items.forEach(item => {
+                    if (item.discountPercent > 0) {
+                        // السعر المخزن في item.price هو السعر النهائي بعد الخصم
+                        const finalPrice = item.price;
+                        const discountPct = item.discountPercent;
+                        // المعادلة لاسترجاع السعر الأصلي: السعر الأصلي = السعر النهائي / (1 - نسبة الخصم)
+                        const originalPrice = finalPrice / (1 - (discountPct / 100));
+                        const discountPerPiece = originalPrice - finalPrice;
+                        // الإجمالي = فرق السعر * الكمية (عدد الدست) * 4 قطع
+                        totalDiscountValue += (discountPerPiece * item.quantity * PIECES_PER_UNIT);
+                    }
+                });
+                // إذا كان هناك خصم إضافي مسجل على مستوى الأوردر (حقل discount) يتم إضافته أيضاً
+                totalDiscountValue += (order.discount || 0);
+            });
 
             return {
                 id: user.id,
@@ -216,12 +220,13 @@ export async function getEmployeePerformance() {
                 role: user.role,
                 orderCount,
                 totalSales,
-                totalDiscount
+                totalDiscount: Math.round(totalDiscountValue) // تقريب الرقم لأقرب جنيه
             };
         }).filter(u => u.orderCount > 0);
 
         return { success: true, data: report };
     } catch (e) {
+        console.error("Employee Performance Error:", e);
         return { success: false, error: 'فشل جلب أداء الموظفين' };
     }
 }
