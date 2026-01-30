@@ -140,17 +140,14 @@ export async function deleteProduct(id: string) {
 }
 
 export async function deleteBulkProducts(ids: string[]) {
-    // حذف الأصناف التي ليس لها مبيعات فقط من القائمة المحددة
     try {
         const res = await prisma.product.deleteMany({
             where: {
                 id: { in: ids },
-                orderItems: { none: {} } // 👈 الشرط السحري: ليس له مبيعات
+                orderItems: { none: {} }
             }
         });
-        
         revalidatePath('/admin/products');
-        // عدد الفاشلين = العدد الكلي - عدد المحذوفين
         return { success: true, deleted: res.count, failed: ids.length - res.count };
     } catch (e) {
         return { success: false, error: 'حدث خطأ أثناء الحذف' };
@@ -159,16 +156,12 @@ export async function deleteBulkProducts(ids: string[]) {
 
 export async function deleteAllProducts() {
     try {
-        // حذف كل الأصناف التي ليس لها مبيعات
         const res = await prisma.product.deleteMany({
             where: {
                 orderItems: { none: {} }
             }
         });
-
-        // لحساب الفاشلين (المتبقين)
         const remaining = await prisma.product.count();
-
         revalidatePath('/admin/products');
         return { success: true, deleted: res.count, failed: remaining };
     } catch (e) { return { success: false, error: 'حدث خطأ غير متوقع' }; }
@@ -180,12 +173,12 @@ export async function getProducts() {
 }
 
 // ==========================================
-// 3. إدارة العملاء (Customers) - (تم التسريع)
+// 3. إدارة العملاء (Customers) - تم التعديل ليعيد العميل المضاف
 // ==========================================
 
 export async function addCustomer(data: any) {
     try {
-      await prisma.customer.create({ 
+      const customer = await prisma.customer.create({ 
           data: {
               code: data.code,
               name: data.name,
@@ -195,7 +188,8 @@ export async function addCustomer(data: any) {
           } 
       });
       revalidatePath('/admin/customers');
-      return { success: true };
+      // نرجع الكائن المنشأ لاستخدامه فوراً في شاشات البيع
+      return { success: true, customer: JSON.parse(JSON.stringify(customer)) };
     } catch (e) { return { success: false, error: 'كود العميل مكرر' }; }
 }
 
@@ -258,10 +252,8 @@ export async function deleteCustomer(id: string) {
     }
 }
 
-// 👇 التعديل الجوهري: حذف المحدد (دفعة واحدة سريعة جداً)
 export async function deleteBulkCustomers(ids: string[]) {
     try {
-        // احذف العملاء الذين في القائمة AND (ليس لديهم طلبات AND ليس لديهم مدفوعات)
         const res = await prisma.customer.deleteMany({
             where: {
                 id: { in: ids },
@@ -269,42 +261,31 @@ export async function deleteBulkCustomers(ids: string[]) {
                 payments: { none: {} }
             }
         });
-        
         revalidatePath('/admin/customers');
-        // عدد المحذوفين الفعلي vs العدد المطلوب
         return { success: true, deleted: res.count, failed: ids.length - res.count };
     } catch (e) {
         return { success: false, error: 'حدث خطأ في قاعدة البيانات' };
     }
 }
 
-// 👇 التعديل الجوهري: حذف الكل (دفعة واحدة سريعة جداً)
 export async function deleteAllCustomers() {
     try {
-        // 1. حساب العدد الكلي قبل الحذف
         const totalBefore = await prisma.customer.count();
-
-        // 2. حذف كل من ليس له روابط (Query واحد سريع)
         const res = await prisma.customer.deleteMany({
             where: {
                 orders: { none: {} },
                 payments: { none: {} }
             }
         });
-        
-        // 3. المتبقي
         const remaining = totalBefore - res.count;
-
         revalidatePath('/admin/customers');
         return { success: true, deleted: res.count, failed: remaining };
-        
     } catch (e) { 
         return { success: false, error: 'حدث خطأ غير متوقع', deleted: 0, failed: 0 }; 
     }
 }
 
 export async function getAdminCustomers() {
-    // جلب آخر 500 عميل فقط لتحسين أداء الصفحة
     const custs = await prisma.customer.findMany({ orderBy: { id: 'desc' }, take: 500 });
     return JSON.parse(JSON.stringify(custs));
 }
