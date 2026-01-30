@@ -38,13 +38,16 @@ export default function ReportsPage() {
 }
 
 // ===============================================
-// مكون تقرير حركة المخزون (المعدل)
+// مكون تقرير حركة المخزون (المعدل: إضافة التجميع)
 // ===============================================
 function InventoryReportView() {
-    const [data, setData] = useState<any[]>([]);
+    const [data, setData] = useState<any[]>([]); // البيانات الخام (باللون)
     const [summary, setSummary] = useState<any>({});
     const [loading, setLoading] = useState(true);
     
+    // 👇 حالة وضع العرض (جديد)
+    const [viewMode, setViewMode] = useState<'COLOR' | 'MODEL'>('COLOR');
+
     // حالة المودال (التفاصيل)
     const [selectedHistory, setSelectedHistory] = useState<any[] | null>(null);
     const [selectedItemName, setSelectedItemName] = useState('');
@@ -59,10 +62,55 @@ function InventoryReportView() {
         });
     }, []);
 
+    // 👇 دالة تجميع البيانات حسب الموديل
+    const getGroupedData = () => {
+        const groups: any = {};
+        
+        data.forEach(item => {
+            if (!groups[item.modelNo]) {
+                groups[item.modelNo] = {
+                    id: item.modelNo, // ID مؤقت
+                    modelNo: item.modelNo,
+                    colors: [], // قائمة الألوان المدمجة
+                    initialStock: 0,
+                    totalSold: 0,
+                    currentStock: 0,
+                    currentValue: 0,
+                    status: 'MIXED', // حالة مختلطة
+                    history: []
+                };
+            }
+            
+            const g = groups[item.modelNo];
+            g.colors.push(item.color);
+            g.initialStock += item.initialStock;
+            g.totalSold += item.totalSold;
+            g.currentStock += item.currentStock;
+            g.currentValue += item.currentValue;
+            // دمج سجلات التاريخ
+            g.history = [...g.history, ...item.history];
+        });
+
+        // تحويل الكائن لمصفوفة
+        return Object.values(groups);
+    };
+
+    // تحديد البيانات التي ستعرض بناء على الوضع المختار
+    const displayData = viewMode === 'COLOR' ? data : getGroupedData();
+
     const openHistory = (item: any) => {
         if (item.totalSold > 0) {
-            setSelectedItemName(`${item.modelNo} - ${item.color}`);
-            setSelectedHistory(item.history);
+            const name = viewMode === 'COLOR' 
+                ? `${item.modelNo} - ${item.color}` 
+                : `موديل ${item.modelNo} (كل الألوان)`;
+            
+            setSelectedItemName(name);
+            
+            // ترتيب التاريخ من الأحدث للأقدم
+            const sortedHistory = [...item.history].sort((a: any, b: any) => 
+                new Date(b.date).getTime() - new Date(a.date).getTime()
+            );
+            setSelectedHistory(sortedHistory);
         }
     };
 
@@ -70,13 +118,34 @@ function InventoryReportView() {
 
     return (
         <div className="space-y-6">
-            <h2 className="text-xl font-bold border-b pb-2">تقرير حركة الأصناف (وارد - منصرف - رصيد)</h2>
+            <div className="flex justify-between items-center border-b pb-2">
+                <h2 className="text-xl font-bold">تقرير حركة الأصناف</h2>
+                
+                {/* 👇 أزرار التبديل الجديدة */}
+                <div className="bg-gray-100 p-1 rounded-lg flex text-sm print:hidden">
+                    <button 
+                        onClick={() => setViewMode('COLOR')}
+                        className={`px-4 py-1 rounded-md transition ${viewMode === 'COLOR' ? 'bg-white shadow text-blue-700 font-bold' : 'text-gray-500'}`}
+                    >
+                        تفصيلي (باللون)
+                    </button>
+                    <button 
+                        onClick={() => setViewMode('MODEL')}
+                        className={`px-4 py-1 rounded-md transition ${viewMode === 'MODEL' ? 'bg-white shadow text-blue-700 font-bold' : 'text-gray-500'}`}
+                    >
+                        تجميعي (بالموديل)
+                    </button>
+                </div>
+            </div>
             
             {/* الملخص */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="bg-blue-50 p-3 rounded border border-blue-200 text-center">
                     <div className="text-gray-500 text-xs">عدد الموديلات</div>
-                    <div className="text-xl font-bold text-blue-700">{summary.totalItems}</div>
+                    {/* في حالة التجميع نعرض عدد الصفوف المعروضة، وفي التفصيلي نعرض الإجمالي من السيرفر */}
+                    <div className="text-xl font-bold text-blue-700">
+                        {viewMode === 'MODEL' ? displayData.length : summary.totalItems}
+                    </div>
                 </div>
                 <div className="bg-indigo-50 p-3 rounded border border-indigo-200 text-center">
                     <div className="text-gray-500 text-xs">إجمالي الرصيد الحالي (قطعة)</div>
@@ -98,24 +167,32 @@ function InventoryReportView() {
                     <thead className="bg-gray-100 text-gray-700">
                         <tr>
                             <th className="p-3 border">الموديل</th>
-                            <th className="p-3 border">اللون</th>
+                            <th className="p-3 border">
+                                {viewMode === 'COLOR' ? 'اللون' : 'الألوان المتاحة'}
+                            </th>
                             <th className="p-3 border bg-blue-50">الرصيد الأولي</th>
                             <th className="p-3 border bg-yellow-50">إجمالي المبيعات</th>
                             <th className="p-3 border bg-green-50">الرصيد الحالي</th>
-                            <th className="p-3 border">الحالة</th>
+                            {viewMode === 'COLOR' && <th className="p-3 border">الحالة</th>}
                             <th className="p-3 border">القيمة الحالية</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {data.map((item: any) => (
+                        {displayData.map((item: any) => (
                             <tr key={item.id} className="hover:bg-gray-50">
                                 <td className="p-2 border font-bold">{item.modelNo}</td>
-                                <td className="p-2 border">{item.color}</td>
                                 
-                                {/* الرصيد الأولي */}
+                                {/* خانة اللون تختلف حسب العرض */}
+                                <td className="p-2 border">
+                                    {viewMode === 'COLOR' ? item.color : (
+                                        <span className="text-xs text-gray-600">
+                                            {item.colors.length} ألوان ({item.colors.join('، ')})
+                                        </span>
+                                    )}
+                                </td>
+                                
                                 <td className="p-2 border font-bold text-blue-700">{item.initialStock}</td>
                                 
-                                {/* المبيعات (زر نشط) */}
                                 <td className="p-2 border">
                                     {item.totalSold > 0 ? (
                                         <button 
@@ -129,12 +206,14 @@ function InventoryReportView() {
                                     )}
                                 </td>
 
-                                {/* الرصيد الحالي */}
                                 <td className={`p-2 border font-bold ${item.currentStock <= 0 ? 'text-red-600 bg-red-50' : 'text-green-700'}`}>
                                     {item.currentStock}
                                 </td>
 
-                                <td className="p-2 border text-xs">{item.status === 'OPEN' ? 'مفتوح' : 'مغلق'}</td>
+                                {viewMode === 'COLOR' && (
+                                    <td className="p-2 border text-xs">{item.status === 'OPEN' ? 'مفتوح' : 'مغلق'}</td>
+                                )}
+                                
                                 <td className="p-2 border">{item.currentValue.toLocaleString()}</td>
                             </tr>
                         ))}
@@ -185,7 +264,7 @@ function InventoryReportView() {
 }
 
 // ===============================================
-// مكون دفتر الخزينة (لم يتغير)
+// مكون دفتر الخزينة (كما هو بدون تغيير)
 // ===============================================
 function SafeLedgerView() {
     const [safes, setSafes] = useState<any[]>([]);
