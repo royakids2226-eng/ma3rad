@@ -38,17 +38,20 @@ export default function ReportsPage() {
 }
 
 // ===============================================
-// مكون تقرير حركة المخزون (المعدل: إضافة التجميع)
+// مكون تقرير حركة المخزون (المعدل: إضافة نسبة المبيع والترتيب)
 // ===============================================
 function InventoryReportView() {
-    const [data, setData] = useState<any[]>([]); // البيانات الخام (باللون)
+    const [data, setData] = useState<any[]>([]); 
     const [summary, setSummary] = useState<any>({});
     const [loading, setLoading] = useState(true);
     
-    // 👇 حالة وضع العرض (جديد)
+    // حالة وضع العرض
     const [viewMode, setViewMode] = useState<'COLOR' | 'MODEL'>('COLOR');
 
-    // حالة المودال (التفاصيل)
+    // 👇 حالة الترتيب (جديد)
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+    // حالة المودال
     const [selectedHistory, setSelectedHistory] = useState<any[] | null>(null);
     const [selectedItemName, setSelectedItemName] = useState('');
 
@@ -62,21 +65,21 @@ function InventoryReportView() {
         });
     }, []);
 
-    // 👇 دالة تجميع البيانات حسب الموديل
+    // دالة تجميع البيانات حسب الموديل
     const getGroupedData = () => {
         const groups: any = {};
         
         data.forEach(item => {
             if (!groups[item.modelNo]) {
                 groups[item.modelNo] = {
-                    id: item.modelNo, // ID مؤقت
+                    id: item.modelNo,
                     modelNo: item.modelNo,
-                    colors: [], // قائمة الألوان المدمجة
+                    colors: [], 
                     initialStock: 0,
                     totalSold: 0,
                     currentStock: 0,
                     currentValue: 0,
-                    status: 'MIXED', // حالة مختلطة
+                    status: 'MIXED',
                     history: []
                 };
             }
@@ -87,16 +90,43 @@ function InventoryReportView() {
             g.totalSold += item.totalSold;
             g.currentStock += item.currentStock;
             g.currentValue += item.currentValue;
-            // دمج سجلات التاريخ
             g.history = [...g.history, ...item.history];
         });
 
-        // تحويل الكائن لمصفوفة
         return Object.values(groups);
     };
 
-    // تحديد البيانات التي ستعرض بناء على الوضع المختار
-    const displayData = viewMode === 'COLOR' ? data : getGroupedData();
+    // 1. تحديد البيانات الأساسية
+    let displayData = viewMode === 'COLOR' ? data : getGroupedData();
+
+    // 2. إضافة حساب نسبة المبيع لكل صف
+    displayData = displayData.map((item: any) => ({
+        ...item,
+        // المعادلة: (المباع / الأولي) * 100
+        salesPercentage: item.initialStock > 0 ? (item.totalSold / item.initialStock) * 100 : 0
+    }));
+
+    // 3. تطبيق الترتيب (Sorting)
+    if (sortConfig !== null) {
+        displayData.sort((a: any, b: any) => {
+            if (a[sortConfig.key] < b[sortConfig.key]) {
+                return sortConfig.direction === 'asc' ? -1 : 1;
+            }
+            if (a[sortConfig.key] > b[sortConfig.key]) {
+                return sortConfig.direction === 'asc' ? 1 : -1;
+            }
+            return 0;
+        });
+    }
+
+    // دالة التعامل مع ضغط زر الترتيب
+    const handleSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'desc'; // الافتراضي تنازلي (الأعلى فالأقل)
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') {
+            direction = 'asc';
+        }
+        setSortConfig({ key, direction });
+    };
 
     const openHistory = (item: any) => {
         if (item.totalSold > 0) {
@@ -105,8 +135,6 @@ function InventoryReportView() {
                 : `موديل ${item.modelNo} (كل الألوان)`;
             
             setSelectedItemName(name);
-            
-            // ترتيب التاريخ من الأحدث للأقدم
             const sortedHistory = [...item.history].sort((a: any, b: any) => 
                 new Date(b.date).getTime() - new Date(a.date).getTime()
             );
@@ -121,16 +149,15 @@ function InventoryReportView() {
             <div className="flex justify-between items-center border-b pb-2">
                 <h2 className="text-xl font-bold">تقرير حركة الأصناف</h2>
                 
-                {/* 👇 أزرار التبديل الجديدة */}
                 <div className="bg-gray-100 p-1 rounded-lg flex text-sm print:hidden">
                     <button 
-                        onClick={() => setViewMode('COLOR')}
+                        onClick={() => { setViewMode('COLOR'); setSortConfig(null); }}
                         className={`px-4 py-1 rounded-md transition ${viewMode === 'COLOR' ? 'bg-white shadow text-blue-700 font-bold' : 'text-gray-500'}`}
                     >
                         تفصيلي (باللون)
                     </button>
                     <button 
-                        onClick={() => setViewMode('MODEL')}
+                        onClick={() => { setViewMode('MODEL'); setSortConfig(null); }}
                         className={`px-4 py-1 rounded-md transition ${viewMode === 'MODEL' ? 'bg-white shadow text-blue-700 font-bold' : 'text-gray-500'}`}
                     >
                         تجميعي (بالموديل)
@@ -142,7 +169,6 @@ function InventoryReportView() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="bg-blue-50 p-3 rounded border border-blue-200 text-center">
                     <div className="text-gray-500 text-xs">عدد الموديلات</div>
-                    {/* في حالة التجميع نعرض عدد الصفوف المعروضة، وفي التفصيلي نعرض الإجمالي من السيرفر */}
                     <div className="text-xl font-bold text-blue-700">
                         {viewMode === 'MODEL' ? displayData.length : summary.totalItems}
                     </div>
@@ -173,6 +199,21 @@ function InventoryReportView() {
                             <th className="p-3 border bg-blue-50">الرصيد الأولي</th>
                             <th className="p-3 border bg-yellow-50">إجمالي المبيعات</th>
                             <th className="p-3 border bg-green-50">الرصيد الحالي</th>
+                            
+                            {/* 👇 العمود الجديد مع الترتيب */}
+                            <th 
+                                className="p-3 border cursor-pointer hover:bg-gray-200 transition select-none"
+                                onClick={() => handleSort('salesPercentage')}
+                                title="اضغط للترتيب"
+                            >
+                                نسبة المبيع 
+                                {sortConfig?.key === 'salesPercentage' && (
+                                    <span className="mr-1 text-blue-600">
+                                        {sortConfig.direction === 'asc' ? '⬆️' : '⬇️'}
+                                    </span>
+                                )}
+                            </th>
+
                             {viewMode === 'COLOR' && <th className="p-3 border">الحالة</th>}
                             <th className="p-3 border">القيمة الحالية</th>
                         </tr>
@@ -182,7 +223,6 @@ function InventoryReportView() {
                             <tr key={item.id} className="hover:bg-gray-50">
                                 <td className="p-2 border font-bold">{item.modelNo}</td>
                                 
-                                {/* خانة اللون تختلف حسب العرض */}
                                 <td className="p-2 border">
                                     {viewMode === 'COLOR' ? item.color : (
                                         <span className="text-xs text-gray-600">
@@ -210,6 +250,11 @@ function InventoryReportView() {
                                     {item.currentStock}
                                 </td>
 
+                                {/* 👇 عرض نسبة المبيع بالألوان */}
+                                <td className={`p-2 border font-bold ${item.salesPercentage > 50 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {item.salesPercentage.toFixed(1)}%
+                                </td>
+
                                 {viewMode === 'COLOR' && (
                                     <td className="p-2 border text-xs">{item.status === 'OPEN' ? 'مفتوح' : 'مغلق'}</td>
                                 )}
@@ -221,7 +266,7 @@ function InventoryReportView() {
                 </table>
             </div>
 
-            {/* مودال تفاصيل المبيعات */}
+            {/* مودال التفاصيل */}
             {selectedHistory && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4" onClick={() => setSelectedHistory(null)}>
                     <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -264,7 +309,7 @@ function InventoryReportView() {
 }
 
 // ===============================================
-// مكون دفتر الخزينة (كما هو بدون تغيير)
+// SafeLedgerView (كما هو)
 // ===============================================
 function SafeLedgerView() {
     const [safes, setSafes] = useState<any[]>([]);
