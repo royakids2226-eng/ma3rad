@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getInventoryReport, getSafesList, getSafeLedger, getEmployeePerformance } from '@/app/report-actions';
 
 export default function ReportsPage() {
@@ -209,27 +209,50 @@ function InventoryReportView() {
 }
 
 // ===============================================
-// 2. مكون دفتر الخزينة
+// 2. مكون دفتر الخزينة (تم التعديل: عرض تلقائي + اليوم الافتراضي)
 // ===============================================
 function SafeLedgerView() {
+    // 1. تحديد تاريخ اليوم كقيمة افتراضية
+    const getTodayDateString = () => new Date().toISOString().split('T')[0];
+
     const [safes, setSafes] = useState<any[]>([]);
     const [selectedSafe, setSelectedSafe] = useState('');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
+    
+    const [startDate, setStartDate] = useState(getTodayDateString());
+    const [endDate, setEndDate] = useState(getTodayDateString());
+    
     const [ledger, setLedger] = useState<any[]>([]);
     const [summary, setSummary] = useState<any>({});
     const [loading, setLoading] = useState(false);
 
+    // جلب الخزن عند التحميل
     useEffect(() => {
-        getSafesList().then(data => { setSafes(data); if(data.length > 0) setSelectedSafe(data[0].id); });
+        getSafesList().then(data => { 
+            setSafes(data); 
+            if(data.length > 0) setSelectedSafe(data[0].id); 
+        });
     }, []);
 
-    const handleSearch = async () => {
+    // دالة البحث (مفصولة)
+    const fetchLedgerData = useCallback(async () => {
+        if(!selectedSafe) return;
         setLoading(true);
         const res = await getSafeLedger(selectedSafe, startDate, endDate);
-        if(res.success) { setLedger(res.data || []); setSummary({ totalIn: res.totalIn || 0, currentBalance: res.currentBalance || 0 }); }
+        if(res.success) { 
+            setLedger(res.data || []); 
+            setSummary({ 
+                totalIn: res.totalIn || 0, 
+                totalOut: res.totalOut || 0, // إضافة الصادر للملخص
+                currentBalance: res.currentBalance || 0 
+            }); 
+        }
         setLoading(false);
-    };
+    }, [selectedSafe, startDate, endDate]);
+
+    // 2. التحديث التلقائي عند تغيير الخزنة أو التواريخ
+    useEffect(() => {
+        fetchLedgerData();
+    }, [fetchLedgerData]);
 
     return (
         <div className="space-y-6">
@@ -238,14 +261,18 @@ function SafeLedgerView() {
                 <div className="flex-1 min-w-[200px]"><label className="block text-xs font-bold mb-1">اختر الخزنة</label><select value={selectedSafe} onChange={e => setSelectedSafe(e.target.value)} className="w-full p-2 border rounded">{safes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
                 <div><label className="block text-xs font-bold mb-1">من تاريخ</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="p-2 border rounded" /></div>
                 <div><label className="block text-xs font-bold mb-1">إلى تاريخ</label><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="p-2 border rounded" /></div>
-                <button onClick={handleSearch} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 h-[42px]">عرض التقرير 🔍</button>
+                <button onClick={fetchLedgerData} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 h-[42px]">تحديث ⟳</button>
             </div>
             {loading ? <div className="text-center py-10">جاري التحميل...</div> : (
                 <>
-                    <div className="flex gap-4 mb-4"><div className="bg-green-100 p-3 rounded border border-green-300 flex-1 text-center"><span className="block text-xs text-green-800">إجمالي الوارد</span><span className="block text-xl font-bold text-green-900">{summary.totalIn?.toLocaleString() || 0} ج.م</span></div><div className="bg-gray-800 p-3 rounded border border-gray-900 flex-1 text-center text-white"><span className="block text-xs text-gray-400">الرصيد الحالي</span><span className="block text-xl font-bold">{summary.currentBalance?.toLocaleString() || 0} ج.م</span></div></div>
+                    <div className="flex gap-4 mb-4 flex-wrap">
+                        <div className="bg-green-100 p-3 rounded border border-green-300 flex-1 text-center"><span className="block text-xs text-green-800">إجمالي الوارد</span><span className="block text-xl font-bold text-green-900">{summary.totalIn?.toLocaleString() || 0} ج.م</span></div>
+                        <div className="bg-red-100 p-3 rounded border border-red-300 flex-1 text-center"><span className="block text-xs text-red-800">إجمالي الصادر</span><span className="block text-xl font-bold text-red-900">{summary.totalOut?.toLocaleString() || 0} ج.م</span></div>
+                        <div className="bg-gray-800 p-3 rounded border border-gray-900 flex-1 text-center text-white"><span className="block text-xs text-gray-400">الرصيد التراكمي (للفترة)</span><span className="block text-xl font-bold">{summary.currentBalance?.toLocaleString() || 0} ج.م</span></div>
+                    </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-right border-collapse"><thead className="bg-gray-100 text-gray-700"><tr><th className="p-2 border">التاريخ</th><th className="p-2 border">نوع الحركة</th><th className="p-2 border">البيان</th><th className="p-2 border">المستلم</th><th className="p-2 border bg-green-50 text-green-800">وارد (+)</th><th className="p-2 border bg-red-50 text-red-800">صادر (-)</th><th className="p-2 border bg-gray-200">الرصيد</th></tr></thead>
-                            <tbody>{ledger.length === 0 ? (<tr><td colSpan={7} className="p-4 text-center text-gray-500">لا توجد حركات</td></tr>) : (ledger.map((row: any) => (<tr key={row.id} className="hover:bg-gray-50"><td className="p-2 border whitespace-nowrap">{new Date(row.date).toLocaleDateString('ar-EG')}</td><td className="p-2 border font-bold text-xs">{row.type}</td><td className="p-2 border">{row.description}</td><td className="p-2 border text-xs">{row.user}</td><td className="p-2 border font-bold text-green-700">{row.inAmount > 0 ? row.inAmount.toLocaleString() : '-'}</td><td className="p-2 border font-bold text-red-700">{row.outAmount > 0 ? row.outAmount.toLocaleString() : '-'}</td><td className="p-2 border font-bold bg-gray-50">{row.balance.toLocaleString()}</td></tr>)))}</tbody>
+                            <tbody>{ledger.length === 0 ? (<tr><td colSpan={7} className="p-4 text-center text-gray-500">لا توجد حركات في هذه الفترة</td></tr>) : (ledger.map((row: any) => (<tr key={row.id} className="hover:bg-gray-50"><td className="p-2 border whitespace-nowrap">{new Date(row.date).toLocaleDateString('ar-EG')}</td><td className="p-2 border font-bold text-xs">{row.type}</td><td className="p-2 border">{row.description}</td><td className="p-2 border text-xs">{row.user}</td><td className="p-2 border font-bold text-green-700">{row.inAmount > 0 ? row.inAmount.toLocaleString() : '-'}</td><td className="p-2 border font-bold text-red-700">{row.outAmount > 0 ? row.outAmount.toLocaleString() : '-'}</td><td className="p-2 border font-bold bg-gray-50">{row.balance.toLocaleString()}</td></tr>)))}</tbody>
                         </table>
                     </div>
                 </>
@@ -255,7 +282,7 @@ function SafeLedgerView() {
 }
 
 // ===============================================
-// 3. مكون تقرير أداء الموظفين (الجديد)
+// 3. مكون تقرير أداء الموظفين
 // ===============================================
 function EmployeePerformanceView() {
     const [data, setData] = useState<any[]>([]);
