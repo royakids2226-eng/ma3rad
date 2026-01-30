@@ -9,11 +9,11 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  code      String   @unique
+  id        String    @id @default(cuid())
+  code      String    @unique
   name      String
   password  String
-  role      String   @default("EMPLOYEE")
+  role      String    @default("EMPLOYEE")
   orders    Order[]
   payments  Payment[]
   createdAt DateTime  @default(now())
@@ -24,7 +24,7 @@ model Customer {
   code      String    @unique
   name      String
   phone     String?
-  phone2    String?
+  phone2    String?   // موجود كما طلبت
   address   String?
   orders    Order[]
   payments  Payment[]
@@ -56,7 +56,12 @@ model Order {
   id          String      @id @default(cuid())
   orderNo     Int         @default(autoincrement())
   createdAt   DateTime    @default(now())
+  
   deposit     Float       @default(0.0)
+  
+  // 👇 الإضافة الجديدة المطلوبة لتقرير الموظفين
+  discount    Float       @default(0.0) 
+
   totalAmount Float
   userId      String
   user        User        @relation(fields: [userId], references: [id])
@@ -75,7 +80,7 @@ model OrderItem {
   product         Product @relation(fields: [productId], references: [id])
   quantity        Int
   price           Float
-  discountPercent Int     @default(0) // 👈 الإضافة الجديدة: نسبة الخصم
+  discountPercent Int     @default(0) // موجود كما كان
 }
 
 model Payment {
