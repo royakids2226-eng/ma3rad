@@ -38,7 +38,7 @@ export default function ReportsPage() {
 }
 
 // ===============================================
-// مكون تقرير حركة المخزون (المعدل: إضافة نسبة المبيع والترتيب)
+// مكون تقرير حركة المخزون
 // ===============================================
 function InventoryReportView() {
     const [data, setData] = useState<any[]>([]); 
@@ -48,7 +48,7 @@ function InventoryReportView() {
     // حالة وضع العرض
     const [viewMode, setViewMode] = useState<'COLOR' | 'MODEL'>('COLOR');
 
-    // 👇 حالة الترتيب (جديد)
+    // حالة الترتيب
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
     // حالة المودال
@@ -102,11 +102,10 @@ function InventoryReportView() {
     // 2. إضافة حساب نسبة المبيع لكل صف
     displayData = displayData.map((item: any) => ({
         ...item,
-        // المعادلة: (المباع / الأولي) * 100
         salesPercentage: item.initialStock > 0 ? (item.totalSold / item.initialStock) * 100 : 0
     }));
 
-    // 3. تطبيق الترتيب (Sorting)
+    // 3. تطبيق الترتيب
     if (sortConfig !== null) {
         displayData.sort((a: any, b: any) => {
             if (a[sortConfig.key] < b[sortConfig.key]) {
@@ -119,9 +118,8 @@ function InventoryReportView() {
         });
     }
 
-    // دالة التعامل مع ضغط زر الترتيب
     const handleSort = (key: string) => {
-        let direction: 'asc' | 'desc' = 'desc'; // الافتراضي تنازلي (الأعلى فالأقل)
+        let direction: 'asc' | 'desc' = 'desc';
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') {
             direction = 'asc';
         }
@@ -165,8 +163,8 @@ function InventoryReportView() {
                 </div>
             </div>
             
-            {/* الملخص */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* 👇 الملخص (تم تعديله ليصبح 5 أعمدة) */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div className="bg-blue-50 p-3 rounded border border-blue-200 text-center">
                     <div className="text-gray-500 text-xs">عدد الموديلات</div>
                     <div className="text-xl font-bold text-blue-700">
@@ -181,6 +179,13 @@ function InventoryReportView() {
                     <div className="text-gray-500 text-xs">إجمالي المباع (قطعة)</div>
                     <div className="text-xl font-bold text-yellow-700">{summary.totalSoldUnits}</div>
                 </div>
+                
+                {/* 👇 الكارت الجديد: قيمة المبيعات */}
+                <div className="bg-orange-50 p-3 rounded border border-orange-200 text-center">
+                    <div className="text-gray-500 text-xs">إجمالي قيمة المبيعات</div>
+                    <div className="text-xl font-bold text-orange-700">{summary.totalSalesValue?.toLocaleString()} ج.م</div>
+                </div>
+
                 <div className="bg-green-50 p-3 rounded border border-green-200 text-center">
                     <div className="text-gray-500 text-xs">القيمة الحالية للمخزون</div>
                     <div className="text-xl font-bold text-green-700">{summary.totalValue?.toLocaleString()} ج.م</div>
@@ -200,7 +205,6 @@ function InventoryReportView() {
                             <th className="p-3 border bg-yellow-50">إجمالي المبيعات</th>
                             <th className="p-3 border bg-green-50">الرصيد الحالي</th>
                             
-                            {/* 👇 العمود الجديد مع الترتيب */}
                             <th 
                                 className="p-3 border cursor-pointer hover:bg-gray-200 transition select-none"
                                 onClick={() => handleSort('salesPercentage')}
@@ -250,7 +254,6 @@ function InventoryReportView() {
                                     {item.currentStock}
                                 </td>
 
-                                {/* 👇 عرض نسبة المبيع بالألوان */}
                                 <td className={`p-2 border font-bold ${item.salesPercentage > 50 ? 'text-green-600' : 'text-red-600'}`}>
                                     {item.salesPercentage.toFixed(1)}%
                                 </td>

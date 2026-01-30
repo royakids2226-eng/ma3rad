@@ -4,8 +4,8 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
-// ثابت التحويل (لو كنت تستخدمه في مكان آخر، هنا سنعرض العدد كما هو مخزن)
-// const PIECES_PER_UNIT = 4; 
+// ثابت التحويل (الدستة = 4 قطع)
+const PIECES_PER_UNIT = 4; 
 
 // ==========================================
 // 1. تقارير المخزون وحركة الصنف (Inventory & Movement)
@@ -13,7 +13,6 @@ const prisma = new PrismaClient()
 
 export async function getInventoryReport() {
   try {
-    // جلب الأصناف مع تفاصيل مبيعاتها (OrderItems) والعميل المرتبط بكل بيعة
     const products = await prisma.product.findMany({
       orderBy: { modelNo: 'asc' },
       include: {
@@ -27,26 +26,27 @@ export async function getInventoryReport() {
       }
     });
 
-    // تحويل البيانات وحساب الحركة
     const report = products.map(p => {
-        // 1. حساب إجمالي ما تم بيعه من هذا الصنف
+        // 1. حساب إجمالي الكمية المباعة (كما هي في قاعدة البيانات - دست)
         const totalSold = p.orderItems.reduce((sum, item) => sum + item.quantity, 0);
         
-        // 2. الرصيد الحالي (الموجود في الخانة stockQty)
+        // 2. 👇 حساب إجمالي "قيمة" المبيعات لهذا الصنف
+        // المعادلة: الكمية المباعة * 4 قطع * سعر البيع في تلك اللحظة
+        const totalSoldValue = p.orderItems.reduce((sum, item) => sum + (item.quantity * PIECES_PER_UNIT * item.price), 0);
+
+        // 3. الرصيد الحالي
         const currentStock = p.stockQty;
 
-        // 3. استنتاج الرصيد الأولي (بافتراض: الأولي = الحالي + ما تم بيعه)
-        // (هذا الرقم دقيق طالما لم يتم إضافة بضاعة جديدة، لو تم إضافة بضاعة سيعتبرها جزء من الأولي)
+        // 4. استنتاج الرصيد الأولي
         const initialStock = currentStock + totalSold;
 
-        // 4. تجهيز تفاصيل الحركة (للعرض عند الضغط)
         const movementHistory = p.orderItems.map(item => ({
             orderId: item.orderId,
             orderNo: item.order.orderNo,
             date: item.order.createdAt,
             customer: item.order.customer.name,
             quantity: item.quantity,
-            price: item.price // سعر البيع في وقتها
+            price: item.price
         }));
 
         return {
@@ -54,17 +54,17 @@ export async function getInventoryReport() {
             modelNo: p.modelNo,
             color: p.color,
             
-            initialStock: initialStock, // الرصيد الأولي
-            totalSold: totalSold,       // الخارج (مبيعات)
-            currentStock: currentStock, // الرصيد الحالي
+            initialStock: initialStock,
+            totalSold: totalSold,
+            totalSoldValue: totalSoldValue, // 👈 القيمة المباعة لهذا الصنف
+            currentStock: currentStock,
             
             price: p.price,
-            // القيمة الحالية = الرصيد الحالي * السعر
-            // (أزلت الضرب في 4 بناء على طلبك بأن الكمية قطعة)
-            currentValue: currentStock * p.price, 
+            // القيمة الحالية للمخزون (الرصيد * السعر * 4 قطع) ليكون التقييم دقيقاً
+            currentValue: currentStock * p.price * PIECES_PER_UNIT, 
             
             status: p.status,
-            history: movementHistory // التفاصيل
+            history: movementHistory
         };
     });
 
@@ -73,6 +73,10 @@ export async function getInventoryReport() {
       totalItems: report.length,
       totalCurrentStock: report.reduce((acc, item) => acc + item.currentStock, 0),
       totalSoldUnits: report.reduce((acc, item) => acc + item.totalSold, 0),
+      
+      // 👇 الإجمالي الجديد: قيمة المبيعات
+      totalSalesValue: report.reduce((acc, item) => acc + item.totalSoldValue, 0),
+      
       totalValue: report.reduce((acc, item) => acc + item.currentValue, 0)
     };
 
@@ -84,7 +88,7 @@ export async function getInventoryReport() {
 }
 
 // ==========================================
-// 2. تقارير الخزنة (Safe Ledger)
+// 2. تقارير الخزنة (Safe Ledger) - كما هي
 // ==========================================
 
 export async function getSafesList() {
