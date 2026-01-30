@@ -1,33 +1,75 @@
 import Link from "next/link";
 
-export default function AdminDashboard() {
+export default function AdminPage() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div className="space-y-6" dir="rtl">
       
-      {/* كارت الموظفين */}
-      <Link href="/admin/users" className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition border-b-4 border-blue-600 group">
-        <h2 className="text-2xl font-bold mb-2 group-hover:text-blue-600">👥 إدارة الموظفين</h2>
-        <p className="text-gray-500">إضافة مستخدمين جدد، وتحديد الصلاحيات (محاسب، بائع..).</p>
-      </Link>
+      {/* شبكة البطاقات */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        
+        {/* 1. إدارة الموظفين */}
+        <Link
+          href="/admin/users"
+          className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all border-b-4 border-blue-600 group cursor-pointer"
+        >
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-gray-800 group-hover:text-blue-700 transition-colors">
+              👥 إدارة الموظفين
+            </h2>
+          </div>
+          <p className="text-gray-600">
+            إضافة مستخدمين جدد، وتحديد الصلاحيات (محاسب، بائع..).
+          </p>
+        </Link>
 
-      {/* كارت المنتجات */}
-      <Link href="/admin/products" className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition border-b-4 border-green-600 group">
-        <h2 className="text-2xl font-bold mb-2 group-hover:text-green-600">👕 إدارة الأصناف</h2>
-        <p className="text-gray-500">إضافة موديلات جديدة، ألوان، وتعديل الأسعار والمخزون.</p>
-      </Link>
+        {/* 2. إدارة العملاء */}
+        <Link
+          href="/admin/customers"
+          className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all border-b-4 border-yellow-500 group cursor-pointer"
+        >
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-gray-800 group-hover:text-yellow-600 transition-colors">
+              🤝 إدارة العملاء
+            </h2>
+          </div>
+          <p className="text-gray-600">
+            إضافة عملاء جدد وتعديل بياناتهم وسجلاتهم.
+          </p>
+        </Link>
 
-      {/* كارت العملاء */}
-      <Link href="/admin/customers" className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition border-b-4 border-yellow-500 group">
-        <h2 className="text-2xl font-bold mb-2 group-hover:text-yellow-600">🤝 إدارة العملاء</h2>
-        <p className="text-gray-500">إضافة عملاء جدد وتعديل بياناتهم.</p>
-      </Link>
+        {/* 3. إدارة الأصناف */}
+        <Link
+          href="/admin/products"
+          className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all border-b-4 border-green-600 group cursor-pointer"
+        >
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-gray-800 group-hover:text-green-700 transition-colors">
+              👚 إدارة الأصناف
+            </h2>
+          </div>
+          <p className="text-gray-600">
+            إضافة موديلات جديدة، ألوان، وتعديل الأسعار والمخزون.
+          </p>
+        </Link>
 
-       {/* كارت التقارير (مستقبلاً) */}
-       <div className="bg-gray-200 p-8 rounded-xl shadow-inner border-b-4 border-gray-400 opacity-70">
-        <h2 className="text-2xl font-bold mb-2">📊 التقارير (قريباً)</h2>
-        <p className="text-gray-500">إحصائيات المبيعات والأرباح.</p>
+        {/* 4. التقارير (تم التفعيل الآن ✅) */}
+        {/* جعلناه يأخذ العرض الكامل في الشاشات الكبيرة ليظهر بشكل مميز */}
+        <Link
+          href="/admin/reports"
+          className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all border-b-4 border-purple-600 group cursor-pointer md:col-span-3 lg:col-span-3"
+        >
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-gray-800 group-hover:text-purple-700 transition-colors">
+              📊 التقارير والإحصائيات
+            </h2>
+            <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded font-bold">جديد</span>
+          </div>
+          <p className="text-gray-600">
+            جرد المخزون، دفتر أستاذ الخزنة، متابعة المبيعات والمديونيات، وطباعة التقارير المالية.
+          </p>
+        </Link>
+
       </div>
-
     </div>
   );
 }
