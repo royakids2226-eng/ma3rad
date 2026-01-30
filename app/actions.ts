@@ -54,7 +54,7 @@ export async function searchProducts(term: string) {
   } catch (error) { return []; }
 }
 
-// 4. حفظ الأوردر (تم التعديل لقبول الخصم)
+// 4. حفظ الأوردر
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, safeId } = data; 
   
@@ -70,15 +70,14 @@ export async function createOrder(data: any, userId: string) {
 
       // 2. إضافة الأصناف
       for (const cartItem of items) {
-        // cartItem هنا يمثل صنف منتج (تمت معالجة الخصومات في الفرونت إند)
         for (const variant of cartItem.variants) {
           await tx.orderItem.create({
             data: {
               orderId: order.id,
               productId: variant.productId,
               quantity: variant.quantity,
-              price: variant.price, // هذا السعر بعد الخصم
-              discountPercent: variant.discountPercent || 0 // 👈 حفظ نسبة الخصم
+              price: variant.price,
+              discountPercent: variant.discountPercent || 0
             }
           });
 
@@ -114,14 +113,36 @@ export async function getOrderById(orderId: string) {
   } catch (error) { return null; }
 }
 
-// 6. التحصيل
+// 6. إدارة النقدية (قبض - صرف - تحويل) - 🆕 تم التعديل
 export async function createPayment(data: any, userId: string) {
-  const { customerId, amount, safeId } = data;
+  const { 
+    type,        // 'IN' | 'OUT' | 'TRANSFER'
+    amount, 
+    safeId, 
+    customerId,  // Optional now
+    targetSafeId, // Required if TRANSFER
+    description   // Required if OUT or TRANSFER
+  } = data;
+
   try {
-    await prisma.payment.create({ data: { amount, customerId, safeId, userId } });
+    await prisma.payment.create({ 
+      data: { 
+        type,
+        amount, 
+        safeId, 
+        userId,
+        customerId: customerId || null,
+        targetSafeId: targetSafeId || null,
+        description: description || ''
+      } 
+    });
+    
     revalidatePath('/');
     return { success: true };
-  } catch (error) { return { success: false }; }
+  } catch (error) { 
+    console.error(error);
+    return { success: false, error: 'فشل العملية' }; 
+  }
 }
 
 // 7. الأوردرات السابقة

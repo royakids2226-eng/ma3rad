@@ -2,10 +2,9 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUser } from "./actions"; 
-import { authOptions } from "@/auth"; // 👈 1. استيراد الإعدادات
+import { authOptions } from "@/auth";
 
 export default async function Home() {
-  // 👇 2. تمرير الإعدادات هنا هو السر لحل المشكلة
   const session = await getServerSession(authOptions);
   
   if (!session?.user?.image) {
@@ -14,7 +13,6 @@ export default async function Home() {
 
   const user = await getCurrentUser(session.user.image as string);
   
-  // حماية إضافية لو اليوزر اتحذف من الداتا بيس
   if (!user) {
      redirect("/api/auth/signout");
   }
@@ -59,15 +57,16 @@ export default async function Home() {
              <span className="text-2xl">📝</span>
              <span>الأوردرات السابقة</span>
           </Link>
+          {/* 👇 تم التعديل هنا */}
           <Link href="/payments/new" className="bg-white p-4 rounded-xl shadow text-gray-700 font-bold border border-gray-200 text-center hover:bg-gray-50 flex flex-col justify-center items-center gap-2">
              <span className="text-2xl">💰</span>
-             <span>تحصيل دفعة</span>
+             <span>إدارة النقدية</span>
           </Link>
         </div>
       </div>
       
       <div className="mt-10 text-center text-gray-400 text-xs">
-        نظام إدارة المبيعات v1.5
+        نظام إدارة المبيعات v1.6
       </div>
     </div>
   );

@@ -24,7 +24,7 @@ model Customer {
   code      String    @unique
   name      String
   phone     String?
-  phone2    String?   // موجود كما طلبت
+  phone2    String?
   address   String?
   orders    Order[]
   payments  Payment[]
@@ -45,11 +45,12 @@ model Product {
 }
 
 model Safe {
-  id        String    @id @default(cuid())
-  name      String
-  orders    Order[]
-  payments  Payment[]
-  createdAt DateTime  @default(now())
+  id              String    @id @default(cuid())
+  name            String
+  orders          Order[]
+  payments        Payment[] @relation("SourceSafe")
+  incomingTransfers Payment[] @relation("TargetSafe") // 👈 علاقة عكسية للتحويلات الواردة
+  createdAt       DateTime  @default(now())
 }
 
 model Order {
@@ -58,8 +59,6 @@ model Order {
   createdAt   DateTime    @default(now())
   
   deposit     Float       @default(0.0)
-  
-  // 👇 الإضافة الجديدة المطلوبة لتقرير الموظفين
   discount    Float       @default(0.0) 
 
   totalAmount Float
@@ -80,18 +79,28 @@ model OrderItem {
   product         Product @relation(fields: [productId], references: [id])
   quantity        Int
   price           Float
-  discountPercent Int     @default(0) // موجود كما كان
+  discountPercent Int     @default(0)
 }
 
 model Payment {
-  id         String   @id @default(cuid())
-  receiptNo  Int      @default(autoincrement())
-  createdAt  DateTime @default(now())
-  amount     Float
-  customerId String
-  customer   Customer @relation(fields: [customerId], references: [id])
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
-  safeId     String
-  safe       Safe     @relation(fields: [safeId], references: [id])
+  id           String   @id @default(cuid())
+  receiptNo    Int      @default(autoincrement())
+  createdAt    DateTime @default(now())
+  amount       Float
+  
+  // 👇 التعديلات الجديدة
+  type         String   @default("IN") // قيم محتملة: IN (قبض), OUT (صرف), TRANSFER (تحويل)
+  description  String?  // وصف للمصروف أو التحويل
+  
+  customerId   String?  // 👈 أصبح اختياري
+  customer     Customer? @relation(fields: [customerId], references: [id])
+  
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  
+  safeId       String   // الخزنة المصدر (أو التي تم القبض فيها)
+  safe         Safe     @relation("SourceSafe", fields: [safeId], references: [id])
+
+  targetSafeId String?  // 👈 الخزنة المستلمة (في حالة التحويل فقط)
+  targetSafe   Safe?    @relation("TargetSafe", fields: [targetSafeId], references: [id])
 }
