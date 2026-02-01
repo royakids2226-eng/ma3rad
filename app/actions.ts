@@ -54,25 +54,23 @@ export async function searchProducts(term: string) {
   } catch (error) { return []; }
 }
 
-// 4. حفظ الأوردر (تم التعديل لدعم العملة ✅)
+// 4. حفظ الأوردر (دعم العملة)
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, safeId, currency } = data; 
   
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // إنشاء الأوردر مع حفظ العملة المختارة
       const order = await tx.order.create({
         data: {
           userId, 
           customerId, 
           totalAmount: total, 
           deposit: deposit || 0,
-          currency: currency || 'EGP', // 👈 حفظ العملة
+          currency: currency || 'EGP', 
           safeId: deposit > 0 ? safeId : null,
         }
       });
 
-      // إضافة الأصناف
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
           await tx.orderItem.create({
@@ -85,7 +83,6 @@ export async function createOrder(data: any, userId: string) {
             }
           });
 
-          // خصم المخزون
           await tx.product.update({
             where: { id: variant.productId },
             data: { stockQty: { decrement: variant.quantity } }
@@ -103,47 +100,48 @@ export async function createOrder(data: any, userId: string) {
   }
 }
 
-// 5. جلب الأوردر للطباعة
+// 5. جلب الأوردر للطباعة (تعديل لجلب المدفوعات المرتبطة ✅)
 export async function getOrderById(orderId: string) {
   if (!orderId) return null;
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { customer: true, user: true, items: { include: { product: true } } }
+      include: { 
+        customer: {
+          include: {
+            payments: {
+              orderBy: { createdAt: 'desc' }
+            }
+          }
+        }, 
+        user: true, 
+        items: { include: { product: true } } 
+      }
     });
     return JSON.parse(JSON.stringify(order));
   } catch (error) { return null; }
 }
 
-// 6. إدارة النقدية (قبض - صرف - تحويل) - تم إضافة العملة ✅
+// 6. إدارة النقدية
 export async function createPayment(data: any, userId: string) {
-  const { 
-    type, amount, currency, safeId, customerId, targetSafeId, description 
-  } = data;
-
+  const { type, amount, currency, safeId, customerId, targetSafeId, description } = data;
   try {
     await prisma.payment.create({ 
       data: { 
-        type,
-        amount, 
-        currency: currency || 'EGP', // 👈 العملة المختارة
-        safeId, 
-        userId,
+        type, amount, 
+        currency: currency || 'EGP',
+        safeId, userId,
         customerId: customerId || null,
         targetSafeId: targetSafeId || null,
         description: description || ''
       } 
     });
-    
     revalidatePath('/');
     return { success: true };
-  } catch (error) { 
-    console.error(error);
-    return { success: false, error: 'فشل العملية' }; 
-  }
+  } catch (error) { return { success: false, error: 'فشل العملية' }; }
 }
 
-// 7. الأوردرات السابقة
+// بقية الدوال (getUserOrders, deleteOrder, getCurrentUser) تبقى كاملة بدون أي حذف
 export async function getUserOrders(userId: string) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -153,11 +151,7 @@ export async function getUserOrders(userId: string) {
     }
     const orders = await prisma.order.findMany({
       where: whereCondition,
-      include: { 
-          customer: true, 
-          user: true, 
-          items: { include: { product: true } } 
-      },
+      include: { customer: true, user: true, items: { include: { product: true } } },
       orderBy: { createdAt: 'desc' },
       take: 100
     });
