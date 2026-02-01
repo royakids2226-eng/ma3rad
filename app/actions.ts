@@ -2,7 +2,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
-import bcrypt from 'bcryptjs' // 👈 تم إضافة الاستيراد لتشفير كلمة السر
+import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
@@ -55,7 +55,7 @@ export async function searchProducts(term: string) {
   } catch (error) { return []; }
 }
 
-// 4. حفظ الأوردر (دعم العملة)
+// 4. حفظ الأوردر
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, safeId, currency } = data; 
   
@@ -101,7 +101,7 @@ export async function createOrder(data: any, userId: string) {
   }
 }
 
-// 5. جلب الأوردر للطباعة (تعديل لجلب المدفوعات المرتبطة)
+// 5. جلب الأوردر (كامل بالمدفوعات والأصناف)
 export async function getOrderById(orderId: string) {
   if (!orderId) return null;
   try {
@@ -109,11 +109,7 @@ export async function getOrderById(orderId: string) {
       where: { id: orderId },
       include: { 
         customer: {
-          include: {
-            payments: {
-              orderBy: { createdAt: 'desc' }
-            }
-          }
+          include: { payments: { orderBy: { createdAt: 'desc' } } }
         }, 
         user: true, 
         items: { include: { product: true } } 
@@ -166,6 +162,16 @@ export async function getUserOrders(userId: string) {
 
 export async function deleteOrder(orderId: string) {
   try {
+    // إرجاع المخزون قبل الحذف
+    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
+    if (order) {
+        for (const item of order.items) {
+            await prisma.product.update({
+                where: { id: item.productId },
+                data: { stockQty: { increment: item.quantity } }
+            });
+        }
+    }
     await prisma.orderItem.deleteMany({ where: { orderId } });
     await prisma.order.delete({ where: { id: orderId } });
     revalidatePath('/orders/list');
@@ -181,28 +187,76 @@ export async function getCurrentUser(userId: string) {
   } catch (error) { return null; }
 }
 
-// 👇 الميزة الجديدة: تسجيل موظف جديد من صفحة اللوجن 👇
 export async function registerEmployee(data: any) {
   try {
     const { code, name, password } = data;
-    
-    // التحقق من وجود الكود مسبقاً
     const existingUser = await prisma.user.findUnique({ where: { code } });
     if (existingUser) return { success: false, error: 'كود الموظف مستخدم بالفعل' };
-
     const hashedPassword = await bcrypt.hash(password, 10);
-    
     await prisma.user.create({
-      data: {
-        code,
-        name,
-        password: hashedPassword,
-        role: 'EMPLOYEE' // 👈 إجبار الصلاحية أن تكون موظف فقط
-      }
+      data: { code, name, password: hashedPassword, role: 'EMPLOYEE' }
     });
-
     return { success: true };
-  } catch (e) {
-    return { success: false, error: 'حدث خطأ أثناء التسجيل' };
-  }
+  } catch (e) { return { success: false, error: 'حدث خطأ أثناء التسجيل' }; }
+}
+
+// 👇 الميزة الجديدة: تحديث الأوردر بالكامل مع المخزون 👇
+export async function updateOrder(orderId: string, data: any) {
+    const { items, total, deposit, safeId } = data;
+    try {
+        await prisma.$transaction(async (tx) => {
+            // 1. جلب الأصناف القديمة وإرجاعها للمخزون
+            const oldOrder = await tx.order.findUnique({
+                where: { id: orderId },
+                include: { items: true }
+            });
+            
+            if (oldOrder) {
+                for (const item of oldOrder.items) {
+                    await tx.product.update({
+                        where: { id: item.productId },
+                        data: { stockQty: { increment: item.quantity } }
+                    });
+                }
+            }
+
+            // 2. حذف الأصناف القديمة من الأوردر
+            await tx.orderItem.deleteMany({ where: { orderId } });
+
+            // 3. إضافة الأصناف الجديدة وخصم المخزون الجديد
+            for (const cartItem of items) {
+                for (const variant of cartItem.variants) {
+                    await tx.orderItem.create({
+                        data: {
+                            orderId: orderId,
+                            productId: variant.productId,
+                            quantity: variant.quantity,
+                            price: variant.price,
+                            discountPercent: variant.discountPercent || 0
+                        }
+                    });
+                    await tx.product.update({
+                        where: { id: variant.productId },
+                        data: { stockQty: { decrement: variant.quantity } }
+                    });
+                }
+            }
+
+            // 4. تحديث بيانات الأوردر الأساسية
+            await tx.order.update({
+                where: { id: orderId },
+                data: {
+                    totalAmount: total,
+                    deposit: deposit || 0,
+                    safeId: deposit > 0 ? safeId : null
+                }
+            });
+        });
+
+        revalidatePath('/orders/list');
+        return { success: true };
+    } catch (error) {
+        console.error("Update Error:", error);
+        return { success: false };
+    }
 }
