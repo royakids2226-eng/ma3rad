@@ -26,7 +26,7 @@ model Customer {
   phone     String?
   phone2    String?
   address   String?
-  source    String    @default("ADMIN") // 👈 تم الإضافة: ADMIN (إكسيل) أو QUICK (بيع)
+  source    String    @default("ADMIN") // 👈 ADMIN (إكسيل) أو QUICK (بيع)
   orders    Order[]
   payments  Payment[]
 }
@@ -39,6 +39,7 @@ model Product {
   color       String
   stockQty    Int         @default(0)
   price       Float
+  discount    Float       @default(0.0) // 👈 تم الإضافة: نسبة الخصم التلقائي للصنف
   status      String      @default("OPEN") 
   orderItems  OrderItem[]
 
@@ -60,7 +61,7 @@ model Order {
   createdAt   DateTime    @default(now())
   
   deposit     Float       @default(0.0)
-  currency    String      @default("EGP") // 👈 تم الإضافة هنا أيضاً لتوحيد التقارير
+  currency    String      @default("EGP") // 👈 العملة (EGP, USD, SAR, KWD)
   discount    Float       @default(0.0) 
 
   totalAmount Float
@@ -89,21 +90,20 @@ model Payment {
   receiptNo    Int      @default(autoincrement())
   createdAt    DateTime @default(now())
   amount       Float
-  currency     String   @default("EGP") // 👈 تم الإضافة: العملة (EGP, USD, SAR, KWD)
+  currency     String   @default("EGP") 
   
-  // 👇 التعديلات السابقة
-  type         String   @default("IN") // قيم محتملة: IN (قبض), OUT (صرف), TRANSFER (تحويل)
-  description  String?  // وصف للمصروف أو التحويل
+  type         String   @default("IN") 
+  description  String?  
   
-  customerId   String?  // 👈 أصبح اختياري
+  customerId   String?  
   customer     Customer? @relation(fields: [customerId], references: [id])
   
   userId       String
   user         User     @relation(fields: [userId], references: [id])
   
-  safeId       String   // الخزنة المصدر (أو التي تم القبض فيها)
+  safeId       String   
   safe         Safe     @relation("SourceSafe", fields: [safeId], references: [id])
 
-  targetSafeId String?  // 👈 الخزنة المستلمة (في حالة التحويل فقط)
+  targetSafeId String?  
   targetSafe   Safe?    @relation("TargetSafe", fields: [targetSafeId], references: [id])
 }

@@ -42,7 +42,7 @@ export async function getUsers() {
 }
 
 // ==========================================
-// 2. إدارة المنتجات (Products)
+// 2. إدارة المنتجات (Products) - تم التعديل لدعم الخصم ✅
 // ==========================================
 
 export async function addProduct(data: any) {
@@ -54,6 +54,7 @@ export async function addProduct(data: any) {
                 description: data.description,
                 material: data.material,
                 price: parseFloat(data.price),
+                discount: parseFloat(data.discount) || 0, // 👈 إضافة الخصم يدوياً
                 color: item.color,
                 stockQty: parseInt(item.stock),
                 status: data.status || 'OPEN'
@@ -77,6 +78,7 @@ export async function updateProduct(id: string, data: any) {
                 material: data.material,
                 color: data.color,
                 price: parseFloat(data.price),
+                discount: parseFloat(data.discount) || 0, // 👈 تعديل الخصم
                 stockQty: parseInt(data.stockQty),
                 status: data.status
             }
@@ -105,6 +107,7 @@ export async function addBulkProducts(products: any[]) {
                     update: {
                         stockQty: parseInt(p.stockQty) || 0,
                         price: parseFloat(p.price) || 0,
+                        discount: parseFloat(p.discount) || 0, // 👈 تحديث الخصم من الإكسيل
                         description: p.description || '',
                         status: productStatus
                     },
@@ -114,6 +117,7 @@ export async function addBulkProducts(products: any[]) {
                         material: p.material || '',
                         color: String(p.color),
                         price: parseFloat(p.price) || 0,
+                        discount: parseFloat(p.discount) || 0, // 👈 إضافة الخصم من الإكسيل
                         stockQty: parseInt(p.stockQty) || 0,
                         status: productStatus
                     }
@@ -168,19 +172,17 @@ export async function deleteAllProducts() {
 }
 
 export async function getProducts() {
-  // تم زيادة الـ take لدعم البحث اللايف بشكل أفضل
   const products = await prisma.product.findMany({ orderBy: { id: 'desc' }, take: 2000 });
   return JSON.parse(JSON.stringify(products));
 }
 
 // ==========================================
-// 3. إدارة العملاء (Customers) - تم التعديل لدعم الكود التلقائي والـ source
+// 3. إدارة العملاء (Customers)
 // ==========================================
 
 export async function addCustomer(data: any) {
     try {
       let finalCode = data.code;
-      // إذا لم يتم إرسال كود، يتم توليده تلقائياً (C-طابع زمني)
       if (!finalCode || finalCode.trim() === "") {
         finalCode = "C-" + Date.now().toString().slice(-6);
       }
@@ -192,11 +194,10 @@ export async function addCustomer(data: any) {
               phone: data.phone,
               phone2: data.phone2,
               address: data.address,
-              source: data.source || 'ADMIN' // ADMIN للقديم و QUICK للجديد
+              source: data.source || 'ADMIN'
           } 
       });
       revalidatePath('/admin/customers');
-      // نرجع الكائن المنشأ لاستخدامه فوراً في شاشات البيع
       return { success: true, customer: JSON.parse(JSON.stringify(customer)) };
     } catch (e) { return { success: false, error: 'كود العميل مكرر أو حدث خطأ' }; }
 }
@@ -237,7 +238,7 @@ export async function addBulkCustomers(customers: any[]) {
                         phone: String(c.phone || ''),
                         phone2: String(c.phone2 || ''),
                         address: c.address || '',
-                        source: 'ADMIN' // الإكسيل دائماً ADMIN
+                        source: 'ADMIN'
                     }
                 });
                 count++;

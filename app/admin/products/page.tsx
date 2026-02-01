@@ -14,13 +14,14 @@ import * as XLSX from 'xlsx';
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [searchTerm, setSearchTerm] = useState(''); // 👈 الميزة الجديدة: حالة البحث اللايف
+  const [searchTerm, setSearchTerm] = useState(''); // حالة البحث اللايف
   
   // Adding States
   const [modelNo, setModelNo] = useState('');
   const [description, setDescription] = useState('');
   const [material, setMaterial] = useState('');
   const [price, setPrice] = useState('');
+  const [discount, setDiscount] = useState('0'); // 👈 حقل الخصم الجديد
   const [status, setStatus] = useState('OPEN');
   const [colors, setColors] = useState([{ color: '', stock: '' }]);
 
@@ -47,7 +48,7 @@ export default function ProductsPage() {
     });
   };
 
-  // 👇 الميزة الجديدة: منطق تصفية الأصناف (Live Search) 👇
+  // منطق تصفية الأصناف (Live Search)
   const filteredProducts = useMemo(() => {
     return products.filter(p => 
         p.modelNo.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -71,12 +72,12 @@ export default function ProductsPage() {
     if (!modelNo || !price) return alert('أكمل البيانات');
 
     const res = await addProduct({
-        modelNo, description, material, price, status, colors
+        modelNo, description, material, price, discount, status, colors // 👈 إرسال الخصم
     });
 
     if (res.success) {
         alert('تمت الإضافة');
-        setModelNo(''); setDescription(''); setMaterial(''); setPrice('');
+        setModelNo(''); setDescription(''); setMaterial(''); setPrice(''); setDiscount('0');
         setColors([{ color: '', stock: '' }]);
         refreshProducts();
     } else {
@@ -84,11 +85,11 @@ export default function ProductsPage() {
     }
   };
 
-  // --- Excel Logic (موجودة بالكامل) ---
+  // --- Excel Logic ---
   const downloadTemplate = () => {
     const templateData = [
-        { modelNo: "1001", description: "وصف", material: "قطن", color: "أحمر", price: 150, stockQty: 50, status: "OPEN" },
-        { modelNo: "1001", description: "نفس الموديل", material: "قطن", color: "أزرق", price: 150, stockQty: 30, status: "OPEN" }
+        { modelNo: "1001", description: "وصف", material: "قطن", color: "أحمر", price: 150, discount: 10, stockQty: 50, status: "OPEN" }, // 👈 إضافة عمود discount للنموذج
+        { modelNo: "1001", description: "نفس الموديل", material: "قطن", color: "أزرق", price: 150, discount: 10, stockQty: 30, status: "OPEN" }
     ];
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
@@ -140,7 +141,7 @@ export default function ProductsPage() {
     reader.readAsBinaryString(file);
   };
 
-  // --- Delete Logic (موجودة بالكامل) ---
+  // --- Delete Logic ---
   const handleDelete = async (id: string) => {
     if (confirm('حذف هذا الصنف نهائياً؟')) {
       setIsDeleting(true);
@@ -231,12 +232,12 @@ export default function ProductsPage() {
         </div>
         
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
-            {/* 👇 حقل البحث اللايف الجديد 👇 */}
+            {/* حقل البحث اللايف الجديد */}
             <div className="w-full md:w-64">
                 <input 
                     type="text" 
                     placeholder="🔍 بحث برقم الموديل أو اللون..." 
-                    className="w-full p-2 border-2 border-green-200 rounded-lg focus:border-green-500 outline-none text-sm"
+                    className="w-full p-2 border-2 border-green-200 rounded-lg focus:border-blue-500 outline-none text-sm"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -259,7 +260,7 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* Upload Section (موجودة بالكامل) */}
+      {/* Upload Section */}
       <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-2">
             <div className="w-full">
@@ -284,16 +285,17 @@ export default function ProductsPage() {
           )}
       </div>
 
-      {/* Form Adding (موجودة بالكامل) */}
+      {/* Form Adding */}
       <form onSubmit={handleSubmit} className="bg-white p-4 rounded-lg shadow space-y-4 border-t-4 border-green-600">
         <h2 className="font-bold text-gray-700 text-sm border-b pb-2">إضافة صنف يدوياً</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">الموديل</label><input type="text" className="w-full border p-2 rounded bg-gray-50 focus:bg-white" value={modelNo} onChange={e => setModelNo(e.target.value)} required /></div>
             <div className="col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">السعر</label><input type="number" className="w-full border p-2 rounded font-bold focus:bg-white" value={price} onChange={e => setPrice(e.target.value)} required /></div>
+            {/* حقل الخصم التلقائي الجديد */}
+            <div className="col-span-1"><label className="block text-xs font-bold text-red-600 mb-1">خصم تلقائي %</label><input type="number" className="w-full border p-2 rounded font-bold focus:bg-red-50" value={discount} onChange={e => setDiscount(e.target.value)} /></div>
             <div className="col-span-2"><label className="block text-xs font-bold text-gray-500 mb-1">الوصف</label><input type="text" className="w-full border p-2 rounded focus:bg-white" value={description} onChange={e => setDescription(e.target.value)} /></div>
         </div>
         
-        {/* حالة الطلب */}
         <div className="flex gap-4 items-center bg-gray-50 p-2 rounded">
              <span className="text-xs font-bold text-gray-500">الحالة:</span>
              <label className="flex items-center gap-1 cursor-pointer"><input type="radio" name="status" value="OPEN" checked={status === 'OPEN'} onChange={() => setStatus('OPEN')} /><span className="text-green-600 text-xs font-bold">مفتوح</span></label>
@@ -313,7 +315,7 @@ export default function ProductsPage() {
         <button type="submit" disabled={isDeleting} className="bg-green-600 text-white px-6 py-3 rounded font-bold w-full hover:bg-green-700 disabled:opacity-50 transition">حفظ</button>
       </form>
 
-      {/* --- Responsive List (موجودة بالكامل) --- */}
+      {/* --- Responsive List --- */}
       <div className="relative">
         {isDeleting && (
             <div className="absolute inset-0 bg-white bg-opacity-80 z-20 flex justify-center items-center rounded-lg">
@@ -338,6 +340,7 @@ export default function ProductsPage() {
                             <div>
                                 <div className="flex items-center gap-2">
                                     <h3 className="font-bold text-gray-800 text-lg">{p.modelNo}</h3>
+                                    {p.discount > 0 && <span className="text-[10px] bg-red-100 text-red-600 px-1 rounded font-bold">خصم {p.discount}%</span>}
                                     {p.status === 'CLOSED' && <span className="text-[10px] bg-red-100 text-red-600 px-1 rounded">مغلق</span>}
                                 </div>
                                 <span className="text-xs text-gray-500">{p.color}</span>
@@ -374,6 +377,7 @@ export default function ProductsPage() {
                 <th className="p-3">الحالة</th>
                 <th className="p-3">المخزون</th>
                 <th className="p-3">السعر</th>
+                <th className="p-3">خصم تلقائي</th>
                 <th className="p-3 text-center">تحكم</th>
                 </tr>
             </thead>
@@ -385,7 +389,8 @@ export default function ProductsPage() {
                     <td className="p-3">{p.color}</td>
                     <td className="p-3">{p.status === 'CLOSED' ? <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">مغلق</span> : <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">مفتوح</span>}</td>
                     <td className={`p-3 font-bold ${p.stockQty <= 0 ? 'text-red-500' : 'text-blue-600'}`}>{p.stockQty}</td>
-                    <td className="p-3">{p.price}</td>
+                    <td className="p-3 font-mono">{p.price}</td>
+                    <td className="p-3 font-bold text-red-600">{p.discount}%</td>
                     <td className="p-3 flex justify-center gap-2">
                     <button onClick={() => handleEditClick(p)} className="text-blue-600 hover:text-blue-800 font-bold bg-blue-100 px-2 py-1 rounded text-xs">تعديل</button>
                     <button onClick={() => handleDelete(p.id)} disabled={isDeleting} className="text-red-600 hover:text-red-800 font-bold bg-red-100 px-2 py-1 rounded text-xs disabled:opacity-50">حذف</button>
@@ -397,7 +402,7 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* Edit Modal (موجودة بالكامل) */}
+      {/* Edit Modal */}
       {isEditModalOpen && editingProduct && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
               <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 space-y-4">
@@ -407,9 +412,10 @@ export default function ProductsPage() {
                       <div><label className="text-xs text-gray-500">اللون</label><input type="text" className="w-full border p-2 rounded bg-gray-100" value={editingProduct.color} readOnly /></div>
                   </div>
                   <div><label className="text-xs text-gray-500">الوصف</label><input type="text" className="w-full border p-2 rounded" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({...editingProduct, description: e.target.value})} /></div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                       <div><label className="text-xs text-gray-500">الكمية</label><input type="number" className="w-full border p-2 rounded font-bold" value={editingProduct.stockQty} onChange={(e) => setEditingProduct({...editingProduct, stockQty: e.target.value})} /></div>
                       <div><label className="text-xs text-gray-500">السعر</label><input type="number" className="w-full border p-2 rounded font-bold" value={editingProduct.price} onChange={(e) => setEditingProduct({...editingProduct, price: e.target.value})} /></div>
+                      <div><label className="text-xs text-red-600">الخصم %</label><input type="number" className="w-full border p-2 rounded font-bold bg-red-50" value={editingProduct.discount} onChange={(e) => setEditingProduct({...editingProduct, discount: e.target.value})} /></div>
                   </div>
                   <div>
                     <label className="text-xs text-gray-500">الحالة</label>

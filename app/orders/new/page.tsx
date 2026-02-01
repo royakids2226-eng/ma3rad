@@ -138,7 +138,7 @@ export default function NewOrderPage() {
 
           newVariants.forEach((nv: any) => {
               if (variantsMap[nv.id]) variantsMap[nv.id].quantity += nv.qty;
-              else variantsMap[nv.id] = { productId: nv.id, quantity: nv.qty, price: nv.price, color: nv.color };
+              else variantsMap[nv.id] = { productId: nv.id, quantity: nv.qty, price: nv.price, color: nv.color, productDiscount: nv.discount }; // 👈 إضافة خصم الصنف للـ Variant
           });
 
           const finalVariants = Object.values(variantsMap);
@@ -146,7 +146,7 @@ export default function NewOrderPage() {
           updatedCart[existingItemIndex] = { ...existingItem, totalQty: totalQty, variants: finalVariants };
       } else {
           const finalVariants = newVariants.map((v: any) => ({
-              productId: v.id, quantity: v.qty, price: v.price, color: v.color
+              productId: v.id, quantity: v.qty, price: v.price, color: v.color, productDiscount: v.discount // 👈 إضافة الخصم
           }));
           const totalQty = finalVariants.reduce((sum: any, v: any) => sum + v.quantity, 0);
           const originalPrice = newVariants[0].price;
@@ -172,6 +172,45 @@ export default function NewOrderPage() {
       }
       setCart([{ type: 'discount', percent: percent, id: Date.now() }, ...cart]);
       setShowDiscountOptions(false);
+  };
+
+  // 👇 الوظيفة الجديدة: تطبيق خصم الصنف التلقائي على كل السلة 👇
+  const handleApplyAutoProductDiscounts = () => {
+    const updatedCart = cart.map(item => {
+        if (item.type === 'product') {
+            // نأخذ الخصم من أول variant متاح (لأن الموديل الواحد له خصم واحد في النظام)
+            const autoPct = item.variants[0]?.productDiscount || 0;
+            if (autoPct > 0) {
+                 return { ...item, type: 'discount_applied', percent: autoPct }; 
+                 // سنقوم بتحويله لمؤشر خصم خاص أو نعدل منطق السلة
+            }
+        }
+        return item;
+    });
+    // الطريقة الأفضل هي وضع "علامة خصم" لكل صنف بناء على بياناته
+    setCart(cart.map(item => {
+        if(item.type === 'product' && (item.variants[0]?.productDiscount || 0) > 0) {
+            // نتحقق إذا كان الصنف يسبقه خصم مسبقاً، لا نفعل شيء، وإلا نضيف الخصم الخاص به قبله
+            return item;
+        }
+        return item;
+    }));
+    
+    // الحل العملي: سنقوم بتحديث مصفوفة السلة بحيث يضاف "مؤشر خصم" قبل كل صنف له خصم تلقائي
+    let newCart: any[] = [];
+    cart.forEach(item => {
+        if(item.type === 'product') {
+            const autoPct = item.variants[0]?.productDiscount || 0;
+            if(autoPct > 0) {
+                // إضافة مؤشر الخصم قبل الصنف
+                newCart.push({ type: 'discount', percent: autoPct, id: Math.random() });
+            }
+        }
+        newCart.push(item);
+    });
+    setCart(newCart);
+    alert("تم تطبيق خصومات الموديلات التلقائية بنجاح ✅");
+    setShowDiscountOptions(false);
   };
 
   const handleEditItem = async (item: any) => {
@@ -225,12 +264,10 @@ export default function NewOrderPage() {
     else alert("حدث خطأ أثناء حفظ الأوردر.");
   };
 
-  // 👇 تعديل: الإضافة السريعة ترسل source وتولد الكود تلقائياً 👇
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
       e.preventDefault();
       if(!newCust.name) return alert('الاسم مطلوب');
       setIsSavingCust(true);
-      // إرسال كائن العميل مع تحديد المصدر QUICK
       const res = await addCustomer({ ...newCust, source: 'QUICK' });
       setIsSavingCust(false);
       if(res.success) {
@@ -284,20 +321,16 @@ export default function NewOrderPage() {
 
               {showCustomerList && (
                 <div className="absolute top-full left-0 right-0 bg-white border rounded-b-lg shadow-xl z-50 max-h-60 overflow-y-auto">
-                  {customerResults.length > 0 ? (
-                      customerResults.map(c => (
-                        <div key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearchTerm(c.name); setShowCustomerList(false); }} 
-                             className={`p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 ${c.source === 'QUICK' ? 'bg-purple-50' : ''}`}>
-                          <div className="font-bold flex justify-between items-center">
-                              <span>{c.name}</span>
-                              {c.source === 'QUICK' && <span className="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded shadow-sm">جديد ✨</span>}
-                          </div>
-                          <div className="text-xs text-gray-500">{c.phone} | {c.code}</div>
-                        </div>
-                      ))
-                  ) : (
-                      <div className="p-3 text-center text-gray-500 text-xs">لا توجد نتائج (اضغط عميل جديد للإضافة)</div>
-                  )}
+                  {customerResults.map(c => (
+                    <div key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearchTerm(c.name); setShowCustomerList(false); }} 
+                         className={`p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 ${c.source === 'QUICK' ? 'bg-purple-50' : ''}`}>
+                      <div className="font-bold flex justify-between items-center">
+                          <span>{c.name}</span>
+                          {c.source === 'QUICK' && <span className="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded shadow-sm">جديد ✨</span>}
+                      </div>
+                      <div className="text-xs text-gray-500">{c.phone} | {c.code}</div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -329,6 +362,7 @@ export default function NewOrderPage() {
                               <div>
                                   <div className="font-bold">{prod.color}</div>
                                   <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.stockQty}</div>
+                                  {prod.discount > 0 && <div className="text-[10px] text-red-600 font-bold">خصم موسم: {prod.discount}%</div>}
                               </div>
                             </div>
                             {isSelected && (
@@ -354,8 +388,11 @@ export default function NewOrderPage() {
               <div className="mt-8">
                 <div className="flex justify-between items-center mb-3">
                     <h3 className="font-bold text-gray-700 text-lg">محتويات السلة</h3>
-                    <div className="relative">
-                        <button onClick={() => setShowDiscountOptions(!showDiscountOptions)} className="bg-yellow-500 text-white px-3 py-1 rounded-lg text-sm font-bold shadow hover:bg-yellow-600">+ إضافة خصم 🏷️</button>
+                    <div className="relative flex gap-2">
+                        {/* زر الخصم التلقائي الجديد */}
+                        <button onClick={handleApplyAutoProductDiscounts} className="bg-red-600 text-white px-3 py-1 rounded-lg text-sm font-bold shadow hover:bg-red-700 animate-pulse">🏷️ خصم الموديلات</button>
+                        
+                        <button onClick={() => setShowDiscountOptions(!showDiscountOptions)} className="bg-yellow-500 text-white px-3 py-1 rounded-lg text-sm font-bold shadow hover:bg-yellow-600">+ خصم مخصص</button>
                         {showDiscountOptions && (
                             <div className="absolute top-full left-0 bg-white border rounded-lg shadow-xl z-20 w-48 mt-1 p-2 grid grid-cols-3 gap-2">
                                 {[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60].map(p => (
@@ -463,7 +500,6 @@ export default function NewOrderPage() {
               <div className="bg-white w-full max-w-md rounded-t-2xl md:rounded-2xl p-6 shadow-2xl animate-slide-up">
                   <h3 className="font-bold text-lg mb-4 border-b pb-2">إضافة عميل جديد سريع</h3>
                   <form onSubmit={handleQuickAddCustomer} className="space-y-4">
-                      {/* تعديل التسمية لتوضيح أن الكود اختياري */}
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">الاسم (مطلوب)</label><input type="text" value={newCust.name} onChange={e => setNewCust({...newCust, name: e.target.value})} className="w-full border p-3 rounded-lg" required /></div>
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">كود العميل (اختياري - يولد تلقائياً)</label><input type="text" value={newCust.code} onChange={e => setNewCust({...newCust, code: e.target.value})} className="w-full border p-3 rounded-lg bg-gray-50" placeholder="اتركه فارغاً للتوليد التلقائي" /></div>
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">الهاتف</label><input type="text" value={newCust.phone} onChange={e => setNewCust({...newCust, phone: e.target.value})} className="w-full border p-3 rounded-lg" /></div>
