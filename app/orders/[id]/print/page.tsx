@@ -7,14 +7,13 @@ const PIECES_PER_UNIT = 4;
 function groupOrderItems(items: any[]) {
     const grouped: any = {};
     items.forEach(item => {
-        // نجمع حسب الموديل + نسبة الخصم
+        // نجمع حسب الموديل + نسبة الخصم لضمان ظهور كل فئة سعرية في سطر
         const key = `${item.product.modelNo}_${item.discountPercent}`;
         
         if (!grouped[key]) {
-            // استرجاع السعر الأصلي قبل الخصم رياضياً
             const finalPrice = item.price;
             const discountPct = item.discountPercent || 0;
-            // المعادلة: السعر الأصلي = السعر النهائي / (1 - نسبة الخصم)
+            // استرجاع السعر الأصلي رياضياً: السعر الأصلي = السعر النهائي / (1 - نسبة الخصم)
             const originalPrice = discountPct > 0 
                 ? finalPrice / (1 - (discountPct / 100)) 
                 : finalPrice;
@@ -22,19 +21,16 @@ function groupOrderItems(items: any[]) {
             grouped[key] = {
                 modelNo: item.product.modelNo,
                 desc: item.product.description,
-                
-                originalPrice: originalPrice, // السعر قبل الخصم
-                finalPrice: finalPrice,       // السعر بعد الخصم
+                originalPrice: originalPrice,
+                finalPrice: finalPrice,
                 discountPercent: discountPct,
-                
                 totalQty: 0,
-                totalPrice: 0, // الإجمالي النهائي (بعد الخصم)
+                totalPrice: 0,
                 details: []
             };
         }
         
         grouped[key].totalQty += item.quantity;
-        // السعر المخزن في الداتا بيز هو سعر القطعة الواحدة * 4 قطع في الدسته * الكمية
         grouped[key].totalPrice += (item.quantity * PIECES_PER_UNIT * item.price);
         grouped[key].details.push(`${item.quantity * PIECES_PER_UNIT} (${item.product.color})`);
     });
@@ -51,28 +47,24 @@ export default async function PrintOrderPage(props: Props) {
     if (!order) return <div className="p-10 text-center font-bold text-red-600 text-xl">الأوردر غير موجود</div>;
 
     const groupedItems = groupOrderItems(order.items);
-    
     const totalPieces = order.items.reduce((acc: number, item: any) => acc + (item.quantity * PIECES_PER_UNIT), 0);
 
-    // ================== منطق الحسابات الجديد (فصل العملات) ==================
-    
-    // 1. العربون المسجل في الأوردر نفسه (نعتبره EGP إلا لو حددت غير ذلك)
+    // الحسابات المالية (فصل العملات)
     const orderDepositEGP = (order.currency === 'EGP' || !order.currency) ? (order.deposit || 0) : 0;
     
-    // 2. التحصيلات اللاحقة (سندات القبض) المخصومة (بالجنيه فقط)
+    // جلب سندات القبض بالجنيه فقط للخصم الحسابي
     const collectionPaymentsEGP = order.customer.payments
         ?.filter((p: any) => p.type === 'IN' && (p.currency === 'EGP' || !p.currency))
         .reduce((acc: number, p: any) => acc + p.amount, 0) || 0;
 
-    // 3. التحصيلات بالعملات الأجنبية (للعرض فقط)
+    // تجميع سندات القبض بالعملات الأخرى للعرض فقط
     const foreignPayments = order.customer.payments
         ?.filter((p: any) => p.type === 'IN' && p.currency !== 'EGP' && p.currency) || [];
 
-    const totalAmount = order.totalAmount; // الصافي بعد الخصومات
-    const totalPaidEGP = orderDepositEGP + collectionPaymentsEGP; // إجمالي ما سدده بالجنيه
+    const totalAmount = order.totalAmount; 
+    const totalPaidEGP = orderDepositEGP + collectionPaymentsEGP; 
     const remainingEGP = totalAmount - totalPaidEGP;
 
-    // حساب إجمالي قيمة الخصم (كم وفر العميل؟)
     const totalDiscountValue = groupedItems.reduce((acc: number, item: any) => {
         const totalOriginal = item.originalPrice * (item.totalQty * PIECES_PER_UNIT);
         const totalFinal = item.finalPrice * (item.totalQty * PIECES_PER_UNIT);
@@ -88,7 +80,7 @@ export default async function PrintOrderPage(props: Props) {
                     orderNo={order.orderNo} 
                     phone={order.customer.phone} 
                 />
-                <a href="/" className="bg-gray-500 text-white px-6 py-3 rounded-lg font-bold flex items-center">🏠 خروج</a>
+                <a href="/orders/list" className="bg-gray-500 text-white px-6 py-3 rounded-lg font-bold flex items-center">🏠 العودة للسجل</a>
             </div>
 
             <div id="invoice-content" className="max-w-[210mm] mx-auto bg-white p-6 md:p-10 shadow-2xl print:shadow-none print:w-full print:max-w-none" dir="rtl">
@@ -105,19 +97,19 @@ export default async function PrintOrderPage(props: Props) {
                 </header>
 
                 <div className="bg-gray-50 border-2 border-gray-200 rounded-lg p-4 mb-8 print:border-gray-300">
-                    <table className="w-full text-base">
+                    <table className="w-full text-base text-black">
                         <tbody>
                             <tr>
-                                <td className="font-bold w-20 md:w-24 py-2 align-top text-black">العميل:</td>
-                                <td className="text-lg md:text-xl align-top text-black">{order.customer.name}</td>
-                                <td className="font-bold w-20 md:w-24 text-left pl-4 align-top text-black">الهاتف:</td>
-                                <td className="align-top font-mono text-black">
+                                <td className="font-bold w-20 md:w-24 py-2 align-top">العميل:</td>
+                                <td className="text-lg md:text-xl align-top">{order.customer.name}</td>
+                                <td className="font-bold w-20 md:w-24 text-left pl-4 align-top">الهاتف:</td>
+                                <td className="align-top font-mono">
                                     <div>{order.customer.phone || '-'}</div>
                                     {order.customer.phone2 && <div>{order.customer.phone2}</div>}
                                 </td>
                             </tr>
                             <tr>
-                                <td className="font-bold py-2 align-top text-black">العنوان:</td>
+                                <td className="font-bold py-2 align-top">العنوان:</td>
                                 <td colSpan={3} className="text-gray-700 align-top">{order.customer.address || '-'}</td>
                             </tr>
                         </tbody>
@@ -138,14 +130,14 @@ export default async function PrintOrderPage(props: Props) {
                         </thead>
                         <tbody>
                             {groupedItems.map((item: any, idx: number) => (
-                                <tr key={idx} className="text-sm border-b border-black">
-                                    <td className="p-3 border-x border-black text-center font-bold text-lg text-black">{item.modelNo}</td>
+                                <tr key={idx} className="text-sm border-b border-black text-black">
+                                    <td className="p-3 border-x border-black text-center font-bold text-lg">{item.modelNo}</td>
                                     <td className="p-3 border-x border-black">
-                                        <div className="font-bold mb-1 text-black">{item.desc}</div>
+                                        <div className="font-bold mb-1">{item.desc}</div>
                                         <div className="text-xs text-gray-600 leading-relaxed">{item.details.join(' + ')}</div>
                                     </td>
-                                    <td className="p-3 border-x border-black text-center text-lg font-bold text-black">{item.totalQty * 4}</td>
-                                    <td className="p-3 border-x border-black text-center text-black">
+                                    <td className="p-3 border-x border-black text-center text-lg font-bold">{item.totalQty * 4}</td>
+                                    <td className="p-3 border-x border-black text-center">
                                         {item.discountPercent > 0 ? (
                                             <>
                                                 <div className="line-through text-gray-400 text-xs">{item.originalPrice.toFixed(2)}</div>
@@ -155,14 +147,10 @@ export default async function PrintOrderPage(props: Props) {
                                             item.finalPrice.toFixed(2)
                                         )}
                                     </td>
-                                    <td className="p-3 border-x border-black text-center font-bold text-black">
-                                        {item.discountPercent > 0 ? (
-                                            <span className="bg-black text-white px-2 py-1 rounded text-xs">
-                                                {item.discountPercent}%
-                                            </span>
-                                        ) : '-'}
+                                    <td className="p-3 border-x border-black text-center font-bold">
+                                        {item.discountPercent > 0 ? <span className="bg-black text-white px-2 py-1 rounded text-xs">{item.discountPercent}%</span> : '-'}
                                     </td>
-                                    <td className="p-3 border-x border-black text-center font-bold text-lg text-black">{item.totalPrice.toFixed(0)}</td>
+                                    <td className="p-3 border-x border-black text-center font-bold text-lg">{item.totalPrice.toFixed(0)}</td>
                                 </tr>
                             ))}
                         </tbody>
@@ -170,25 +158,25 @@ export default async function PrintOrderPage(props: Props) {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
-                    {/* 👇 القسم الجديد: سجل التحصيلات بالعملات الأخرى (للمعلومات فقط) */}
+                    {/* سجل العملات الأخرى */}
                     <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 h-fit">
                         <h3 className="font-bold text-sm mb-3 text-blue-800 border-b pb-1">سجل تحصيلات العملات (إحاطة):</h3>
                         {foreignPayments.length > 0 ? (
                             <div className="space-y-2">
                                 {foreignPayments.map((p: any, i: number) => (
-                                    <div key={i} className="flex justify-between text-xs border-b border-gray-200 pb-1">
-                                        <span className="text-gray-500">سند قبض #{p.receiptNo} ({new Date(p.createdAt).toLocaleDateString('ar-EG')})</span>
-                                        <span className="font-bold text-black">{p.amount} {p.currency}</span>
+                                    <div key={i} className="flex justify-between text-xs border-b border-gray-200 pb-1 text-black">
+                                        <span>سند قبض #{p.receiptNo}</span>
+                                        <span className="font-bold">{p.amount} {p.currency}</span>
                                     </div>
                                 ))}
-                                <p className="text-[10px] text-red-500 mt-2 font-bold">* تنبيه: هذه المبالغ لم تُخصم من صافي الجنيه لعدم توفر سعر صرف.</p>
+                                <p className="text-[10px] text-red-500 mt-2 font-bold">* تنبيه: هذه المبالغ لم تُخصم من الصافي لعدم توفر سعر صرف آلي.</p>
                             </div>
                         ) : (
-                            <p className="text-xs text-gray-400">لا توجد تحصيلات بعملات أجنبية مسجلة.</p>
+                            <p className="text-xs text-gray-400">لا توجد تحصيلات بالعملة الأجنبية.</p>
                         )}
                     </div>
 
-                    {/* قسم إجمالي الفاتورة الصافي بالجنيه */}
+                    {/* الحساب النهائي بالجنيه */}
                     <div className="border-2 border-black rounded-lg overflow-hidden h-fit">
                         <div className="flex justify-between p-3 border-b border-black bg-gray-50 text-black">
                             <span className="font-bold">إجمالي القطع:</span>
@@ -207,10 +195,9 @@ export default async function PrintOrderPage(props: Props) {
                             <span>{totalAmount.toFixed(2)} ج.م</span>
                         </div>
 
-                        {/* إظهار مجموع المسدد بالجنيه (عربون + سندات قبض) */}
                         {totalPaidEGP > 0 && (
                             <div className="flex justify-between p-3 border-b border-black bg-white font-bold text-gray-700">
-                                <span>إجمالي المدفوع (بالجنيه):</span>
+                                <span>إجمالي المسدد (بالجنيه):</span>
                                 <span className="text-red-600">- {totalPaidEGP.toFixed(2)} ج.م</span>
                             </div>
                         )}
@@ -223,15 +210,8 @@ export default async function PrintOrderPage(props: Props) {
                 </div>
 
                 <div className="flex justify-between text-center mt-12 pt-8 border-t border-gray-400 print:mt-20">
-                    <div className="w-1/3 text-black">
-                        <p className="font-bold mb-12">توقيع المستلم</p>
-                        <p className="border-t border-black w-3/4 mx-auto"></p>
-                    </div>
-                    <div className="w-1/3 text-black">
-                        <p className="font-bold mb-12">أمين المخزن / المبيعات</p>
-                        <p className="font-mono">{order.user.name}</p>
-                        <p className="border-t border-black w-3/4 mx-auto mt-2"></p>
-                    </div>
+                    <div className="w-1/3 text-black"><p className="font-bold mb-12">توقيع المستلم</p><p className="border-t border-black w-3/4 mx-auto"></p></div>
+                    <div className="w-1/3 text-black"><p className="font-bold mb-12">أمين المخزن / المبيعات</p><p className="font-mono">{order.user.name}</p><p className="border-t border-black w-3/4 mx-auto mt-2"></p></div>
                 </div>
             </div>
         </div>

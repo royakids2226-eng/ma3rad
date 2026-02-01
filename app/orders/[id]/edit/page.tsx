@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, use } from 'react';
-import { getOrderById, searchProducts, updateOrder, getSafes, searchCustomers } from '@/app/actions';
+import { getOrderById, searchProducts, updateOrder, getSafes } from '@/app/actions';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -14,12 +14,10 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
   const [safes, setSafes] = useState<any[]>([]);
   const [order, setOrder] = useState<any>(null);
   
-  // Product Search
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectionMap, setSelectionMap] = useState<{[key: string]: number}>({});
 
-  // Cart logic
   const [cart, setCart] = useState<any[]>([]);
   const [deposit, setDeposit] = useState<string>('');
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
@@ -37,7 +35,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
         setDeposit(res.deposit.toString());
         setSelectedSafeId(res.safeId || '');
         
-        // تحويل بيانات الأوردر القديم لشكل "السلة" لكي يقبلها النظام
+        // تحويل بيانات الأوردر القديم لشكل "السلة"
         const initialCart: any[] = [];
         const modelGroups: {[key: string]: any} = {};
         
@@ -59,12 +57,11 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                 price: item.price,
                 color: item.product.color,
                 discountPercent: item.discountPercent,
-                productDiscount: item.product.discount // الخصم التلقائي المسجل للصنف
+                productDiscount: item.product.discount
             });
         });
 
         Object.values(modelGroups).forEach((group: any) => {
-            // إضافة سطر الخصم إذا كان موجوداً
             const disc = group.variants[0].discountPercent;
             if (disc > 0) {
                 initialCart.push({ type: 'discount', percent: disc, id: Math.random() });
@@ -128,6 +125,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     });
     setCart(newCart);
     setShowDiscountOptions(false);
+    alert("تم تطبيق خصومات الموديلات التلقائية ✅");
   };
 
   const getProcessedCart = () => {
@@ -158,12 +156,12 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
           currency: order.currency
       });
       if (res.success) {
-          alert("تم تحديث الأوردر وإعادة ضبط المخزون بنجاح ✅");
+          alert("تم تحديث الأوردر بنجاح ✅");
           router.push('/orders/list');
       } else { alert("خطأ في التحديث"); }
   };
 
-  if (loading) return <div className="p-10 text-center font-bold animate-pulse">جاري جلب بيانات الأوردر...</div>;
+  if (loading) return <div className="p-10 text-center font-bold">جاري تحميل بيانات الأوردر...</div>;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans text-gray-800" dir="rtl">
@@ -172,25 +170,20 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
             <h2 className="font-bold text-lg">✏️ تعديل أوردر #{order?.orderNo}</h2>
             <p className="text-xs text-gray-500">العميل: {order?.customer.name}</p>
         </div>
-        <Link href="/orders/list" className="bg-gray-100 px-4 py-2 rounded-lg text-sm font-bold">إلغاء</Link>
+        <Link href="/orders/list" className="bg-gray-100 px-4 py-2 rounded-lg text-sm font-bold shadow-sm">إلغاء ✕</Link>
       </div>
 
       <div className="p-4 max-w-2xl mx-auto space-y-6">
-        
-        {/* إضافة أصناف جديدة */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-            <label className="block text-sm font-bold text-gray-600 mb-2">إضافة أصناف جديدة للأوردر:</label>
-            <input type="text" placeholder="🔍 ابحث برقم الموديل..." className="w-full p-4 border rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+            <label className="block text-sm font-bold text-gray-600 mb-2">إضافة موديل جديد لهذا الأوردر:</label>
+            <input type="text" placeholder="🔍 ابحث برقم الموديل..." className="w-full p-4 border rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
             {searchResults.length > 0 && (
                 <div className="mt-2 bg-white border rounded-xl shadow-lg overflow-hidden divide-y">
                     {searchResults.map(p => (
                         <div key={p.id} className="p-3 flex justify-between items-center hover:bg-gray-50">
-                            <div>
-                                <div className="font-bold">{p.modelNo} - {p.color}</div>
-                                <div className="text-xs text-gray-400">المخزن: {p.stockQty}</div>
-                            </div>
+                            <div><div className="font-bold">{p.modelNo} - {p.color}</div><div className="text-xs text-gray-400">متاح: {p.stockQty}</div></div>
                             <div className="flex items-center gap-2">
-                                <input type="number" placeholder="كمية" className="w-16 border rounded p-1 text-center font-bold" onChange={e => setSelectionMap({...selectionMap, [p.id]: parseInt(e.target.value)})} />
+                                <input type="number" placeholder="كمية" className="w-16 border rounded p-1 text-center font-bold" onChange={e => setSelectionMap({...selectionMap, [p.id]: parseInt(e.target.value) || 1})} />
                                 <button onClick={handleAddToCart} className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs font-bold">إضافة</button>
                             </div>
                         </div>
@@ -199,55 +192,45 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
             )}
         </div>
 
-        {/* محتويات السلة (الأوردر) */}
         <div className="space-y-3">
             <div className="flex justify-between items-center">
                 <h3 className="font-bold text-gray-700">مكونات الأوردر الحالية:</h3>
-                <button onClick={handleApplyAutoProductDiscounts} className="bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold shadow animate-pulse">🏷️ تطبيق خصم الموديلات</button>
+                <button onClick={handleApplyAutoProductDiscounts} className="bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold shadow animate-pulse">🏷️ خصم الموديلات</button>
             </div>
             {cart.map((item, idx) => (
-                <div key={idx} className={`p-4 rounded-xl shadow-sm border flex justify-between items-center ${item.type === 'discount' ? 'bg-yellow-50 border-yellow-300 border-dashed' : 'bg-white border-gray-100'}`}>
+                <div key={idx} className={`p-4 rounded-xl shadow-sm border flex justify-between items-center ${item.type === 'discount' ? 'bg-yellow-50 border-yellow-300 border-dashed' : 'bg-white'}`}>
                     <div>
                         {item.type === 'discount' ? (
-                            <span className="text-yellow-800 font-bold">✂️ خصم {item.percent}% على ما يليه</span>
+                            <span className="text-yellow-800 font-bold">✂️ خصم {item.percent}%</span>
                         ) : (
-                            <div>
-                                <span className="font-bold text-lg">{item.modelNo}</span>
-                                <div className="text-xs text-gray-500">إجمالي الدرز: {item.totalQty}</div>
-                            </div>
+                            <div className="font-bold text-lg">{item.modelNo} <span className="text-sm font-normal text-gray-500">(عدد {item.totalQty})</span></div>
                         )}
                     </div>
-                    <button onClick={() => setCart(cart.filter((_, i) => i !== idx))} className="bg-red-50 text-red-500 p-2 rounded-full hover:bg-red-100 transition">🗑️</button>
+                    <button onClick={() => setCart(cart.filter((_, i) => i !== idx))} className="text-red-500 bg-red-50 p-2 rounded-full">🗑️</button>
                 </div>
             ))}
         </div>
 
-        {/* الحساب النهائي */}
         <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl">
             <div className="flex justify-between text-2xl font-black mb-6 border-b border-slate-700 pb-4">
-                <span>إجمالي الحساب:</span>
+                <span>الإجمالي الجديد:</span>
                 <span className="text-yellow-400">{getProcessedCart().reduce((a,i)=>a+i.totalLinePrice,0).toFixed(0)} {order?.currency}</span>
             </div>
-            
             <div className="space-y-4">
                 <div>
-                    <label className="block text-sm text-slate-400 mb-1 font-bold">العربون المسدد (بالجنيه):</label>
-                    <input type="number" value={deposit} onChange={e => setDeposit(e.target.value)} className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-xl border border-slate-700 focus:border-yellow-500 outline-none" />
+                    <label className="block text-sm text-slate-400 mb-1 font-bold">العربون / المدفوع:</label>
+                    <input type="number" value={deposit} onChange={e => setDeposit(e.target.value)} className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-xl border border-slate-700 outline-none" />
                 </div>
-
                 {parseFloat(deposit) > 0 && (
-                    <div className="animate-in fade-in duration-500">
-                        <label className="block text-sm text-slate-400 mb-1 font-bold">تعديل خزنة الإيداع:</label>
+                    <div>
+                        <label className="block text-sm text-slate-400 mb-1 font-bold">الخزنة:</label>
                         <select value={selectedSafeId} onChange={e => setSelectedSafeId(e.target.value)} className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold border border-slate-700">
                             {safes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
                     </div>
                 )}
             </div>
-
-            <button onClick={handleUpdate} className="w-full bg-yellow-500 text-slate-900 py-5 rounded-2xl font-black text-xl mt-8 hover:bg-yellow-400 active:scale-95 transition-all shadow-lg shadow-yellow-900/20">
-                تحديث وحفظ التعديلات ✅
-            </button>
+            <button onClick={handleUpdate} className="w-full bg-yellow-500 text-slate-900 py-5 rounded-2xl font-black text-xl mt-8 shadow-lg active:scale-95 transition-all">حفظ التعديلات النهائية ✅</button>
         </div>
       </div>
     </div>
