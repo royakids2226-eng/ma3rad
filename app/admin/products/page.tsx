@@ -97,6 +97,7 @@ export default function ProductsPage() {
     XLSX.writeFile(wb, "Products_Template.xlsx");
   };
 
+  // 👇 تعديل منطق الرفع ليكون أكثر تحملاً للأعداد الكبيرة (1700+) 👇
   const handleFileUpload = (e: any) => {
     const file = e.target.files[0];
     if(!file) return;
@@ -114,17 +115,27 @@ export default function ProductsPage() {
         
         if(confirm(`تم قراءة ${data.length} صنف. هل تريد البدء في الرفع؟`)) {
             setIsUploading(true);
-            const BATCH_SIZE = 200;
+            const BATCH_SIZE = 100; // تقليل الحجم لضمان سرعة الاستجابة وتفادي التوقف
             let successCount = 0;
+            let failCount = 0;
             const total = data.length;
 
             for (let i = 0; i < total; i += BATCH_SIZE) {
                 const chunk = data.slice(i, i + BATCH_SIZE);
-                setUploadStatusText(`جاري رفع الأصناف من ${i + 1} إلى ${Math.min(i + BATCH_SIZE, total)} ...`);
+                setUploadStatusText(`جاري معالجة المجموعة ${Math.floor(i/BATCH_SIZE) + 1} من ${Math.ceil(total/BATCH_SIZE)}...`);
                 
-                const res = await addBulkProducts(chunk as any[]);
-                if (res.success) {
-                    successCount += (res.count || 0);
+                try {
+                    const res = await addBulkProducts(chunk as any[]);
+                    if (res.success) {
+                        successCount += (res.count || 0);
+                    } else {
+                        // لو السيرفر رفض مجموعة لأي سبب (مثل خطأ داتا)، نسجل الفشل ونكمل الباقي
+                        console.error("Batch failure:", res.error);
+                        failCount += chunk.length;
+                    }
+                } catch (err) {
+                    console.error("Critical error in batch:", err);
+                    failCount += chunk.length;
                 }
 
                 const percent = Math.round(((i + chunk.length) / total) * 100);
@@ -132,8 +143,8 @@ export default function ProductsPage() {
             }
 
             setIsUploading(false);
-            setUploadStatusText(`✅ تم الانتهاء! تم رفع/تحديث ${successCount} صنف بنجاح.`);
-            alert(`تمت العملية بنجاح. تم معالجة ${successCount} صنف.`);
+            setUploadStatusText(`✅ اكتملت العملية. ناجح: ${successCount} | فشل: ${failCount}`);
+            alert(`تم الانتهاء من المعالجة:\n- أصناف تم رفعها/تحديثها: ${successCount}\n- أصناف فشلت: ${failCount}`);
             refreshProducts();
             e.target.value = '';
         }
@@ -228,7 +239,7 @@ export default function ProductsPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded shadow-sm border-r-4 border-r-green-600">
         <div>
             <h1 className="text-xl md:text-2xl font-bold text-gray-800">إدارة الأصناف</h1>
-            <p className="text-xs text-green-600 font-bold mt-1">العدد المتاح: {filteredProducts.length}</p>
+            <p className="text-xs text-green-600 font-bold mt-1">العدد المصفى: {filteredProducts.length}</p>
         </div>
         
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
@@ -264,7 +275,7 @@ export default function ProductsPage() {
       <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-2">
             <div className="w-full">
-                <h3 className="font-bold text-blue-800 text-sm md:text-lg">📥 استيراد Excel</h3>
+                <h3 className="font-bold text-blue-800 text-sm md:text-lg">📥 استيراد Excel (يدعم الأعداد الكبيرة)</h3>
                 <div className="flex justify-between items-center mt-1">
                     <button onClick={downloadTemplate} className="text-xs text-blue-700 underline font-bold">تحميل النموذج</button>
                     <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} disabled={isUploading || isDeleting} className="text-xs bg-white p-2 rounded border cursor-pointer w-1/2" />

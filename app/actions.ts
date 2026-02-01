@@ -2,6 +2,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
+import bcrypt from 'bcryptjs' // 👈 تم إضافة الاستيراد لتشفير كلمة السر
 
 const prisma = new PrismaClient()
 
@@ -100,7 +101,7 @@ export async function createOrder(data: any, userId: string) {
   }
 }
 
-// 5. جلب الأوردر للطباعة (تعديل لجلب المدفوعات المرتبطة ✅)
+// 5. جلب الأوردر للطباعة (تعديل لجلب المدفوعات المرتبطة)
 export async function getOrderById(orderId: string) {
   if (!orderId) return null;
   try {
@@ -141,7 +142,7 @@ export async function createPayment(data: any, userId: string) {
   } catch (error) { return { success: false, error: 'فشل العملية' }; }
 }
 
-// بقية الدوال (getUserOrders, deleteOrder, getCurrentUser) تبقى كاملة بدون أي حذف
+// 7. الأوردرات السابقة
 export async function getUserOrders(userId: string) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -151,7 +152,11 @@ export async function getUserOrders(userId: string) {
     }
     const orders = await prisma.order.findMany({
       where: whereCondition,
-      include: { customer: true, user: true, items: { include: { product: true } } },
+      include: { 
+          customer: true, 
+          user: true, 
+          items: { include: { product: true } } 
+      },
       orderBy: { createdAt: 'desc' },
       take: 100
     });
@@ -174,4 +179,30 @@ export async function getCurrentUser(userId: string) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     return JSON.parse(JSON.stringify(user));
   } catch (error) { return null; }
+}
+
+// 👇 الميزة الجديدة: تسجيل موظف جديد من صفحة اللوجن 👇
+export async function registerEmployee(data: any) {
+  try {
+    const { code, name, password } = data;
+    
+    // التحقق من وجود الكود مسبقاً
+    const existingUser = await prisma.user.findUnique({ where: { code } });
+    if (existingUser) return { success: false, error: 'كود الموظف مستخدم بالفعل' };
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    await prisma.user.create({
+      data: {
+        code,
+        name,
+        password: hashedPassword,
+        role: 'EMPLOYEE' // 👈 إجبار الصلاحية أن تكون موظف فقط
+      }
+    });
+
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: 'حدث خطأ أثناء التسجيل' };
+  }
 }

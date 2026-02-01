@@ -42,7 +42,7 @@ export async function getUsers() {
 }
 
 // ==========================================
-// 2. إدارة المنتجات (Products) - تم التعديل لدعم الخصم ✅
+// 2. إدارة المنتجات (Products) - دعم السعة العالية
 // ==========================================
 
 export async function addProduct(data: any) {
@@ -54,7 +54,7 @@ export async function addProduct(data: any) {
                 description: data.description,
                 material: data.material,
                 price: parseFloat(data.price),
-                discount: parseFloat(data.discount) || 0, // 👈 إضافة الخصم يدوياً
+                discount: parseFloat(data.discount) || 0, 
                 color: item.color,
                 stockQty: parseInt(item.stock),
                 status: data.status || 'OPEN'
@@ -78,7 +78,7 @@ export async function updateProduct(id: string, data: any) {
                 material: data.material,
                 color: data.color,
                 price: parseFloat(data.price),
-                discount: parseFloat(data.discount) || 0, // 👈 تعديل الخصم
+                discount: parseFloat(data.discount) || 0,
                 stockQty: parseInt(data.stockQty),
                 status: data.status
             }
@@ -107,7 +107,7 @@ export async function addBulkProducts(products: any[]) {
                     update: {
                         stockQty: parseInt(p.stockQty) || 0,
                         price: parseFloat(p.price) || 0,
-                        discount: parseFloat(p.discount) || 0, // 👈 تحديث الخصم من الإكسيل
+                        discount: parseFloat(p.discount) || 0,
                         description: p.description || '',
                         status: productStatus
                     },
@@ -117,7 +117,7 @@ export async function addBulkProducts(products: any[]) {
                         material: p.material || '',
                         color: String(p.color),
                         price: parseFloat(p.price) || 0,
-                        discount: parseFloat(p.discount) || 0, // 👈 إضافة الخصم من الإكسيل
+                        discount: parseFloat(p.discount) || 0,
                         stockQty: parseInt(p.stockQty) || 0,
                         status: productStatus
                     }
@@ -172,7 +172,11 @@ export async function deleteAllProducts() {
 }
 
 export async function getProducts() {
-  const products = await prisma.product.findMany({ orderBy: { id: 'desc' }, take: 2000 });
+  // 👇 تم زيادة الـ take إلى 5000 لكي تظهر الأصناف الـ 1700 كاملة دون أن تختفي 👇
+  const products = await prisma.product.findMany({ 
+      orderBy: { id: 'desc' }, 
+      take: 5000 
+  });
   return JSON.parse(JSON.stringify(products));
 }
 
