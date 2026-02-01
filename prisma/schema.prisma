@@ -60,6 +60,7 @@ model Order {
   createdAt   DateTime    @default(now())
   
   deposit     Float       @default(0.0)
+  currency    String      @default("EGP") // 👈 تم الإضافة هنا أيضاً لتوحيد التقارير
   discount    Float       @default(0.0) 
 
   totalAmount Float

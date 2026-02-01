@@ -45,18 +45,16 @@ export default function ReportsPage() {
 }
 
 // ===============================================
-// 1. مكون تقرير حركة المخزون
+// 1. مكون تقرير حركة المخزون (كامل بدون حذف)
 // ===============================================
 function InventoryReportView() {
     const [data, setData] = useState<any[]>([]); 
     const [summary, setSummary] = useState<any>({});
     const [loading, setLoading] = useState(true);
     
-    // خيارات العرض والترتيب
     const [viewMode, setViewMode] = useState<'COLOR' | 'MODEL'>('COLOR');
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
-    // حالة المودال
     const [selectedHistory, setSelectedHistory] = useState<any[] | null>(null);
     const [selectedItemName, setSelectedItemName] = useState('');
 
@@ -70,7 +68,6 @@ function InventoryReportView() {
         });
     }, []);
 
-    // تجميع البيانات
     const getGroupedData = () => {
         const groups: any = {};
         data.forEach(item => {
@@ -98,16 +95,13 @@ function InventoryReportView() {
         return Object.values(groups);
     };
 
-    // تجهيز البيانات للعرض
     let displayData = viewMode === 'COLOR' ? data : getGroupedData();
 
-    // إضافة نسبة المبيع
     displayData = displayData.map((item: any) => ({
         ...item,
         salesPercentage: item.initialStock > 0 ? (item.totalSold / item.initialStock) * 100 : 0
     }));
 
-    // الترتيب
     if (sortConfig !== null) {
         displayData.sort((a: any, b: any) => {
             if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -144,21 +138,19 @@ function InventoryReportView() {
             <div className="flex justify-between items-center border-b pb-2">
                 <h2 className="text-xl font-bold">تقرير حركة الأصناف</h2>
                 <div className="bg-gray-100 p-1 rounded-lg flex text-sm print:hidden">
-                    <button onClick={() => { setViewMode('COLOR'); setSortConfig(null); }} className={`px-4 py-1 rounded-md transition ${viewMode === 'COLOR' ? 'bg-white shadow text-blue-700 font-bold' : 'text-gray-500'}`}>تفصيلي (باللون)</button>
-                    <button onClick={() => { setViewMode('MODEL'); setSortConfig(null); }} className={`px-4 py-1 rounded-md transition ${viewMode === 'MODEL' ? 'bg-white shadow text-blue-700 font-bold' : 'text-gray-500'}`}>تجميعي (بالموديل)</button>
+                    <button onClick={() => setViewMode('COLOR')} className={`px-4 py-1 rounded-md ${viewMode === 'COLOR' ? 'bg-white shadow text-blue-700 font-bold' : 'text-gray-500'}`}>تفصيلي</button>
+                    <button onClick={() => setViewMode('MODEL')} className={`px-4 py-1 rounded-md ${viewMode === 'MODEL' ? 'bg-white shadow text-blue-700 font-bold' : 'text-gray-500'}`}>بالموديل</button>
                 </div>
             </div>
             
-            {/* الملخص */}
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <div className="bg-blue-50 p-3 rounded border border-blue-200 text-center"><div className="text-gray-500 text-xs">عدد الموديلات</div><div className="text-xl font-bold text-blue-700">{viewMode === 'MODEL' ? displayData.length : summary.totalItems}</div></div>
-                <div className="bg-indigo-50 p-3 rounded border border-indigo-200 text-center"><div className="text-gray-500 text-xs">إجمالي الرصيد الحالي (قطعة)</div><div className="text-xl font-bold text-indigo-700">{summary.totalCurrentStock}</div></div>
-                <div className="bg-yellow-50 p-3 rounded border border-yellow-200 text-center"><div className="text-gray-500 text-xs">إجمالي المباع (قطعة)</div><div className="text-xl font-bold text-yellow-700">{summary.totalSoldUnits}</div></div>
-                <div className="bg-orange-50 p-3 rounded border border-orange-200 text-center"><div className="text-gray-500 text-xs">إجمالي قيمة المبيعات</div><div className="text-xl font-bold text-orange-700">{summary.totalSalesValue?.toLocaleString()} ج.م</div></div>
-                <div className="bg-green-50 p-3 rounded border border-green-200 text-center"><div className="text-gray-500 text-xs">القيمة الحالية للمخزون</div><div className="text-xl font-bold text-green-700">{summary.totalValue?.toLocaleString()} ج.م</div></div>
+                <div className="bg-blue-50 p-3 rounded border text-center font-bold text-blue-700">عدد الموديلات: {summary.totalItems}</div>
+                <div className="bg-indigo-50 p-3 rounded border text-center font-bold text-indigo-700">المتاح: {summary.totalCurrentStock}</div>
+                <div className="bg-yellow-50 p-3 rounded border text-center font-bold text-yellow-700">المباع: {summary.totalSoldUnits}</div>
+                <div className="bg-orange-50 p-3 rounded border text-center font-bold text-orange-700">مبيعات: {summary.totalSalesValue?.toLocaleString()} ج.م</div>
+                <div className="bg-green-50 p-3 rounded border text-center font-bold text-green-700">قيمة المخزون: {summary.totalValue?.toLocaleString()} ج.م</div>
             </div>
 
-            {/* الجدول */}
             <div className="overflow-x-auto">
                 <table className="w-full text-sm text-right border-collapse">
                     <thead className="bg-gray-100 text-gray-700">
@@ -168,8 +160,7 @@ function InventoryReportView() {
                             <th className="p-3 border bg-blue-50">الرصيد الأولي</th>
                             <th className="p-3 border bg-yellow-50">إجمالي المبيعات</th>
                             <th className="p-3 border bg-green-50">الرصيد الحالي</th>
-                            <th className="p-3 border cursor-pointer hover:bg-gray-200 transition select-none" onClick={() => handleSort('salesPercentage')}>نسبة المبيع {sortConfig?.key === 'salesPercentage' && (sortConfig.direction === 'asc' ? '⬆️' : '⬇️')}</th>
-                            {viewMode === 'COLOR' && <th className="p-3 border">الحالة</th>}
+                            <th className="p-3 border cursor-pointer hover:bg-gray-200" onClick={() => handleSort('salesPercentage')}>نسبة المبيع {sortConfig?.key === 'salesPercentage' && (sortConfig.direction === 'asc' ? '⬆️' : '⬇️')}</th>
                             <th className="p-3 border">القيمة الحالية</th>
                         </tr>
                     </thead>
@@ -177,12 +168,11 @@ function InventoryReportView() {
                         {displayData.map((item: any) => (
                             <tr key={item.id} className="hover:bg-gray-50">
                                 <td className="p-2 border font-bold">{item.modelNo}</td>
-                                <td className="p-2 border">{viewMode === 'COLOR' ? item.color : <span className="text-xs text-gray-600">{item.colors.length} ألوان ({item.colors.join('، ')})</span>}</td>
+                                <td className="p-2 border">{viewMode === 'COLOR' ? item.color : item.colors.join('، ')}</td>
                                 <td className="p-2 border font-bold text-blue-700">{item.initialStock}</td>
-                                <td className="p-2 border">{item.totalSold > 0 ? <button onClick={() => openHistory(item)} className="text-yellow-700 font-bold underline hover:text-yellow-900">{item.totalSold} (عرض التفاصيل)</button> : <span className="text-gray-400">0</span>}</td>
-                                <td className={`p-2 border font-bold ${item.currentStock <= 0 ? 'text-red-600 bg-red-50' : 'text-green-700'}`}>{item.currentStock}</td>
-                                <td className={`p-2 border font-bold ${item.salesPercentage > 50 ? 'text-green-600' : 'text-red-600'}`}>{item.salesPercentage.toFixed(1)}%</td>
-                                {viewMode === 'COLOR' && <td className="p-2 border text-xs">{item.status === 'OPEN' ? 'مفتوح' : 'مغلق'}</td>}
+                                <td className="p-2 border">{item.totalSold > 0 ? <button onClick={() => openHistory(item)} className="text-yellow-700 font-bold underline">{item.totalSold}</button> : '0'}</td>
+                                <td className={`p-2 border font-bold ${item.currentStock <= 0 ? 'text-red-600' : 'text-green-700'}`}>{item.currentStock}</td>
+                                <td className="p-2 border font-bold">{item.salesPercentage.toFixed(1)}%</td>
                                 <td className="p-2 border">{item.currentValue.toLocaleString()}</td>
                             </tr>
                         ))}
@@ -190,17 +180,16 @@ function InventoryReportView() {
                 </table>
             </div>
 
-            {/* مودال التفاصيل */}
             {selectedHistory && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4" onClick={() => setSelectedHistory(null)}>
+                <div className="fixed inset-0 bg-black/50 z-50 flex justify-center items-center p-4" onClick={() => setSelectedHistory(null)}>
                     <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="bg-gray-100 p-4 border-b flex justify-between items-center"><h3 className="font-bold text-lg">تفاصيل مبيعات: {selectedItemName}</h3><button onClick={() => setSelectedHistory(null)} className="text-red-500 font-bold text-xl">&times;</button></div>
+                        <div className="bg-gray-100 p-4 border-b flex justify-between items-center"><h3 className="font-bold">تفاصيل مبيعات: {selectedItemName}</h3><button onClick={() => setSelectedHistory(null)}>✕</button></div>
                         <div className="p-4 max-h-[400px] overflow-y-auto">
-                            <table className="w-full text-sm text-right"><thead className="bg-gray-50"><tr><th className="p-2 border">التاريخ</th><th className="p-2 border">رقم الأوردر</th><th className="p-2 border">العميل</th><th className="p-2 border">الكمية</th><th className="p-2 border">سعر البيع</th></tr></thead>
-                                <tbody>{selectedHistory.map((h: any, idx: number) => (<tr key={idx} className="border-b"><td className="p-2">{new Date(h.date).toLocaleDateString('ar-EG')}</td><td className="p-2 font-bold">#{h.orderNo}</td><td className="p-2">{h.customer}</td><td className="p-2 font-bold text-blue-600">{h.quantity}</td><td className="p-2">{h.price}</td></tr>))}</tbody>
+                            <table className="w-full text-sm text-right">
+                                <thead className="bg-gray-50"><tr><th className="p-2 border">التاريخ</th><th className="p-2 border">رقم الأوردر</th><th className="p-2 border">العميل</th><th className="p-2 border">الكمية</th></tr></thead>
+                                <tbody>{selectedHistory.map((h: any, idx: number) => (<tr key={idx} className="border-b"><td className="p-2">{new Date(h.date).toLocaleDateString('ar-EG')}</td><td className="p-2">#{h.orderNo}</td><td className="p-2">{h.customer}</td><td className="p-2 font-bold text-blue-600">{h.quantity}</td></tr>))}</tbody>
                             </table>
                         </div>
-                        <div className="bg-gray-50 p-3 text-center border-t"><button onClick={() => setSelectedHistory(null)} className="bg-gray-800 text-white px-6 py-2 rounded">إغلاق</button></div>
                     </div>
                 </div>
             )}
@@ -209,23 +198,18 @@ function InventoryReportView() {
 }
 
 // ===============================================
-// 2. مكون دفتر الخزينة (تم التعديل: عرض تلقائي + اليوم الافتراضي)
+// 2. مكون دفتر الخزينة (فصل العملات ✅)
 // ===============================================
 function SafeLedgerView() {
-    // 1. تحديد تاريخ اليوم كقيمة افتراضية
     const getTodayDateString = () => new Date().toISOString().split('T')[0];
-
     const [safes, setSafes] = useState<any[]>([]);
     const [selectedSafe, setSelectedSafe] = useState('');
-    
     const [startDate, setStartDate] = useState(getTodayDateString());
     const [endDate, setEndDate] = useState(getTodayDateString());
-    
     const [ledger, setLedger] = useState<any[]>([]);
-    const [summary, setSummary] = useState<any>({});
+    const [summaryGrouped, setSummaryGrouped] = useState<any>({});
     const [loading, setLoading] = useState(false);
 
-    // جلب الخزن عند التحميل
     useEffect(() => {
         getSafesList().then(data => { 
             setSafes(data); 
@@ -233,46 +217,82 @@ function SafeLedgerView() {
         });
     }, []);
 
-    // دالة البحث (مفصولة)
     const fetchLedgerData = useCallback(async () => {
         if(!selectedSafe) return;
         setLoading(true);
         const res = await getSafeLedger(selectedSafe, startDate, endDate);
         if(res.success) { 
             setLedger(res.data || []); 
-            setSummary({ 
-                totalIn: res.totalIn || 0, 
-                totalOut: res.totalOut || 0, // إضافة الصادر للملخص
-                currentBalance: res.currentBalance || 0 
-            }); 
+            setSummaryGrouped(res.summaryGrouped || {}); 
         }
         setLoading(false);
     }, [selectedSafe, startDate, endDate]);
 
-    // 2. التحديث التلقائي عند تغيير الخزنة أو التواريخ
-    useEffect(() => {
-        fetchLedgerData();
-    }, [fetchLedgerData]);
+    useEffect(() => { fetchLedgerData(); }, [fetchLedgerData]);
+
+    const getCurrencyName = (code: string) => {
+        const names: any = { 'EGP': 'جنيه مصري', 'USD': 'دولار أمريكي', 'SAR': 'ريال سعودي', 'KWD': 'دينار كويتي' };
+        return names[code] || code;
+    };
 
     return (
         <div className="space-y-6">
             <h2 className="text-xl font-bold border-b pb-2">دفتر أستاذ الخزينة</h2>
             <div className="flex flex-wrap gap-4 items-end bg-gray-50 p-4 rounded border print:hidden">
-                <div className="flex-1 min-w-[200px]"><label className="block text-xs font-bold mb-1">اختر الخزنة</label><select value={selectedSafe} onChange={e => setSelectedSafe(e.target.value)} className="w-full p-2 border rounded">{safes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-                <div><label className="block text-xs font-bold mb-1">من تاريخ</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="p-2 border rounded" /></div>
-                <div><label className="block text-xs font-bold mb-1">إلى تاريخ</label><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="p-2 border rounded" /></div>
+                <div className="flex-1 min-w-[200px]"><label className="block text-xs font-bold mb-1 text-gray-500">اختر الخزنة</label><select value={selectedSafe} onChange={e => setSelectedSafe(e.target.value)} className="w-full p-2 border rounded">{safes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                <div><label className="block text-xs font-bold mb-1 text-gray-500">من تاريخ</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="p-2 border rounded" /></div>
+                <div><label className="block text-xs font-bold mb-1 text-gray-500">إلى تاريخ</label><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="p-2 border rounded" /></div>
                 <button onClick={fetchLedgerData} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 h-[42px]">تحديث ⟳</button>
             </div>
+
             {loading ? <div className="text-center py-10">جاري التحميل...</div> : (
                 <>
-                    <div className="flex gap-4 mb-4 flex-wrap">
-                        <div className="bg-green-100 p-3 rounded border border-green-300 flex-1 text-center"><span className="block text-xs text-green-800">إجمالي الوارد</span><span className="block text-xl font-bold text-green-900">{summary.totalIn?.toLocaleString() || 0} ج.م</span></div>
-                        <div className="bg-red-100 p-3 rounded border border-red-300 flex-1 text-center"><span className="block text-xs text-red-800">إجمالي الصادر</span><span className="block text-xl font-bold text-red-900">{summary.totalOut?.toLocaleString() || 0} ج.م</span></div>
-                        <div className="bg-gray-800 p-3 rounded border border-gray-900 flex-1 text-center text-white"><span className="block text-xs text-gray-400">الرصيد التراكمي (للفترة)</span><span className="block text-xl font-bold">{summary.currentBalance?.toLocaleString() || 0} ج.م</span></div>
+                    {/* 👇 عرض بطاقات ملخص لكل عملة بشكل منفصل 👇 */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                        {Object.entries(summaryGrouped).map(([curr, totals]: any) => (
+                            <div key={curr} className="bg-white border-2 border-gray-800 rounded-lg overflow-hidden shadow-sm">
+                                <div className="bg-gray-800 text-white p-2 text-center font-bold text-sm">
+                                    رصيد الـ {getCurrencyName(curr)}
+                                </div>
+                                <div className="p-3 space-y-2">
+                                    <div className="flex justify-between text-xs"><span>إجمالي الوارد:</span><span className="text-green-600 font-bold">+{totals.in.toLocaleString()}</span></div>
+                                    <div className="flex justify-between text-xs"><span>إجمالي الصادر:</span><span className="text-red-600 font-bold">-{totals.out.toLocaleString()}</span></div>
+                                    <div className="flex justify-between border-t pt-1 font-bold text-lg"><span>الصافي:</span><span>{totals.balance.toLocaleString()} {curr}</span></div>
+                                </div>
+                            </div>
+                        ))}
                     </div>
+
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-right border-collapse"><thead className="bg-gray-100 text-gray-700"><tr><th className="p-2 border">التاريخ</th><th className="p-2 border">نوع الحركة</th><th className="p-2 border">البيان</th><th className="p-2 border">المستلم</th><th className="p-2 border bg-green-50 text-green-800">وارد (+)</th><th className="p-2 border bg-red-50 text-red-800">صادر (-)</th><th className="p-2 border bg-gray-200">الرصيد</th></tr></thead>
-                            <tbody>{ledger.length === 0 ? (<tr><td colSpan={7} className="p-4 text-center text-gray-500">لا توجد حركات في هذه الفترة</td></tr>) : (ledger.map((row: any) => (<tr key={row.id} className="hover:bg-gray-50"><td className="p-2 border whitespace-nowrap">{new Date(row.date).toLocaleDateString('ar-EG')}</td><td className="p-2 border font-bold text-xs">{row.type}</td><td className="p-2 border">{row.description}</td><td className="p-2 border text-xs">{row.user}</td><td className="p-2 border font-bold text-green-700">{row.inAmount > 0 ? row.inAmount.toLocaleString() : '-'}</td><td className="p-2 border font-bold text-red-700">{row.outAmount > 0 ? row.outAmount.toLocaleString() : '-'}</td><td className="p-2 border font-bold bg-gray-50">{row.balance.toLocaleString()}</td></tr>)))}</tbody>
+                        <table className="w-full text-sm text-right border-collapse">
+                            <thead className="bg-gray-100 text-gray-700">
+                                <tr>
+                                    <th className="p-2 border">التاريخ</th>
+                                    <th className="p-2 border">نوع الحركة</th>
+                                    <th className="p-2 border">البيان</th>
+                                    <th className="p-2 border">العملة</th>
+                                    <th className="p-2 border bg-green-50 text-green-800">وارد (+)</th>
+                                    <th className="p-2 border bg-red-50 text-red-800">صادر (-)</th>
+                                    <th className="p-2 border text-xs">المستلم</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {ledger.length === 0 ? (
+                                    <tr><td colSpan={7} className="p-4 text-center text-gray-500">لا توجد حركات</td></tr>
+                                ) : (
+                                    ledger.map((row: any) => (
+                                        <tr key={row.id} className="hover:bg-gray-50">
+                                            <td className="p-2 border whitespace-nowrap">{new Date(row.date).toLocaleDateString('ar-EG')}</td>
+                                            <td className="p-2 border font-bold text-xs">{row.type}</td>
+                                            <td className="p-2 border">{row.description}</td>
+                                            <td className="p-2 border text-center font-bold text-blue-600">{row.currency}</td>
+                                            <td className="p-2 border font-bold text-green-700">{row.inAmount > 0 ? row.inAmount.toLocaleString() : '-'}</td>
+                                            <td className="p-2 border font-bold text-red-700">{row.outAmount > 0 ? row.outAmount.toLocaleString() : '-'}</td>
+                                            <td className="p-2 border text-xs">{row.user}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
                         </table>
                     </div>
                 </>
@@ -282,7 +302,7 @@ function SafeLedgerView() {
 }
 
 // ===============================================
-// 3. مكون تقرير أداء الموظفين
+// 3. مكون تقرير أداء الموظفين (كامل مع حسابات الخصومات)
 // ===============================================
 function EmployeePerformanceView() {
     const [data, setData] = useState<any[]>([]);
@@ -291,9 +311,7 @@ function EmployeePerformanceView() {
 
     useEffect(() => {
         getEmployeePerformance().then(res => {
-            if (res.success) {
-                setData(res.data || []);
-            }
+            if (res.success) setData(res.data || []);
             setLoading(false);
         });
     }, []);
@@ -317,42 +335,28 @@ function EmployeePerformanceView() {
 
     return (
         <div className="space-y-6">
-            <h2 className="text-xl font-bold border-b pb-2">تقرير أداء المبيعات للموظفين</h2>
-            
+            <h2 className="text-xl font-bold border-b pb-2">تقرير أداء الموظفين</h2>
             <div className="overflow-x-auto">
                 <table className="w-full text-sm text-right border-collapse">
                     <thead className="bg-purple-100 text-purple-900">
                         <tr>
                             <th className="p-3 border">الموظف</th>
                             <th className="p-3 border">الكود</th>
-                            <th className="p-3 border">الرتبة</th>
-                            
-                            <th className="p-3 border cursor-pointer hover:bg-purple-200 transition select-none" onClick={() => handleSort('orderCount')}>
-                                عدد الأوردرات {sortConfig?.key === 'orderCount' && (sortConfig.direction === 'asc' ? '⬆️' : '⬇️')}
-                            </th>
-                            
-                            <th className="p-3 border cursor-pointer hover:bg-purple-200 transition select-none" onClick={() => handleSort('totalSales')}>
-                                إجمالي المبيعات {sortConfig?.key === 'totalSales' && (sortConfig.direction === 'asc' ? '⬆️' : '⬇️')}
-                            </th>
-
-                            <th className="p-3 border cursor-pointer hover:bg-purple-200 transition select-none" onClick={() => handleSort('totalDiscount')}>
-                                إجمالي الخصومات {sortConfig?.key === 'totalDiscount' && (sortConfig.direction === 'asc' ? '⬆️' : '⬇️')}
-                            </th>
+                            <th className="p-3 border cursor-pointer select-none" onClick={() => handleSort('orderCount')}>عدد الأوردرات {sortConfig?.key === 'orderCount' && (sortConfig.direction === 'asc' ? '⬆️' : '⬇️')}</th>
+                            <th className="p-3 border cursor-pointer select-none" onClick={() => handleSort('totalSales')}>إجمالي المبيعات {sortConfig?.key === 'totalSales' && (sortConfig.direction === 'asc' ? '⬆️' : '⬇️')}</th>
+                            <th className="p-3 border cursor-pointer select-none" onClick={() => handleSort('totalDiscount')}>إجمالي الخصومات {sortConfig?.key === 'totalDiscount' && (sortConfig.direction === 'asc' ? '⬆️' : '⬇️')}</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {sortedData.length === 0 ? (<tr><td colSpan={6} className="p-6 text-center text-gray-500">لا توجد مبيعات مسجلة حتى الآن</td></tr>) : (
-                            sortedData.map((emp: any) => (
-                                <tr key={emp.id} className="hover:bg-purple-50 transition">
-                                    <td className="p-3 border font-bold">{emp.name}</td>
-                                    <td className="p-3 border font-mono">{emp.code}</td>
-                                    <td className="p-3 border text-xs">{emp.role}</td>
-                                    <td className="p-3 border text-center font-bold text-lg">{emp.orderCount}</td>
-                                    <td className="p-3 border font-bold text-green-700">{emp.totalSales.toLocaleString()} ج.م</td>
-                                    <td className="p-3 border text-red-600 font-bold">{emp.totalDiscount.toLocaleString()} ج.م</td>
-                                </tr>
-                            ))
-                        )}
+                        {sortedData.map((emp: any) => (
+                            <tr key={emp.id} className="hover:bg-purple-50">
+                                <td className="p-3 border font-bold">{emp.name}</td>
+                                <td className="p-3 border font-mono">{emp.code}</td>
+                                <td className="p-3 border text-center font-bold text-lg">{emp.orderCount}</td>
+                                <td className="p-3 border font-bold text-green-700">{emp.totalSales.toLocaleString()} ج.م</td>
+                                <td className="p-3 border text-red-600 font-bold">{emp.totalDiscount.toLocaleString()} ج.م</td>
+                            </tr>
+                        ))}
                     </tbody>
                 </table>
             </div>

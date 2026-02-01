@@ -64,7 +64,7 @@ export async function getInventoryReport() {
 }
 
 // ==========================================
-// 2. تقارير الخزنة (دفتر الأستاذ) - كامل بدون حذف
+// 2. تقارير الخزنة (دفتر الأستاذ) - تم التعديل لفصل العملات ✅
 // ==========================================
 export async function getSafesList() {
     const safes = await prisma.safe.findMany();
@@ -128,10 +128,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
                 desc = `تحويل من: ${sourceName} - ${p.description || ''}`;
                 inAmt = p.amount;
              }
-        } else {
-             typeLabel = 'تحصيل قديم';
-             desc = `إيصال #${p.receiptNo}`;
-             inAmt = p.amount;
         }
 
         transactions.push({
@@ -139,6 +135,7 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
             date: p.createdAt, 
             type: typeLabel,
             description: desc,
+            currency: p.currency || 'EGP', // 👈 جلب العملة
             inAmount: inAmt, 
             outAmount: outAmt, 
             user: p.user.name
@@ -149,24 +146,29 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         transactions.push({
             id: o.id, date: o.createdAt, type: 'عربون أوردر',
             description: `أوردر #${o.orderNo} - ${o.customer.name}`,
+            currency: o.currency || 'EGP', // 👈 جلب العملة
             inAmount: o.deposit, outAmount: 0, user: o.user.name
         });
     });
 
     transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    let runningBalance = 0;
-    const finalTransactions = transactions.map(t => {
-        runningBalance += (t.inAmount - t.outAmount);
-        return { ...t, balance: runningBalance };
+    // 👇 حساب المجاميع لكل عملة على حدة 👇
+    const summaryByCurrency: any = {};
+    transactions.forEach(t => {
+        const curr = t.currency;
+        if (!summaryByCurrency[curr]) {
+            summaryByCurrency[curr] = { in: 0, out: 0, balance: 0 };
+        }
+        summaryByCurrency[curr].in += t.inAmount;
+        summaryByCurrency[curr].out += t.outAmount;
+        summaryByCurrency[curr].balance += (t.inAmount - t.outAmount);
     });
 
     return { 
         success: true, 
-        data: finalTransactions, 
-        totalIn: transactions.reduce((acc, t) => acc + t.inAmount, 0),
-        totalOut: transactions.reduce((acc, t) => acc + t.outAmount, 0),
-        currentBalance: runningBalance
+        data: transactions, 
+        summaryGrouped: summaryByCurrency // 👈 إرسال البيانات مجمعة حسب العملة
     };
 
   } catch (e) {

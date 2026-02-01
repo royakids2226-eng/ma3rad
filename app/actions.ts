@@ -13,7 +13,7 @@ export async function getCustomers() {
   } catch (error) { return []; }
 }
 
-// البحث عن العملاء
+// البحث عن العملاء (Live Search Logic)
 export async function searchCustomers(term: string) {
   if (!term) return [];
   const normalizedTerm = term.replace(/[أإآ]/g, 'ا');
@@ -54,21 +54,25 @@ export async function searchProducts(term: string) {
   } catch (error) { return []; }
 }
 
-// 4. حفظ الأوردر
+// 4. حفظ الأوردر (تم التعديل لدعم العملة ✅)
 export async function createOrder(data: any, userId: string) {
-  const { customerId, items, total, deposit, safeId } = data; 
+  const { customerId, items, total, deposit, safeId, currency } = data; 
   
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // 1. إنشاء الأوردر
+      // إنشاء الأوردر مع حفظ العملة المختارة
       const order = await tx.order.create({
         data: {
-          userId, customerId, totalAmount: total, deposit: deposit || 0,
+          userId, 
+          customerId, 
+          totalAmount: total, 
+          deposit: deposit || 0,
+          currency: currency || 'EGP', // 👈 حفظ العملة
           safeId: deposit > 0 ? safeId : null,
         }
       });
 
-      // 2. إضافة الأصناف
+      // إضافة الأصناف
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
           await tx.orderItem.create({
@@ -84,9 +88,7 @@ export async function createOrder(data: any, userId: string) {
           // خصم المخزون
           await tx.product.update({
             where: { id: variant.productId },
-            data: {
-              stockQty: { decrement: variant.quantity }
-            }
+            data: { stockQty: { decrement: variant.quantity } }
           });
         }
       }
@@ -113,16 +115,10 @@ export async function getOrderById(orderId: string) {
   } catch (error) { return null; }
 }
 
-// 6. إدارة النقدية (قبض - صرف - تحويل) - تم إضافة العملة
+// 6. إدارة النقدية (قبض - صرف - تحويل) - تم إضافة العملة ✅
 export async function createPayment(data: any, userId: string) {
   const { 
-    type,        // 'IN' | 'OUT' | 'TRANSFER'
-    amount, 
-    currency,    // 👈 تم الإضافة
-    safeId, 
-    customerId, 
-    targetSafeId, 
-    description 
+    type, amount, currency, safeId, customerId, targetSafeId, description 
   } = data;
 
   try {
@@ -130,7 +126,7 @@ export async function createPayment(data: any, userId: string) {
       data: { 
         type,
         amount, 
-        currency: currency || "EGP", // الافتراضي جنيه
+        currency: currency || 'EGP', // 👈 العملة المختارة
         safeId, 
         userId,
         customerId: customerId || null,
