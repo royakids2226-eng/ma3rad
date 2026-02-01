@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, use } from 'react';
 import { getOrderById, searchProducts, updateOrder, getSafes } from '@/app/actions';
 import { useRouter } from 'next/navigation';
+import { Scanner } from '@yudiel/react-qr-scanner';
 import Link from 'next/link';
 
 const PIECES_PER_UNIT = 4;
@@ -10,19 +11,23 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
   const { id } = use(params);
   const router = useRouter();
   
+  const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [safes, setSafes] = useState<any[]>([]);
   const [order, setOrder] = useState<any>(null);
   
-  // Product Search
+  // Product Search (نفس شكل ومنطق NewOrder)
   const [searchTerm, setSearchTerm] = useState('');
+  const [showScanner, setShowScanner] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectionMap, setSelectionMap] = useState<{[key: string]: number}>({});
 
-  // Cart logic
+  // Cart & Discount Logic (نفس شكل ومنطق NewOrder)
   const [cart, setCart] = useState<any[]>([]);
+  const [cartSearchTerm, setCartSearchTerm] = useState('');
   const [deposit, setDeposit] = useState<string>('');
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
+  const [showDiscountOptions, setShowDiscountOptions] = useState(false);
 
   useEffect(() => {
     getSafes().then(setSafes);
@@ -33,13 +38,14 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
         setDeposit(res.deposit.toString());
         setSelectedSafeId(res.safeId || '');
         
+        // تحويل البيانات المخزنة إلى "سلة" بنفس هيكلة NewOrder
         const initialCart: any[] = [];
-        const modelGroups: {[key: string]: any} = {};
+        const grouped: {[key: string]: any} = {};
         
         res.items.forEach((item: any) => {
             const modelNo = item.product.modelNo;
-            if (!modelGroups[modelNo]) {
-                modelGroups[modelNo] = {
+            if (!grouped[modelNo]) {
+                grouped[modelNo] = {
                     type: 'product',
                     id: Math.random(),
                     modelNo: modelNo,
@@ -48,24 +54,23 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                     variants: []
                 };
             }
-            modelGroups[modelNo].variants.push({
+            grouped[modelNo].variants.push({
                 productId: item.productId,
                 quantity: item.quantity,
                 price: item.price,
                 color: item.product.color,
                 discountPercent: item.discountPercent,
-                productDiscount: item.product.discount,
-                stockAvailable: item.product.stockQty + item.quantity // متاح + المحجوز في هذا الأوردر
+                productDiscount: item.product.discount
             });
         });
 
-        Object.values(modelGroups).forEach((group: any) => {
-            const disc = group.variants[0].discountPercent;
-            if (disc > 0) {
-                initialCart.push({ type: 'discount', percent: disc, id: Math.random() });
+        Object.values(grouped).forEach((item: any) => {
+            // إذا كان الصنف عليه خصم، نضع سطر الخصم قبله كما في NewOrder
+            if (item.variants[0].discountPercent > 0) {
+                initialCart.push({ type: 'discount', percent: item.variants[0].discountPercent, id: Math.random() });
             }
-            group.totalQty = group.variants.reduce((sum: number, v: any) => sum + v.quantity, 0);
-            initialCart.push(group);
+            item.totalQty = item.variants.reduce((s:any, v:any) => s + v.quantity, 0);
+            initialCart.push(item);
         });
 
         setCart(initialCart);
@@ -83,59 +88,65 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     return () => clearTimeout(delayDebounceFn);
   }, [searchTerm]);
 
-  const handleAddToCart = () => {
-    const selectedProducts = searchResults.filter(p => !!selectionMap[p.id]);
-    let updatedCart = [...cart];
-    
-    selectedProducts.forEach(p => {
-        const variant = { 
-            productId: p.id, 
-            quantity: selectionMap[p.id], 
-            price: p.price, 
-            color: p.color, 
-            discountPercent: 0,
-            productDiscount: p.discount,
-            stockAvailable: p.stockQty
-        };
-        const existingIdx = updatedCart.findIndex(i => i.modelNo === p.modelNo && i.type === 'product');
-        if (existingIdx > -1) {
-            const variantExists = updatedCart[existingIdx].variants.findIndex((v:any) => v.productId === p.id);
-            if(variantExists > -1) updatedCart[existingIdx].variants[variantExists].quantity += variant.quantity;
-            else updatedCart[existingIdx].variants.push(variant);
-            updatedCart[existingIdx].totalQty = updatedCart[existingIdx].variants.reduce((s:any, v:any)=>s+v.quantity,0);
-        } else {
-            updatedCart.unshift({
-                type: 'product', id: Math.random(), modelNo: p.modelNo, baseDescription: p.description,
-                unitPrice: p.price, totalQty: variant.quantity, variants: [variant]
-            });
-        }
+  // --- نفس دوال منطق NewOrder تماماً ---
+  const toggleSelection = (productId: string, isChecked: boolean) => {
+    setSelectionMap(prev => {
+      const newMap = { ...prev };
+      if (isChecked) newMap[productId] = 1; else delete newMap[productId];
+      return newMap;
     });
-    setCart(updatedCart); setSelectionMap({}); setSearchTerm('');
   };
 
-  // 👇 وظيفة تحديث كمية لون محدد داخل السلة 👇
-  const updateVariantQty = (cartItemId: number, productId: string, newQty: number) => {
-      if (newQty < 1) return;
-      setCart(prev => prev.map(item => {
-          if (item.id === cartItemId) {
-              const newVariants = item.variants.map((v: any) => 
-                  v.productId === productId ? { ...v, quantity: newQty } : v
-              );
-              return { ...item, variants: newVariants, totalQty: newVariants.reduce((s:any, v:any)=>s+v.quantity, 0) };
-          }
-          return item;
-      }));
+  const updateQuantity = (productId: string, newQty: number) => {
+    if (newQty < 1) return;
+    setSelectionMap(prev => ({ ...prev, [productId]: newQty }));
   };
 
-  // 👇 وظيفة حذف لون محدد من الموديل 👇
-  const removeVariant = (cartItemId: number, productId: string) => {
-      setCart(prev => prev.map(item => {
-          if (item.id === cartItemId) {
-              const newVariants = item.variants.filter((v: any) => v.productId !== productId);
-              return { ...item, variants: newVariants, totalQty: newVariants.reduce((s:any, v:any)=>s+v.quantity, 0) };
-          }
-          return item;
-      }).filter(item => item.type === 'discount' || item.variants.length > 0));
+  const handleSelectAll = () => {
+    const newMap: {[key: string]: number} = {};
+    searchResults.forEach(p => { if (!(p.status === 'CLOSED' && p.stockQty <= 0)) newMap[p.id] = 1; });
+    setSelectionMap(newMap);
+  };
+
+  const handleAddToCart = () => {
+    const selectedIds = Object.keys(selectionMap);
+    if (selectedIds.length === 0) return;
+    const selectedProducts = searchResults.filter(p => selectedIds.includes(p.id));
+    const groupedByModel: {[key: string]: any[]} = {};
+    selectedProducts.forEach(p => {
+      if (!groupedByModel[p.modelNo]) groupedByModel[p.modelNo] = [];
+      groupedByModel[p.modelNo].push({ ...p, qty: selectionMap[p.id] });
+    });
+
+    let updatedCart = [...cart];
+    Object.keys(groupedByModel).forEach(modelNo => {
+      const newVariants = groupedByModel[modelNo];
+      let existingItemIndex = updatedCart.findIndex(i => i.modelNo === modelNo && i.type === 'product');
+      if (existingItemIndex > -1) {
+          const existingItem = updatedCart[existingItemIndex];
+          const variantsMap: any = {};
+          existingItem.variants.forEach((v: any) => { variantsMap[v.productId] = { ...v }; });
+          newVariants.forEach((nv: any) => {
+              if (variantsMap[nv.id]) variantsMap[nv.id].quantity += nv.qty;
+              else variantsMap[nv.id] = { productId: nv.id, quantity: nv.qty, price: nv.price, color: nv.color, productDiscount: nv.discount };
+          });
+          updatedCart[existingItemIndex].variants = Object.values(variantsMap);
+          updatedCart[existingItemIndex].totalQty = updatedCart[existingItemIndex].variants.reduce((s:any, v:any)=>s+v.quantity, 0);
+      } else {
+          const finalVariants = newVariants.map((v: any) => ({ productId: v.id, quantity: v.qty, price: v.price, color: v.color, productDiscount: v.discount }));
+          updatedCart.unshift({
+            type: 'product', id: Date.now() + Math.random(), modelNo: modelNo,
+            baseDescription: newVariants[0].description, totalQty: finalVariants.reduce((s:any,v:any)=>s+v.quantity,0),
+            unitPrice: newVariants[0].price, variants: finalVariants
+          });
+      }
+    });
+    setCart(updatedCart); setSelectionMap({}); setSearchTerm(''); setSearchResults([]);
+  };
+
+  const handleAddDiscount = (percent: number) => {
+      setCart([{ type: 'discount', percent: percent, id: Date.now() }, ...cart]);
+      setShowDiscountOptions(false);
   };
 
   const handleApplyAutoProductDiscounts = () => {
@@ -148,119 +159,178 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
         newCart.push(item);
     });
     setCart(newCart);
+    setShowDiscountOptions(false);
   };
 
   const getProcessedCart = () => {
-      let processed: any[] = [];
+      let processedItems: any[] = [];
       let activeDiscount = 0;
       cart.forEach(item => {
           if (item.type === 'discount') activeDiscount = item.percent;
           else {
               const discountedPrice = item.unitPrice * (1 - activeDiscount / 100);
-              processed.push({
-                  ...item, appliedDiscount: activeDiscount, 
-                  totalLinePrice: item.variants.reduce((s:any, v:any) => s + (v.quantity * PIECES_PER_UNIT * discountedPrice), 0),
-                  variants: item.variants.map((v:any) => ({ ...v, price: discountedPrice, discountPercent: activeDiscount }))
+              processedItems.push({
+                  ...item, appliedDiscount: activeDiscount, finalPrice: discountedPrice, totalLinePrice: item.variants.reduce((sum: number, v: any) => sum + (v.quantity * PIECES_PER_UNIT * discountedPrice), 0),
+                  variants: item.variants.map((v: any) => ({ ...v, price: discountedPrice, discountPercent: activeDiscount }))
               });
           }
       });
-      return processed;
+      return processedItems; 
   };
 
-  const handleUpdate = async () => {
-      const cleanCart = getProcessedCart();
-      const total = cleanCart.reduce((a, i) => a + i.totalLinePrice, 0);
-      const res = await updateOrder(id, { items: cleanCart, total, deposit: parseFloat(deposit) || 0, safeId: selectedSafeId, currency: order.currency });
-      if (res.success) { alert("تم التحديث بنجاح ✅"); router.push('/orders/list'); }
+  const handleUpdateOrder = async () => {
+    const cleanCart = getProcessedCart();
+    const total = cleanCart.reduce((acc, item) => acc + item.totalLinePrice, 0);
+    const res = await updateOrder(id, {
+      items: cleanCart, total, deposit: parseFloat(deposit) || 0, safeId: selectedSafeId, currency: order.currency
+    });
+    if (res.success) router.push(`/orders/${id}/print`);
   };
 
   if (loading) return <div className="p-10 text-center font-bold">جاري تحميل بيانات الأوردر...</div>;
 
+  const processedDisplayCart = getProcessedCart(); 
+  const currentTotal = processedDisplayCart.reduce((acc, i) => acc + i.totalLinePrice, 0);
+  const filteredDisplayList = cart.filter(item => {
+      if (item.type === 'discount') return true;
+      return item.modelNo.toLowerCase().includes(cartSearchTerm.toLowerCase());
+  });
+
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans text-gray-800" dir="rtl">
       <div className="bg-white p-4 shadow mb-4 sticky top-0 z-20 flex justify-between items-center border-b-4 border-yellow-500">
-        <div><h2 className="font-bold text-lg">✏️ تعديل أوردر #{order?.orderNo}</h2><p className="text-xs text-gray-500">العميل: {order?.customer.name}</p></div>
-        <Link href="/orders/list" className="bg-gray-100 px-4 py-2 rounded-lg text-sm font-bold">إلغاء</Link>
+        <h2 className="font-bold text-lg">{step === 1 ? `✏️ تعديل أوردر #${order.orderNo}` : '💰 الدفع والحفظ'}</h2>
+        {step === 2 && <button onClick={() => setStep(1)} className="text-sm text-blue-600 font-bold">تعديل الأصناف</button>}
       </div>
 
-      <div className="p-4 max-w-2xl mx-auto space-y-6">
-        {/* إضافة أصناف جديدة */}
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-            <input type="text" placeholder="🔍 إضافة ألوان/موديلات جديدة..." className="w-full p-4 border rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-blue-500" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+      <div className="p-4 max-w-2xl mx-auto">
+        {step === 1 && (
+          <>
+            <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-gray-100">
+              <label className="text-xs text-gray-400 block font-bold mb-1">العميل الحالي:</label>
+              <div className="font-bold text-blue-900">{order.customer.name}</div>
+            </div>
+
+            <div className="relative mb-4 flex gap-2">
+              <input type="text" placeholder="🔍 ابحث برقم الموديل..." className="flex-1 p-4 border rounded-xl shadow-sm text-lg outline-none focus:ring-2 focus:ring-blue-500" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              <button onClick={() => setShowScanner(true)} className="bg-black text-white p-4 rounded-xl shadow-sm">📷</button>
+            </div>
+
             {searchResults.length > 0 && (
-                <div className="mt-2 bg-white border rounded-xl shadow-lg overflow-hidden divide-y">
-                    {searchResults.map(p => (
-                        <div key={p.id} className="p-3 flex justify-between items-center hover:bg-gray-50">
-                            <div><div className="font-bold">{p.modelNo} - {p.color}</div><div className="text-xs text-gray-400">المخزن: {p.stockQty}</div></div>
-                            <div className="flex items-center gap-2">
-                                <input type="number" placeholder="كمية" className="w-16 border rounded p-1 text-center font-bold" onChange={e => setSelectionMap({...selectionMap, [p.id]: parseInt(e.target.value) || 1})} />
-                                <button onClick={handleAddToCart} className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs font-bold">إضافة</button>
-                            </div>
+                <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6">
+                    <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
+                      <span className="font-bold text-gray-700">الموديل: {searchResults[0]?.modelNo}</span>
+                      <button onClick={handleSelectAll} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold">تحديد الكل</button>
+                    </div>
+                    <div className="divide-y divide-gray-100">
+                      {searchResults.map(prod => (
+                        <div key={prod.id} className="p-4 flex items-center justify-between">
+                            <label className="flex items-center gap-3 flex-1 cursor-pointer">
+                              <input type="checkbox" checked={!!selectionMap[prod.id]} onChange={(e) => toggleSelection(prod.id, e.target.checked)} className="w-6 h-6" />
+                              <div><div className="font-bold">{prod.color}</div><div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.stockQty}</div></div>
+                            </label>
+                            {selectionMap[prod.id] && (
+                              <div className="flex items-center gap-2 bg-white rounded-lg border px-2 py-1">
+                                <button onClick={() => updateQuantity(prod.id, selectionMap[prod.id] + 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">+</button>
+                                <span className="w-8 text-center font-bold">{selectionMap[prod.id]}</span>
+                                <button onClick={() => updateQuantity(prod.id, selectionMap[prod.id] - 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">-</button>
+                              </div>
+                            )}
                         </div>
-                    ))}
+                      ))}
+                    </div>
+                    <button onClick={handleAddToCart} className="w-full bg-black text-white py-3 font-bold">تحديث السلة</button>
                 </div>
             )}
-        </div>
 
-        {/* السلة المطورة */}
-        <div className="space-y-4">
-            <div className="flex justify-between items-center px-1">
-                <h3 className="font-bold text-gray-700">مكونات الأوردر (يمكنك تعديل كمية كل لون):</h3>
-                <button onClick={handleApplyAutoProductDiscounts} className="bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold shadow">🏷️ خصم الموديلات</button>
-            </div>
-
-            {cart.map((item, idx) => (
-                <div key={idx}>
-                    {item.type === 'discount' ? (
-                        <div className="bg-yellow-50 border-2 border-yellow-400 border-dashed p-3 rounded-xl flex justify-between items-center mb-2">
-                            <span className="text-yellow-800 font-bold">✂️ خصم {item.percent}% على ما يليه</span>
-                            <button onClick={() => setCart(cart.filter((_, i) => i !== idx))} className="text-red-500 font-bold bg-white px-2 rounded border border-red-200">حذف</button>
-                        </div>
-                    ) : (
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-3">
-                            <div className="bg-gray-50 p-3 flex justify-between items-center border-b">
-                                <span className="font-black text-blue-900 text-lg">{item.modelNo}</span>
-                                <button onClick={() => setCart(cart.filter((_, i) => i !== idx))} className="text-red-500 text-xs font-bold">حذف الموديل بالكامل 🗑️</button>
-                            </div>
-                            {/* 👇 قائمة الألوان داخل الموديل 👇 */}
-                            <div className="p-2 space-y-2">
-                                {item.variants.map((v: any, vIdx: number) => (
-                                    <div key={vIdx} className="flex items-center justify-between bg-blue-50/50 p-2 rounded-lg border border-blue-100">
-                                        <div className="flex-1">
-                                            <span className="font-bold text-blue-800">{v.color}</span>
-                                            <div className="text-[10px] text-gray-500">متاح بالإجمالي: {v.stockAvailable}</div>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex items-center gap-2 bg-white rounded-lg border p-1">
-                                                <button onClick={() => updateVariantQty(item.id, v.productId, v.quantity + 1)} className="w-8 h-8 bg-gray-100 rounded font-bold text-blue-600 hover:bg-blue-600 hover:text-white transition">+</button>
-                                                <span className="w-8 text-center font-black text-lg">{v.quantity}</span>
-                                                <button onClick={() => updateVariantQty(item.id, v.productId, v.quantity - 1)} className="w-8 h-8 bg-gray-100 rounded font-bold text-red-600 hover:bg-red-600 hover:text-white transition">-</button>
-                                            </div>
-                                            <button onClick={() => removeVariant(item.id, v.productId)} className="text-gray-400 hover:text-red-600">✕</button>
-                                        </div>
-                                    </div>
+            {cart.length > 0 && (
+              <div className="mt-8">
+                <div className="flex justify-between items-center mb-3">
+                    <h3 className="font-bold text-gray-700">محتويات الفاتورة</h3>
+                    <div className="flex gap-2">
+                        <button onClick={handleApplyAutoProductDiscounts} className="bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold shadow animate-pulse">🏷️ خصم الموديلات</button>
+                        <button onClick={() => setShowDiscountOptions(!showDiscountOptions)} className="bg-yellow-500 text-white px-3 py-1 rounded-lg text-xs font-bold shadow">+ خصم مخصص</button>
+                        {showDiscountOptions && (
+                            <div className="absolute top-full left-0 bg-white border rounded-lg shadow-xl z-20 w-48 mt-1 p-2 grid grid-cols-3 gap-2">
+                                {[5, 10, 15, 20, 25, 30, 40, 50].map(p => (
+                                    <button key={p} onClick={() => handleAddDiscount(p)} className="bg-gray-100 hover:bg-yellow-100 text-gray-800 text-xs font-bold py-2 rounded">{p}%</button>
                                 ))}
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
-            ))}
-        </div>
+                {/* 👇 ميزة البحث داخل الفاتورة المطلوبة 👇 */}
+                <div className="mb-4"><input type="text" placeholder="🔎 بحث سريع داخل محتويات الفاتورة..." value={cartSearchTerm} onChange={(e) => setCartSearchTerm(e.target.value)} className="w-full p-3 border rounded-xl bg-white shadow-sm" /></div>
+                
+                <div className="space-y-3">
+                  {filteredDisplayList.map((item, index) => {
+                    if (item.type === 'discount') {
+                        return (
+                            <div key={item.id} className="bg-yellow-50 border-2 border-yellow-400 border-dashed p-3 rounded-lg flex justify-between items-center animate-fade-in">
+                                <div className="font-bold text-yellow-800">✂️ خصم {item.percent}% على ما يليه</div>
+                                <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-red-500 font-bold bg-white px-2 rounded border">حذف</button>
+                            </div>
+                        );
+                    }
+                    const proc = processedDisplayCart.find((p:any) => p.id === item.id) || item;
+                    return (
+                        <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative overflow-hidden transition-all hover:border-blue-200">
+                            {proc.appliedDiscount > 0 && <div className="absolute top-0 left-0 bg-red-500 text-white text-[10px] px-2 py-1 rounded-br font-bold">خصم {proc.appliedDiscount}%</div>}
+                            <div className="flex justify-between mb-2">
+                                <div><span className="text-xl font-bold block">{item.modelNo}</span><span className="text-xs text-gray-500">{item.baseDescription}</span></div>
+                                <div className="text-left font-bold text-green-700">{proc.totalLinePrice?.toFixed(0)} ج.م</div>
+                            </div>
+                            <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded mb-2 border border-gray-200">
+                                {item.variants.map((v:any, i:number) => (
+                                    <span key={i} className="inline-block bg-white px-2 py-1 rounded border mr-1 text-[10px]">{v.quantity} ({v.color})</span>
+                                ))}
+                            </div>
+                            <div className="flex justify-between items-center pt-2 border-t">
+                                <span className="text-xs font-bold text-gray-500">الكمية: {item.totalQty} درزن</span>
+                                <div className="flex gap-2">
+                                    <button onClick={() => { setSearchTerm(item.modelNo); setCart(cart.filter(c => c.id !== item.id)); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-xs bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded font-bold">تعديل ✏️</button>
+                                    <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded font-bold">حذف 🗑️</button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                  })}
+                </div>
 
-        {/* الحساب النهائي */}
-        <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl sticky bottom-4">
-            <div className="flex justify-between text-2xl font-black mb-4 border-b border-slate-700 pb-2">
-                <span>الحساب الجديد:</span>
-                <span className="text-yellow-400">{getProcessedCart().reduce((a,i)=>a+i.totalLinePrice,0).toFixed(0)} ج.م</span>
+                <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 z-30 shadow-[0_-4px_10px_rgba(0,0,0,0.1)]">
+                    <div className="max-w-2xl mx-auto flex justify-between items-center">
+                        <div><span className="text-gray-500 text-xs block">الإجمالي الحالي</span><span className="text-xl font-black text-green-700">{currentTotal.toFixed(0)} ج.م</span></div>
+                        <button onClick={() => setStep(2)} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg active:scale-95 transition-all">مراجعة وحفظ ➔</button>
+                    </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {step === 2 && (
+          <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
+            <h3 className="text-center font-bold text-xl mb-6 border-b pb-4">مراجعة الحساب قبل الحفظ</h3>
+            <div className="bg-slate-900 text-white p-5 rounded-2xl mb-6 shadow-md">
+               <div className="flex justify-between text-lg mb-4 border-b border-slate-700 pb-2"><span>صافي الفاتورة:</span><span className="font-bold text-yellow-400 text-2xl">{currentTotal.toFixed(2)}</span></div>
+               <div className="mb-4">
+                  <label className="block text-slate-400 text-sm mb-2 font-bold">💵 العربون / المدفوع:</label>
+                  <input type="number" value={deposit} onChange={(e) => setDeposit(e.target.value)} className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-2xl outline-none border border-slate-700 focus:border-blue-500" />
+               </div>
+               {parseFloat(deposit) > 0 && (
+                  <div className="mb-4 animate-in slide-in-from-top duration-300">
+                     <label className="block text-yellow-400 text-sm mb-2 font-bold">📥 توريد إلى الخزنة:</label>
+                     <select value={selectedSafeId} onChange={(e) => setSelectedSafeId(e.target.value)} className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-lg border border-slate-700">
+                        {safes.map(safe => (<option key={safe.id} value={safe.id}>{safe.name}</option>))}
+                     </select>
+                  </div>
+               )}
+               <div className="flex justify-between text-xl font-bold pt-4 border-t border-slate-700 text-red-400"><span>المتبقي الجديد (آجل):</span><span>{(currentTotal - parseFloat(deposit || '0')).toFixed(2)}</span></div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-[10px] text-slate-400 mb-1">العربون:</label><input type="number" value={deposit} onChange={e => setDeposit(e.target.value)} className="w-full p-2 rounded-lg bg-slate-800 text-white font-bold" /></div>
-                {parseFloat(deposit) > 0 && (
-                    <div><label className="block text-[10px] text-slate-400 mb-1">الخزنة:</label><select value={selectedSafeId} onChange={e => setSelectedSafeId(e.target.value)} className="w-full p-2 rounded-lg bg-slate-800 text-white text-xs">{safes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-                )}
-            </div>
-            <button onClick={handleUpdate} className="w-full bg-yellow-500 text-slate-900 py-4 rounded-2xl font-black text-lg mt-6 shadow-lg active:scale-95 transition-all">تحديث وحفظ الأوردر ✅</button>
-        </div>
+            <button onClick={handleUpdateOrder} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xl shadow-xl hover:bg-blue-700 transition-all active:scale-95">تأكيد التحديث وحفظ الأوردر ✅</button>
+            <button onClick={() => setStep(1)} className="w-full mt-4 text-gray-500 font-bold py-2">العودة لتعديل الأصناف</button>
+          </div>
+        )}
       </div>
     </div>
   );
