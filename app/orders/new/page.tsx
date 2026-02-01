@@ -38,6 +38,7 @@ export default function NewOrderPage() {
   const [cart, setCart] = useState<any[]>([]);
   const [cartSearchTerm, setCartSearchTerm] = useState('');
   const [deposit, setDeposit] = useState<string>('');
+  const [currency, setCurrency] = useState('EGP'); // 👈 إضافة العملة
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
   const [showDiscountOptions, setShowDiscountOptions] = useState(false);
 
@@ -121,15 +122,7 @@ export default function NewOrderPage() {
 
     Object.keys(groupedByModel).forEach(modelNo => {
       const newVariants = groupedByModel[modelNo];
-      let existingItemIndex = -1;
-      
-      for (let i = 0; i < updatedCart.length; i++) {
-          if (updatedCart[i].type === 'discount') break;
-          if (updatedCart[i].modelNo === modelNo) {
-              existingItemIndex = i;
-              break;
-          }
-      }
+      let existingItemIndex = updatedCart.findIndex(i => i.modelNo === modelNo && i.type === 'product');
 
       if (existingItemIndex > -1) {
           const existingItem = updatedCart[existingItemIndex];
@@ -138,7 +131,7 @@ export default function NewOrderPage() {
 
           newVariants.forEach((nv: any) => {
               if (variantsMap[nv.id]) variantsMap[nv.id].quantity += nv.qty;
-              else variantsMap[nv.id] = { productId: nv.id, quantity: nv.qty, price: nv.price, color: nv.color, productDiscount: nv.discount }; // 👈 إضافة خصم الصنف للـ Variant
+              else variantsMap[nv.id] = { productId: nv.id, quantity: nv.qty, price: nv.price, color: nv.color, productDiscount: nv.discount }; 
           });
 
           const finalVariants = Object.values(variantsMap);
@@ -146,9 +139,9 @@ export default function NewOrderPage() {
           updatedCart[existingItemIndex] = { ...existingItem, totalQty: totalQty, variants: finalVariants };
       } else {
           const finalVariants = newVariants.map((v: any) => ({
-              productId: v.id, quantity: v.qty, price: v.price, color: v.color, productDiscount: v.discount // 👈 إضافة الخصم
+              productId: v.id, quantity: v.qty, price: v.price, color: v.color, productDiscount: v.discount 
           }));
-          const totalQty = finalVariants.reduce((sum: any, v: any) => sum + v.quantity, 0);
+          const totalQty = finalVariants.reduce((sum: number, v: any) => sum + v.quantity, 0);
           const originalPrice = newVariants[0].price;
           updatedCart.unshift({
             type: 'product', id: Date.now() + Math.random(), modelNo: modelNo,
@@ -170,57 +163,41 @@ export default function NewOrderPage() {
           alert("يوجد خصم مضاف بالفعل في البداية");
           return;
       }
-      setCart([{ type: 'discount', percent: percent, id: Date.now() }, ...cart]);
+      setCart([{ type: 'discount', percent: percent, id: Date.now(), isAuto: false }, ...cart]);
       setShowDiscountOptions(false);
   };
 
-  // 👇 الوظيفة الجديدة: تطبيق خصم الصنف التلقائي على كل السلة 👇
+  // 👇 الوظيفة المعدلة: خصم الموديلات التلقائي (Sandwich Logic) لضمان عدم التأثير على موديلات أخرى 👇
   const handleApplyAutoProductDiscounts = () => {
-    const updatedCart = cart.map(item => {
-        if (item.type === 'product') {
-            // نأخذ الخصم من أول variant متاح (لأن الموديل الواحد له خصم واحد في النظام)
-            const autoPct = item.variants[0]?.productDiscount || 0;
-            if (autoPct > 0) {
-                 return { ...item, type: 'discount_applied', percent: autoPct }; 
-                 // سنقوم بتحويله لمؤشر خصم خاص أو نعدل منطق السلة
-            }
-        }
-        return item;
-    });
-    // الطريقة الأفضل هي وضع "علامة خصم" لكل صنف بناء على بياناته
-    setCart(cart.map(item => {
-        if(item.type === 'product' && (item.variants[0]?.productDiscount || 0) > 0) {
-            // نتحقق إذا كان الصنف يسبقه خصم مسبقاً، لا نفعل شيء، وإلا نضيف الخصم الخاص به قبله
-            return item;
-        }
-        return item;
-    }));
-    
-    // الحل العملي: سنقوم بتحديث مصفوفة السلة بحيث يضاف "مؤشر خصم" قبل كل صنف له خصم تلقائي
     let newCart: any[] = [];
     cart.forEach(item => {
         if(item.type === 'product') {
             const autoPct = item.variants[0]?.productDiscount || 0;
             if(autoPct > 0) {
-                // إضافة مؤشر الخصم قبل الصنف
-                newCart.push({ type: 'discount', percent: autoPct, id: Math.random() });
+                // نضع الخصم المخصص لهذا الموديل قبله
+                newCart.push({ type: 'discount', percent: autoPct, id: 'auto-' + Math.random(), isAuto: true });
+                newCart.push(item);
+                // نضع سطر خصم 0% بعده مباشرة لإرجاع السعر لأصله للأصناف التالية مالم تكن هي أيضاً بخصم
+                newCart.push({ type: 'discount', percent: 0, id: 'reset-' + Math.random(), isAuto: true });
+            } else {
+                newCart.push(item);
             }
+        } else if (item.type === 'discount' && !item.isAuto) {
+            // نحتفظ بالخصومات اليدوية التي أضافها الموظف
+            newCart.push(item);
         }
-        newCart.push(item);
     });
     setCart(newCart);
-    alert("تم تطبيق خصومات الموديلات التلقائية بنجاح ✅");
+    alert("تم تطبيق خصومات الموديلات الموسمية بنجاح ✅");
     setShowDiscountOptions(false);
   };
 
   const handleEditItem = async (item: any) => {
     if (item.type === 'discount') return;
-    setSearchTerm(item.modelNo);
-    const results = await searchProducts(item.modelNo);
-    setSearchResults(results);
     const restoredSelection: {[key: string]: number} = {};
     item.variants.forEach((v: any) => { restoredSelection[v.productId] = v.quantity; });
     setSelectionMap(restoredSelection);
+    setSearchTerm(item.modelNo);
     setCart(cart.filter(c => c.id !== item.id));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -235,13 +212,11 @@ export default function NewOrderPage() {
       cart.forEach(item => {
           if (item.type === 'discount') activeDiscount = item.percent;
           else {
-              const discountVal = activeDiscount;
-              const unitPrice = item.unitPrice;
-              const discountedPrice = unitPrice * (1 - discountVal / 100);
+              const discountedPrice = item.unitPrice * (1 - activeDiscount / 100);
               const totalPrice = item.variants.reduce((sum: number, v: any) => sum + (v.quantity * PIECES_PER_UNIT * discountedPrice), 0);
               processedItems.push({
-                  ...item, appliedDiscount: discountVal, finalPrice: discountedPrice, totalLinePrice: totalPrice,
-                  variants: item.variants.map((v: any) => ({ ...v, price: discountedPrice, discountPercent: discountVal }))
+                  ...item, appliedDiscount: activeDiscount, finalPrice: discountedPrice, totalLinePrice: totalPrice,
+                  variants: item.variants.map((v: any) => ({ ...v, price: discountedPrice, discountPercent: activeDiscount }))
               });
           }
       });
@@ -258,7 +233,8 @@ export default function NewOrderPage() {
     if (depositVal > 0 && !selectedSafeId) { alert("⚠️ يجب اختيار الخزنة!"); return; }
     const newOrder = await createOrder({
       customerId: selectedCustomer.id,
-      items: cleanCart, total, deposit: depositVal, safeId: selectedSafeId
+      items: cleanCart, total, deposit: depositVal, safeId: selectedSafeId,
+      currency: currency // 👈 حفظ العملة المختارة
     }, userId);
     if (newOrder && newOrder.id) router.push(`/orders/${newOrder.id}/print`);
     else alert("حدث خطأ أثناء حفظ الأوردر.");
@@ -321,16 +297,20 @@ export default function NewOrderPage() {
 
               {showCustomerList && (
                 <div className="absolute top-full left-0 right-0 bg-white border rounded-b-lg shadow-xl z-50 max-h-60 overflow-y-auto">
-                  {customerResults.map(c => (
-                    <div key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearchTerm(c.name); setShowCustomerList(false); }} 
-                         className={`p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 ${c.source === 'QUICK' ? 'bg-purple-50' : ''}`}>
-                      <div className="font-bold flex justify-between items-center">
-                          <span>{c.name}</span>
-                          {c.source === 'QUICK' && <span className="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded shadow-sm">جديد ✨</span>}
-                      </div>
-                      <div className="text-xs text-gray-500">{c.phone} | {c.code}</div>
-                    </div>
-                  ))}
+                  {customerResults.length > 0 ? (
+                      customerResults.map(c => (
+                        <div key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearchTerm(c.name); setShowCustomerList(false); }} 
+                             className={`p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 ${c.source === 'QUICK' ? 'bg-purple-50' : ''}`}>
+                          <div className="font-bold flex justify-between items-center">
+                              <span>{c.name}</span>
+                              {c.source === 'QUICK' && <span className="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded shadow-sm">جديد ✨</span>}
+                          </div>
+                          <div className="text-xs text-gray-500">{c.phone} | {c.code}</div>
+                        </div>
+                      ))
+                  ) : (
+                      <div className="p-3 text-center text-gray-500 text-xs">لا توجد نتائج (اضغط عميل جديد للإضافة)</div>
+                  )}
                 </div>
               )}
             </div>
@@ -362,7 +342,7 @@ export default function NewOrderPage() {
                               <div>
                                   <div className="font-bold">{prod.color}</div>
                                   <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.stockQty}</div>
-                                  {prod.discount > 0 && <div className="text-[10px] text-red-600 font-bold">خصم موسم: {prod.discount}%</div>}
+                                  {prod.discount > 0 && <div className="text-[10px] text-red-600 font-bold">خصم صنف: {prod.discount}%</div>}
                               </div>
                             </div>
                             {isSelected && (
@@ -385,65 +365,67 @@ export default function NewOrderPage() {
             )}
 
             {cart.length > 0 && (
-              <div className="mt-8">
+              <div className="mt-8 animate-fade-in">
                 <div className="flex justify-between items-center mb-3">
                     <h3 className="font-bold text-gray-700 text-lg">محتويات السلة</h3>
                     <div className="relative flex gap-2">
                         {/* زر الخصم التلقائي الجديد */}
-                        <button onClick={handleApplyAutoProductDiscounts} className="bg-red-600 text-white px-3 py-1 rounded-lg text-sm font-bold shadow hover:bg-red-700 animate-pulse">🏷️ خصم الموديلات</button>
+                        <button onClick={handleApplyAutoProductDiscounts} className="bg-red-600 text-white px-3 py-1 rounded-lg text-[10px] md:text-sm font-bold shadow hover:bg-red-700 animate-pulse">🏷️ خصم الموديلات</button>
                         
-                        <button onClick={() => setShowDiscountOptions(!showDiscountOptions)} className="bg-yellow-500 text-white px-3 py-1 rounded-lg text-sm font-bold shadow hover:bg-yellow-600">+ خصم مخصص</button>
+                        <button onClick={() => setShowDiscountOptions(!showDiscountOptions)} className="bg-yellow-500 text-white px-3 py-1 rounded-lg text-[10px] md:text-sm font-bold shadow hover:bg-yellow-600">+ خصم مخصص</button>
                         {showDiscountOptions && (
                             <div className="absolute top-full left-0 bg-white border rounded-lg shadow-xl z-20 w-48 mt-1 p-2 grid grid-cols-3 gap-2">
-                                {[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60].map(p => (
+                                {[5, 10, 15, 20, 25, 30, 35, 40, 50, 60].map(p => (
                                     <button key={p} onClick={() => handleAddDiscount(p)} className="bg-gray-100 hover:bg-yellow-100 text-gray-800 text-xs font-bold py-2 rounded">{p}%</button>
                                 ))}
                             </div>
                         )}
                     </div>
                 </div>
-                <div className="mb-4"><input type="text" placeholder="🔎 بحث..." value={cartSearchTerm} onChange={(e) => setCartSearchTerm(e.target.value)} className="w-full p-2 border rounded-lg bg-gray-50" /></div>
+                <div className="mb-4"><input type="text" placeholder="🔎 بحث سريع داخل محتويات السلة..." value={cartSearchTerm} onChange={(e) => setCartSearchTerm(e.target.value)} className="w-full p-2 border rounded-lg bg-white shadow-sm" /></div>
+                
                 <div className="space-y-3">
                   {filteredDisplayList.map((item, index) => {
                     if (item.type === 'discount') {
                         return (
                             <div key={item.id} className="bg-yellow-50 border-2 border-yellow-400 border-dashed p-3 rounded-lg flex justify-between items-center">
-                                <div className="font-bold text-yellow-800">✂️ خصم {item.percent}% على ما سبق</div>
+                                <div className="font-bold text-yellow-800">✂️ خصم {item.percent}% على ما يليه</div>
                                 <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-red-500 font-bold bg-white px-2 rounded border border-red-200">حذف</button>
                             </div>
                         );
                     }
                     const processedItem = processedDisplayCart.find((p:any) => p.id === item.id) || item;
                     return (
-                        <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative overflow-hidden">
+                        <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative overflow-hidden transition-all hover:border-blue-200">
                             {processedItem.appliedDiscount > 0 && <div className="absolute top-0 left-0 bg-red-500 text-white text-[10px] px-2 py-1 rounded-br font-bold">خصم {processedItem.appliedDiscount}%</div>}
                             <div className="flex justify-between mb-2">
                                 <div><span className="text-xl font-bold block">{item.modelNo}</span><span className="text-xs text-gray-500">{item.baseDescription}</span></div>
-                                <div className="text-left">
+                                <div className="text-left font-bold text-green-700">
                                     {processedItem.appliedDiscount > 0 && <div className="text-xs text-gray-400 line-through">{(processedItem.unitPrice * PIECES_PER_UNIT * processedItem.totalQty).toFixed(0)}</div>}
-                                    <span className="bg-green-100 text-green-800 text-sm px-2 py-1 rounded-full font-bold block">{processedItem.totalLinePrice?.toFixed(0)} ج.م</span>
+                                    <span>{processedItem.totalLinePrice?.toFixed(0)} ج.م</span>
                                 </div>
                             </div>
                             <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded mb-2 border border-gray-200">
                                 {item.variants.map((v:any, i:number) => (
-                                    <span key={i} className="inline-block bg-white px-2 py-1 rounded border mr-1 text-xs">{v.quantity} ({v.color})</span>
+                                    <span key={i} className="inline-block bg-white px-2 py-1 rounded border mr-1 text-[10px]">{v.quantity} ({v.color})</span>
                                 ))}
                             </div>
-                            <div className="flex justify-between items-center pt-2 border-t gap-2">
-                                <span className="text-sm font-bold">العدد: {item.totalQty}</span>
+                            <div className="flex justify-between items-center pt-2 border-t">
+                                <span className="text-xs font-bold text-gray-500">الكمية: {item.totalQty} درزن</span>
                                 <div className="flex gap-2">
-                                    <button onClick={() => handleEditItem(item)} className="text-xs bg-yellow-100 text-yellow-700 px-3 py-2 rounded font-bold">تعديل ✏️</button>
-                                    <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-xs bg-red-100 text-red-700 px-3 py-2 rounded font-bold">حذف 🗑️</button>
+                                    <button onClick={() => handleEditItem(item)} className="text-xs bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded font-bold">تعديل ✏️</button>
+                                    <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded font-bold">حذف 🗑️</button>
                                 </div>
                             </div>
                         </div>
                     );
                   })}
                 </div>
-                <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
+                
+                <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 z-30 shadow-[0_-4px_10px_rgba(0,0,0,0.1)]">
                     <div className="max-w-2xl mx-auto flex justify-between items-center">
-                        <div><span className="text-gray-500 text-sm block">الإجمالي النهائي</span><span className="text-xl font-bold text-green-700">{currentTotal.toFixed(0)} ج.م</span></div>
-                        <button onClick={() => setStep(2)} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold text-lg shadow hover:bg-green-700">إنهاء ({processedDisplayCart.length})</button>
+                        <div><span className="text-gray-500 text-xs block">الإجمالي الحالي</span><span className="text-xl font-black text-green-700">{currentTotal.toFixed(0)} ج.م</span></div>
+                        <button onClick={() => setStep(2)} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg">إنهاء ومراجعة ➔</button>
                     </div>
                 </div>
                 <div className="h-20"></div>
@@ -456,58 +438,72 @@ export default function NewOrderPage() {
           <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
             <h3 className="text-center font-bold text-xl mb-6 border-b pb-4">مراجعة الحساب</h3>
             <div className="flex justify-between mb-4 text-sm bg-gray-50 p-3 rounded">
-              <span className="text-gray-500">العميل:</span>
-              <span className="font-bold">{selectedCustomer?.name}</span>
+              <span className="text-gray-500 font-bold">العميل المختص:</span>
+              <span className="font-bold text-blue-800">{selectedCustomer?.name}</span>
             </div>
-            <div className="space-y-4 mb-6 max-h-60 overflow-y-auto border p-2 rounded">
+            <div className="space-y-4 mb-6 max-h-60 overflow-y-auto border p-2 rounded bg-slate-50">
               {getProcessedCart().map((item:any, idx) => (
                 <div key={idx} className="flex justify-between border-b border-dashed border-gray-300 pb-2 last:border-0 text-sm">
                   <div className="flex-1">
                     <div className="font-bold">{item.modelNo}</div>
-                    {item.appliedDiscount > 0 && <span className="text-xs text-red-500 font-bold">خصم {item.appliedDiscount}%</span>}
+                    {item.appliedDiscount > 0 && <span className="text-[10px] text-red-500 font-bold">خصم {item.appliedDiscount}%</span>}
                   </div>
-                  <div className="font-bold">{item.totalLinePrice.toFixed(0)}</div>
+                  <div className="font-bold">{item.totalLinePrice.toFixed(0)} ج.م</div>
                 </div>
               ))}
             </div>
-            <div className="bg-slate-900 text-white p-5 rounded-xl mb-6 shadow-md">
-               <div className="flex justify-between text-lg mb-4 border-b border-gray-700 pb-2"><span>إجمالي الفاتورة:</span><span className="font-bold">{currentTotal.toFixed(2)}</span></div>
+            
+            <div className="bg-slate-900 text-white p-5 rounded-2xl mb-6 shadow-md">
+               <div className="flex justify-between text-lg mb-4 border-b border-slate-700 pb-2"><span>صافي الفاتورة:</span><span className="font-bold text-yellow-400 text-2xl">{currentTotal.toFixed(2)}</span></div>
                <div className="mb-4">
-                  <label className="block text-gray-300 text-sm mb-2 font-bold">💵 العربون (المدفوع الآن):</label>
+                  <label className="block text-slate-400 text-sm mb-2 font-bold">💵 العربون / المدفوع الآن:</label>
                   <div className="flex gap-2">
-                     <input type="number" value={deposit} onChange={(e) => setDeposit(e.target.value)} className="w-full p-3 rounded-lg bg-white text-black font-bold text-2xl outline-none border-2 border-transparent focus:border-blue-500" placeholder="0.00" />
-                     <button onClick={() => setDeposit('')} className="bg-gray-700 text-xs px-4 rounded-lg hover:bg-gray-600 transition text-white font-bold">مسح</button>
+                     <input type="number" value={deposit} onChange={(e) => setDeposit(e.target.value)} className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-2xl outline-none border border-slate-700 focus:border-blue-500" placeholder="0.00" />
+                     <button onClick={() => setDeposit('')} className="bg-slate-700 text-xs px-4 rounded-lg hover:bg-slate-600 transition text-white font-bold">مسح</button>
                   </div>
                </div>
+               
+               <div className="mb-4">
+                  <label className="block text-slate-400 text-sm mb-1 font-bold">العملة:</label>
+                  <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="w-full p-3 rounded-xl bg-slate-800 text-white font-bold outline-none border border-slate-700">
+                      <option value="EGP">جنيه مصري</option>
+                      <option value="USD">دولار أمريكي</option>
+                      <option value="SAR">ريال سعودي</option>
+                      <option value="KWD">دينار كويتي</option>
+                  </select>
+               </div>
+
                {depositVal > 0 && (
-                  <div className="mb-4 animate-fade-in">
+                  <div className="mb-4 animate-in slide-in-from-top duration-300">
                      <label className="block text-yellow-400 text-sm mb-2 font-bold">📥 توريد العربون إلى:</label>
-                     <select value={selectedSafeId} onChange={(e) => setSelectedSafeId(e.target.value)} className="w-full p-3 rounded-lg bg-white text-black text-lg">
+                     <select value={selectedSafeId} onChange={(e) => setSelectedSafeId(e.target.value)} className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-lg border border-slate-700">
                         {safes.map(safe => (<option key={safe.id} value={safe.id}>{safe.name}</option>))}
                      </select>
                   </div>
                )}
-               <div className="flex justify-between text-2xl font-bold pt-2 text-yellow-400 border-t border-gray-700 mt-4"><span>المتبقي (آجل):</span><span>{(currentTotal - depositVal).toFixed(2)}</span></div>
+               <div className="flex justify-between text-xl font-bold pt-4 border-t border-slate-700 text-red-400"><span>المتبقي (آجل):</span><span>{(currentTotal - depositVal).toFixed(2)}</span></div>
             </div>
-            <button onClick={handleSaveOrder} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-blue-700 shadow-lg">تأكيد وحفظ الأوردر ✅</button>
+            
+            <button onClick={handleSaveOrder} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xl shadow-xl hover:bg-blue-700 transition-all active:scale-95">تأكيد وحفظ الأوردر ✅</button>
+            <button onClick={() => setStep(1)} className="w-full mt-4 text-gray-500 font-bold py-2">العودة لتعديل الأصناف</button>
           </div>
         )}
       </div>
 
       {/* Quick Add Customer Modal */}
       {isQuickAddOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-60 z-[100] flex justify-center items-end md:items-center p-4">
-              <div className="bg-white w-full max-w-md rounded-t-2xl md:rounded-2xl p-6 shadow-2xl animate-slide-up">
-                  <h3 className="font-bold text-lg mb-4 border-b pb-2">إضافة عميل جديد سريع</h3>
+          <div className="fixed inset-0 bg-black bg-opacity-60 z-[100] flex justify-center items-center p-4">
+              <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl animate-slide-up">
+                  <h3 className="font-bold text-lg mb-4 border-b pb-2 text-center text-blue-900">إضافة عميل جديد</h3>
                   <form onSubmit={handleQuickAddCustomer} className="space-y-4">
-                      <div><label className="block text-xs font-bold text-gray-500 mb-1">الاسم (مطلوب)</label><input type="text" value={newCust.name} onChange={e => setNewCust({...newCust, name: e.target.value})} className="w-full border p-3 rounded-lg" required /></div>
-                      <div><label className="block text-xs font-bold text-gray-500 mb-1">كود العميل (اختياري - يولد تلقائياً)</label><input type="text" value={newCust.code} onChange={e => setNewCust({...newCust, code: e.target.value})} className="w-full border p-3 rounded-lg bg-gray-50" placeholder="اتركه فارغاً للتوليد التلقائي" /></div>
-                      <div><label className="block text-xs font-bold text-gray-500 mb-1">الهاتف</label><input type="text" value={newCust.phone} onChange={e => setNewCust({...newCust, phone: e.target.value})} className="w-full border p-3 rounded-lg" /></div>
-                      <div><label className="block text-xs font-bold text-gray-500 mb-1">العنوان</label><input type="text" value={newCust.address} onChange={e => setNewCust({...newCust, address: e.target.value})} className="w-full border p-3 rounded-lg" /></div>
+                      <div><label className="block text-xs font-bold text-gray-500 mb-1">اسم العميل (مطلوب)</label><input type="text" value={newCust.name} onChange={e => setNewCust({...newCust, name: e.target.value})} className="w-full border p-3 rounded-xl shadow-sm" required /></div>
+                      <div><label className="block text-xs font-bold text-gray-500 mb-1">كود العميل (تلقائي لو تركته فارغاً)</label><input type="text" value={newCust.code} onChange={e => setNewCust({...newCust, code: e.target.value})} className="w-full border p-3 rounded-xl bg-gray-50 shadow-sm" placeholder="سيتم التوليد تلقائياً" /></div>
+                      <div><label className="block text-xs font-bold text-gray-500 mb-1">رقم الهاتف</label><input type="text" value={newCust.phone} onChange={e => setNewCust({...newCust, phone: e.target.value})} className="w-full border p-3 rounded-xl shadow-sm" /></div>
+                      <div><label className="block text-xs font-bold text-gray-500 mb-1">العنوان</label><input type="text" value={newCust.address} onChange={e => setNewCust({...newCust, address: e.target.value})} className="w-full border p-3 rounded-xl shadow-sm" /></div>
                       
                       <div className="flex gap-2 pt-2">
-                          <button type="button" onClick={() => setIsQuickAddOpen(false)} className="flex-1 bg-gray-100 py-3 rounded-lg font-bold">إلغاء</button>
-                          <button type="submit" disabled={isSavingCust} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold disabled:opacity-50">{isSavingCust ? 'جاري الحفظ...' : 'حفظ واختيار ✅'}</button>
+                          <button type="button" onClick={() => setIsQuickAddOpen(false)} className="flex-1 bg-gray-100 py-3 rounded-xl font-bold transition hover:bg-gray-200">إلغاء</button>
+                          <button type="submit" disabled={isSavingCust} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700">حفظ واختيار ✅</button>
                       </div>
                   </form>
               </div>
