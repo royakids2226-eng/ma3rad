@@ -230,10 +230,16 @@ export default function OrdersListPage() {
                         </div>
                         <div className="text-left">
                             <div className="font-bold text-lg">{order.totalAmount.toFixed(0)} ج.م</div>
+                            
+                            {/* 👇 التعديل المطلوب: تكبير وتلوين العربون 👇 */}
                             {order.deposit > 0 ? (
-                                <span className="text-[10px] bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">عربون: {order.deposit}</span>
+                                <div className="mt-1">
+                                    <span className="text-xl font-black text-red-600 bg-red-50 px-3 py-1 rounded-lg border border-red-200 inline-block animate-pulse shadow-sm">
+                                        عربون: {order.deposit.toFixed(0)} ج.م 🔥
+                                    </span>
+                                </div>
                             ) : (
-                                <span className="text-[10px] bg-red-100 text-red-800 px-2 py-1 rounded-full">آجل بالكامل</span>
+                                <span className="text-[10px] bg-red-100 text-red-800 px-2 py-1 rounded-full font-bold">آجل بالكامل</span>
                             )}
                         </div>
                     </div>
@@ -272,7 +278,7 @@ export default function OrdersListPage() {
       </div>
 
       {/* =========================================================================
-          HIDDEN INVOICE SECTION (تمت إعادته بالكامل كما في كودك الأصلي)
+          HIDDEN INVOICE SECTION (تم الحفاظ عليه بالكامل كما في كودك الأصلي)
          ========================================================================= */}
       <div style={{ position: 'fixed', top: 0, left: '-10000px', width: '210mm', zIndex: -100, visibility: 'hidden' }}>
          <div id="hidden-invoice-content" ref={hiddenInvoiceRef} className="bg-white p-10 text-right" style={{ width: '210mm', minHeight: '297mm', direction: 'rtl', visibility: 'visible' }}>
@@ -280,12 +286,12 @@ export default function OrdersListPage() {
                 <>
                     <header className="border-b-4 border-black pb-6 mb-6 flex justify-between items-start">
                         <div>
-                            <h1 className="text-4xl font-extrabold mb-2">مصنع الملابس الجاهزة</h1>
+                            <h1 className="text-4xl font-extrabold mb-2 text-black">مصنع الملابس الجاهزة</h1>
                             <p className="text-gray-600 text-lg">إدارة المبيعات</p>
                         </div>
                         <div className="text-left">
                             <div className="text-2xl font-bold bg-black text-white px-4 py-1 mb-2 inline-block rounded">فاتورة مبيعات</div>
-                            <div className="text-lg font-bold">رقم: #{pdfOrder.orderNo}</div>
+                            <div className="text-lg font-bold text-black">رقم: #{pdfOrder.orderNo}</div>
                             <div className="text-sm text-gray-500">{new Date(pdfOrder.createdAt).toLocaleDateString('ar-EG')}</div>
                         </div>
                     </header>
@@ -294,17 +300,17 @@ export default function OrdersListPage() {
                         <table className="w-full text-base">
                             <tbody>
                                 <tr>
-                                    <td className="font-bold w-24 py-2">العميل:</td>
-                                    <td className="text-xl">{pdfOrder.customer.name}</td>
-                                    <td className="font-bold w-24 pl-4">الهاتف:</td>
-                                    <td>
+                                    <td className="font-bold w-24 py-2 text-black">العميل:</td>
+                                    <td className="text-xl text-black">{pdfOrder.customer.name}</td>
+                                    <td className="font-bold w-24 pl-4 text-black">الهاتف:</td>
+                                    <td className="text-black">
                                         <div>{pdfOrder.customer.phone || '-'}</div>
                                         {pdfOrder.customer.phone2 && <div>{pdfOrder.customer.phone2}</div>}
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td className="font-bold py-2">العنوان:</td>
-                                    <td colSpan={3}>{pdfOrder.customer.address || '-'}</td>
+                                    <td className="font-bold py-2 text-black">العنوان:</td>
+                                    <td colSpan={3} className="text-black">{pdfOrder.customer.address || '-'}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -324,15 +330,15 @@ export default function OrdersListPage() {
                         <tbody>
                             {groupOrderItems(pdfOrder.items).map((item: any, idx: number) => (
                                 <tr key={idx} className="text-sm border-b border-black">
-                                    <td className="p-3 border-x border-black text-center font-bold text-lg">{item.modelNo}</td>
+                                    <td className="p-3 border-x border-black text-center font-bold text-lg text-black">{item.modelNo}</td>
                                     <td className="p-3 border-x border-black">
-                                        <div className="font-bold mb-1">{item.desc}</div>
+                                        <div className="font-bold mb-1 text-black">{item.desc}</div>
                                         <div className="text-xs text-gray-600">{item.details.join(' + ')}</div>
                                     </td>
-                                    <td className="p-3 border-x border-black text-center text-lg font-bold">{item.totalQty * 4}</td>
+                                    <td className="p-3 border-x border-black text-center text-lg font-bold text-black">{item.totalQty * 4}</td>
                                     
                                     {/* السعر */}
-                                    <td className="p-3 border-x border-black text-center">
+                                    <td className="p-3 border-x border-black text-center text-black">
                                         {item.discountPercent > 0 ? (
                                             <>
                                                 <div className="line-through text-gray-400 text-xs">{item.originalPrice.toFixed(2)}</div>
@@ -344,7 +350,7 @@ export default function OrdersListPage() {
                                     </td>
 
                                     {/* الخصم */}
-                                    <td className="p-3 border-x border-black text-center font-bold">
+                                    <td className="p-3 border-x border-black text-center font-bold text-black">
                                         {item.discountPercent > 0 ? (
                                             <span className="bg-black text-white px-2 py-1 rounded text-xs">
                                                 {item.discountPercent}%
@@ -352,7 +358,7 @@ export default function OrdersListPage() {
                                         ) : '-'}
                                     </td>
 
-                                    <td className="p-3 border-x border-black text-center font-bold text-lg">{item.totalPrice.toFixed(0)}</td>
+                                    <td className="p-3 border-x border-black text-center font-bold text-lg text-black">{item.totalPrice.toFixed(0)}</td>
                                 </tr>
                             ))}
                         </tbody>
@@ -369,14 +375,14 @@ export default function OrdersListPage() {
                                 </div>
                             )}
 
-                            <div className="flex justify-between p-3 border-b border-black bg-gray-100 font-bold text-lg">
+                            <div className="flex justify-between p-3 border-b border-black bg-gray-100 font-bold text-lg text-black">
                                 <span>صافي الفاتورة:</span>
                                 <span>{pdfOrder.totalAmount.toFixed(2)} ج.م</span>
                             </div>
                             {pdfOrder.deposit > 0 && (
                                 <div className="flex justify-between p-3 border-b border-black bg-white font-bold text-gray-700">
                                     <span>مدفوع:</span>
-                                    <span>- {pdfOrder.deposit.toFixed(2)} ج.م</span>
+                                    <span className="text-red-600">- {pdfOrder.deposit.toFixed(2)} ج.م</span>
                                 </div>
                             )}
                             <div className="flex justify-between p-4 bg-black text-white text-3xl font-bold">

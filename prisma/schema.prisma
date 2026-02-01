@@ -26,6 +26,7 @@ model Customer {
   phone     String?
   phone2    String?
   address   String?
+  source    String    @default("ADMIN") // 👈 تم الإضافة: ADMIN (إكسيل) أو QUICK (بيع)
   orders    Order[]
   payments  Payment[]
 }
@@ -87,8 +88,9 @@ model Payment {
   receiptNo    Int      @default(autoincrement())
   createdAt    DateTime @default(now())
   amount       Float
+  currency     String   @default("EGP") // 👈 تم الإضافة: العملة (EGP, USD, SAR, KWD)
   
-  // 👇 التعديلات الجديدة
+  // 👇 التعديلات السابقة
   type         String   @default("IN") // قيم محتملة: IN (قبض), OUT (صرف), TRANSFER (تحويل)
   description  String?  // وصف للمصروف أو التحويل
   

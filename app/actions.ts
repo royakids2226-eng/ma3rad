@@ -19,7 +19,7 @@ export async function searchCustomers(term: string) {
   const normalizedTerm = term.replace(/[أإآ]/g, 'ا');
   try {
     const customers = await prisma.$queryRaw`
-      SELECT id, name, phone, "phone2", address 
+      SELECT id, name, phone, "phone2", address, source 
       FROM "Customer"
       WHERE 
         TRANSLATE(name, 'أإآ', 'ااا') LIKE ${'%' + normalizedTerm + '%'}
@@ -113,15 +113,16 @@ export async function getOrderById(orderId: string) {
   } catch (error) { return null; }
 }
 
-// 6. إدارة النقدية (قبض - صرف - تحويل) - 🆕 تم التعديل
+// 6. إدارة النقدية (قبض - صرف - تحويل) - تم إضافة العملة
 export async function createPayment(data: any, userId: string) {
   const { 
     type,        // 'IN' | 'OUT' | 'TRANSFER'
     amount, 
+    currency,    // 👈 تم الإضافة
     safeId, 
-    customerId,  // Optional now
-    targetSafeId, // Required if TRANSFER
-    description   // Required if OUT or TRANSFER
+    customerId, 
+    targetSafeId, 
+    description 
   } = data;
 
   try {
@@ -129,6 +130,7 @@ export async function createPayment(data: any, userId: string) {
       data: { 
         type,
         amount, 
+        currency: currency || "EGP", // الافتراضي جنيه
         safeId, 
         userId,
         customerId: customerId || null,

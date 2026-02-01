@@ -14,6 +14,7 @@ export default function CashManagementPage() {
 
   const [safes, setSafes] = useState<any[]>([]);
   const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState('EGP'); // 👈 حالة العملة الجديدة
   const [description, setDescription] = useState('');
   const [date] = useState(new Date().toLocaleDateString('ar-EG')); 
 
@@ -67,12 +68,13 @@ export default function CashManagementPage() {
       return () => clearTimeout(delayDebounceFn);
   }, [customerSearchTerm]);
 
-  // Quick Add Logic
+  // 👇 تعديل الإضافة السريعة لدعم الكود التلقائي والـ source الجديد 👇
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
       e.preventDefault();
-      if(!newCust.name || !newCust.code) return alert('الاسم والكود مطلوبان');
+      if(!newCust.name) return alert('الاسم مطلوب');
       setIsSavingCust(true);
-      const res = await addCustomer(newCust);
+      // إرسال source: 'QUICK' لجعل السيرفر يولد كود تلقائي ويميز العميل
+      const res = await addCustomer({ ...newCust, source: 'QUICK' });
       setIsSavingCust(false);
       if(res.success) {
           setSelectedCustomerId(res.customer.id);
@@ -96,6 +98,7 @@ export default function CashManagementPage() {
         type: activeTab,
         customerId: activeTab === 'IN' ? selectedCustomerId : undefined,
         amount: parseFloat(amount),
+        currency: currency, // 👈 إرسال العملة المختارة
         safeId: selectedSafeId,
         targetSafeId: activeTab === 'TRANSFER' ? targetSafeId : undefined,
         description: description
@@ -153,9 +156,13 @@ export default function CashManagementPage() {
                     {showCustomerList && (
                         <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-xl z-50 max-h-60 overflow-y-auto">
                             {customerResults.map(c => (
-                                <div key={c.id} onClick={() => { setSelectedCustomerId(c.id); setCustomerSearchTerm(c.name); setShowCustomerList(false); }} className="p-3 hover:bg-green-50 cursor-pointer border-b last:border-0">
-                                    <div className="font-bold">{c.name}</div>
-                                    <div className="text-xs text-gray-500">{c.phone}</div>
+                                <div key={c.id} onClick={() => { setSelectedCustomerId(c.id); setCustomerSearchTerm(c.name); setShowCustomerList(false); }} 
+                                     className={`p-3 hover:bg-green-50 cursor-pointer border-b last:border-0 ${c.source === 'QUICK' ? 'bg-purple-50' : ''}`}>
+                                    <div className="font-bold flex justify-between items-center">
+                                        <span>{c.name}</span>
+                                        {c.source === 'QUICK' && <span className="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded shadow-sm">جديد ✨</span>}
+                                    </div>
+                                    <div className="text-xs text-gray-500">{c.phone} | {c.code}</div>
                                 </div>
                             ))}
                         </div>
@@ -163,11 +170,24 @@ export default function CashManagementPage() {
                 </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2">
                     <label className="block text-gray-500 text-sm mb-1 font-bold">المبلغ</label>
                     <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="w-full p-3 border rounded-lg text-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500 text-left ltr" />
                 </div>
+                {/* 👇 إضافة قائمة العملات المطلوبة 👇 */}
+                <div>
+                    <label className="block text-gray-500 text-sm mb-1 font-bold">العملة</label>
+                    <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="w-full p-3 border rounded-lg bg-blue-50 text-lg font-bold outline-none">
+                        <option value="EGP">جنيه مصري</option>
+                        <option value="USD">دولار أمريكي</option>
+                        <option value="SAR">ريال سعودي</option>
+                        <option value="KWD">دينار كويتي</option>
+                    </select>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
                 <div>
                     <label className="block text-gray-500 text-sm mb-1 font-bold">{activeTab === 'IN' ? 'توريد إلى الخزنة' : activeTab === 'OUT' ? 'صرف من الخزنة' : 'من خزنة (المصدر)'}</label>
                     <select value={selectedSafeId} onChange={(e) => setSelectedSafeId(e.target.value)} className="w-full p-3 border rounded-lg bg-gray-50 text-lg">
@@ -179,7 +199,7 @@ export default function CashManagementPage() {
             {activeTab === 'TRANSFER' && (
                 <div className="animate-fade-in bg-blue-50 p-4 rounded-lg border border-blue-100">
                     <label className="block text-blue-800 text-sm mb-1 font-bold">إلى خزنة (المستلم)</label>
-                    <select value={targetSafeId} onChange={(e) => setTargetSafeId(e.target.value)} className="w-full p-3 border border-blue-300 rounded-lg bg-white text-lg">
+                    <select value={targetSafeId} onChange={(e) => setTargetSafeId(e.target.value)} className="w-full p-3 border border-blue-300 rounded-lg bg-white text-lg font-bold">
                          {safes.filter(s => s.id !== selectedSafeId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                 </div>
@@ -201,8 +221,9 @@ export default function CashManagementPage() {
               <div className="bg-white w-full max-w-md rounded-t-2xl md:rounded-2xl p-6 shadow-2xl animate-slide-up">
                   <h3 className="font-bold text-lg mb-4 border-b pb-2">إضافة عميل جديد سريع</h3>
                   <form onSubmit={handleQuickAddCustomer} className="space-y-4">
-                      <div><label className="block text-xs font-bold text-gray-500 mb-1">كود العميل (مطلوب)</label><input type="text" value={newCust.code} onChange={e => setNewCust({...newCust, code: e.target.value})} className="w-full border p-3 rounded-lg bg-gray-50" required /></div>
+                      {/* تعديل التسمية لتوضيح أن الكود اختياري */}
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">الاسم (مطلوب)</label><input type="text" value={newCust.name} onChange={e => setNewCust({...newCust, name: e.target.value})} className="w-full border p-3 rounded-lg" required /></div>
+                      <div><label className="block text-xs font-bold text-gray-500 mb-1">كود العميل (اختياري - سيولد تلقائياً)</label><input type="text" value={newCust.code} onChange={e => setNewCust({...newCust, code: e.target.value})} className="w-full border p-3 rounded-lg bg-gray-50" placeholder="اتركه فارغاً للتوليد التلقائي" /></div>
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">الهاتف</label><input type="text" value={newCust.phone} onChange={e => setNewCust({...newCust, phone: e.target.value})} className="w-full border p-3 rounded-lg" /></div>
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">العنوان</label><input type="text" value={newCust.address} onChange={e => setNewCust({...newCust, address: e.target.value})} className="w-full border p-3 rounded-lg" /></div>
                       <div className="flex gap-2 pt-2">

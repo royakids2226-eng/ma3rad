@@ -225,12 +225,13 @@ export default function NewOrderPage() {
     else alert("حدث خطأ أثناء حفظ الأوردر.");
   };
 
-  // Quick Add Logic
+  // 👇 تعديل: الإضافة السريعة ترسل source وتولد الكود تلقائياً 👇
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
       e.preventDefault();
-      if(!newCust.name || !newCust.code) return alert('الاسم والكود مطلوبان');
+      if(!newCust.name) return alert('الاسم مطلوب');
       setIsSavingCust(true);
-      const res = await addCustomer(newCust);
+      // إرسال كائن العميل مع تحديد المصدر QUICK
+      const res = await addCustomer({ ...newCust, source: 'QUICK' });
       setIsSavingCust(false);
       if(res.success) {
           setSelectedCustomer(res.customer);
@@ -285,9 +286,13 @@ export default function NewOrderPage() {
                 <div className="absolute top-full left-0 right-0 bg-white border rounded-b-lg shadow-xl z-50 max-h-60 overflow-y-auto">
                   {customerResults.length > 0 ? (
                       customerResults.map(c => (
-                        <div key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearchTerm(c.name); setShowCustomerList(false); }} className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0">
-                          <div className="font-bold">{c.name}</div>
-                          <div className="text-xs text-gray-500">{c.phone} {c.phone2 ? ` | ${c.phone2}` : ''}</div>
+                        <div key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearchTerm(c.name); setShowCustomerList(false); }} 
+                             className={`p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 ${c.source === 'QUICK' ? 'bg-purple-50' : ''}`}>
+                          <div className="font-bold flex justify-between items-center">
+                              <span>{c.name}</span>
+                              {c.source === 'QUICK' && <span className="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded shadow-sm">جديد ✨</span>}
+                          </div>
+                          <div className="text-xs text-gray-500">{c.phone} | {c.code}</div>
                         </div>
                       ))
                   ) : (
@@ -458,8 +463,9 @@ export default function NewOrderPage() {
               <div className="bg-white w-full max-w-md rounded-t-2xl md:rounded-2xl p-6 shadow-2xl animate-slide-up">
                   <h3 className="font-bold text-lg mb-4 border-b pb-2">إضافة عميل جديد سريع</h3>
                   <form onSubmit={handleQuickAddCustomer} className="space-y-4">
-                      <div><label className="block text-xs font-bold text-gray-500 mb-1">كود العميل (مطلوب)</label><input type="text" value={newCust.code} onChange={e => setNewCust({...newCust, code: e.target.value})} className="w-full border p-3 rounded-lg bg-gray-50" required /></div>
+                      {/* تعديل التسمية لتوضيح أن الكود اختياري */}
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">الاسم (مطلوب)</label><input type="text" value={newCust.name} onChange={e => setNewCust({...newCust, name: e.target.value})} className="w-full border p-3 rounded-lg" required /></div>
+                      <div><label className="block text-xs font-bold text-gray-500 mb-1">كود العميل (اختياري - يولد تلقائياً)</label><input type="text" value={newCust.code} onChange={e => setNewCust({...newCust, code: e.target.value})} className="w-full border p-3 rounded-lg bg-gray-50" placeholder="اتركه فارغاً للتوليد التلقائي" /></div>
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">الهاتف</label><input type="text" value={newCust.phone} onChange={e => setNewCust({...newCust, phone: e.target.value})} className="w-full border p-3 rounded-lg" /></div>
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">العنوان</label><input type="text" value={newCust.address} onChange={e => setNewCust({...newCust, address: e.target.value})} className="w-full border p-3 rounded-lg" /></div>
                       

@@ -168,29 +168,37 @@ export async function deleteAllProducts() {
 }
 
 export async function getProducts() {
-  const products = await prisma.product.findMany({ orderBy: { id: 'desc' }, take: 200 });
+  // تم زيادة الـ take لدعم البحث اللايف بشكل أفضل
+  const products = await prisma.product.findMany({ orderBy: { id: 'desc' }, take: 2000 });
   return JSON.parse(JSON.stringify(products));
 }
 
 // ==========================================
-// 3. إدارة العملاء (Customers) - تم التعديل ليعيد العميل المضاف
+// 3. إدارة العملاء (Customers) - تم التعديل لدعم الكود التلقائي والـ source
 // ==========================================
 
 export async function addCustomer(data: any) {
     try {
+      let finalCode = data.code;
+      // إذا لم يتم إرسال كود، يتم توليده تلقائياً (C-طابع زمني)
+      if (!finalCode || finalCode.trim() === "") {
+        finalCode = "C-" + Date.now().toString().slice(-6);
+      }
+
       const customer = await prisma.customer.create({ 
           data: {
-              code: data.code,
+              code: finalCode,
               name: data.name,
               phone: data.phone,
               phone2: data.phone2,
-              address: data.address
+              address: data.address,
+              source: data.source || 'ADMIN' // ADMIN للقديم و QUICK للجديد
           } 
       });
       revalidatePath('/admin/customers');
       // نرجع الكائن المنشأ لاستخدامه فوراً في شاشات البيع
       return { success: true, customer: JSON.parse(JSON.stringify(customer)) };
-    } catch (e) { return { success: false, error: 'كود العميل مكرر' }; }
+    } catch (e) { return { success: false, error: 'كود العميل مكرر أو حدث خطأ' }; }
 }
 
 export async function updateCustomer(id: string, data: any) {
@@ -228,7 +236,8 @@ export async function addBulkCustomers(customers: any[]) {
                         name: c.name,
                         phone: String(c.phone || ''),
                         phone2: String(c.phone2 || ''),
-                        address: c.address || ''
+                        address: c.address || '',
+                        source: 'ADMIN' // الإكسيل دائماً ADMIN
                     }
                 });
                 count++;
@@ -286,6 +295,6 @@ export async function deleteAllCustomers() {
 }
 
 export async function getAdminCustomers() {
-    const custs = await prisma.customer.findMany({ orderBy: { id: 'desc' }, take: 500 });
+    const custs = await prisma.customer.findMany({ orderBy: { id: 'desc' }, take: 1000 });
     return JSON.parse(JSON.stringify(custs));
 }

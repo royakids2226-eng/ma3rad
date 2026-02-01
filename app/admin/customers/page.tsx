@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
     addCustomer, 
     getAdminCustomers, 
@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx';
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [searchTerm, setSearchTerm] = useState(''); // 👈 الميزة الجديدة: حالة البحث اللايف
 
   // Form States
   const [code, setCode] = useState('');
@@ -46,11 +47,22 @@ export default function CustomersPage() {
     });
   };
 
+  // 👇 الميزة الجديدة: منطق تصفية العملاء (Live Search) 👇
+  const filteredCustomers = useMemo(() => {
+    return customers.filter(c => 
+        c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        c.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (c.phone && c.phone.includes(searchTerm)) ||
+        (c.phone2 && c.phone2.includes(searchTerm))
+    );
+  }, [customers, searchTerm]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!code || !name) return alert('الكود والاسم مطلوبان');
+    if (!name) return alert('الاسم مطلوب'); // الكود أصبح اختيارياً للتوليد التلقائي
 
-    const res = await addCustomer({ code, name, phone, phone2, address });
+    // تم إضافة source: 'ADMIN' لأن الإضافة تتم من لوحة التحكم
+    const res = await addCustomer({ code, name, phone, phone2, address, source: 'ADMIN' });
     if (res.success) {
       alert('تمت إضافة العميل');
       setCode(''); setName(''); setPhone(''); setPhone2(''); setAddress('');
@@ -60,7 +72,7 @@ export default function CustomersPage() {
     }
   };
 
-  // --- Excel Logic ---
+  // --- Excel Logic (تمت استعادتها بالكامل) ---
   const downloadTemplate = () => {
     const templateData = [
         { code: "C101", name: "عميل 1", phone: "010xxxx", phone2: "011xxxx", address: "العنوان" },
@@ -115,16 +127,13 @@ export default function CustomersPage() {
     reader.readAsBinaryString(file);
   };
 
-  // --- Delete Logic (Faster) ---
+  // --- Delete Logic (تمت استعادتها بالكامل) ---
   const handleDelete = async (id: string) => {
     if (confirm('حذف هذا العميل؟')) {
       setIsDeleting(true); 
       setDeleteStatusText('جاري الحذف...');
-      
       const res = await deleteCustomer(id);
-      
       setIsDeleting(false);
-
       if(res.success) {
           refreshCustomers();
       } else {
@@ -138,11 +147,8 @@ export default function CustomersPage() {
     if(confirm(`هل أنت متأكد من محاولة حذف ${selectedIds.length} عميل؟`)) {
         setIsDeleting(true); 
         setDeleteStatusText('جاري حذف المحدد...');
-
         const res = await deleteBulkCustomers(selectedIds);
-        
         setIsDeleting(false); 
-
         if(res.success) {
             alert(`✅ تقرير الحذف:\n- تم حذف: ${res.deleted} عميل.\n- فشل حذف: ${res.failed} عميل (لوجود تعاملات سابقة).`);
             refreshCustomers();
@@ -156,11 +162,8 @@ export default function CustomersPage() {
     if(confirm("⚠️ سيتم حذف جميع العملاء الذين ليس لديهم أي تعاملات مالية أو أوردرات.\nهل أنت متأكد تماماً؟")) {
         setIsDeleting(true); 
         setDeleteStatusText('جاري حذف قاعدة البيانات (الآمن)...');
-
         const res = await deleteAllCustomers();
-        
         setIsDeleting(false); 
-
         if(res.success) {
              alert(`✅ تقرير الحذف الشامل:\n- تم حذف: ${res.deleted} عميل.\n- متبقي: ${res.failed} عميل (لديهم بيانات هامة).`);
              refreshCustomers();
@@ -172,7 +175,7 @@ export default function CustomersPage() {
 
   // Checkbox Logic
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if(e.target.checked) setSelectedIds(customers.map(c => c.id));
+      if(e.target.checked) setSelectedIds(filteredCustomers.map(c => c.id));
       else setSelectedIds([]);
   };
 
@@ -203,7 +206,7 @@ export default function CustomersPage() {
   return (
     <div className="space-y-6 relative pb-20" dir="rtl">
        
-       {/* 👇 Full Screen Loader Overlay */}
+       {/* 👇 Full Screen Loader Overlay (تم الحفاظ عليه) */}
        {isDeleting && (
             <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex flex-col justify-center items-center text-white">
                 <div className="w-16 h-16 border-4 border-t-transparent border-white rounded-full animate-spin mb-4"></div>
@@ -214,9 +217,23 @@ export default function CustomersPage() {
 
        {/* Header */}
        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded shadow-sm">
-        <h1 className="text-xl md:text-2xl font-bold text-gray-800">إدارة العملاء</h1>
+        <div>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-800">إدارة العملاء</h1>
+            <p className="text-xs text-blue-600 font-bold mt-1">العدد المعروض: {filteredCustomers.length}</p>
+        </div>
         
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
+            {/* 👇 حقل البحث اللايف الجديد 👇 */}
+            <div className="w-full md:w-64">
+                <input 
+                    type="text" 
+                    placeholder="🔍 بحث سريع (اسم، هاتف، كود)..." 
+                    className="w-full p-2 border-2 border-blue-200 rounded-lg focus:border-blue-500 outline-none text-sm"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+
             {selectedIds.length > 0 && (
                 <button 
                     onClick={handleDeleteSelected} 
@@ -235,7 +252,7 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {/* Upload Section */}
+      {/* Upload Section (تم الحفاظ عليه) */}
       <div className="bg-indigo-50 p-4 rounded border border-indigo-200">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-4">
             <div className="w-full">
@@ -262,9 +279,9 @@ export default function CustomersPage() {
 
       {/* Form Adding */}
       <form onSubmit={handleSubmit} className="bg-white p-4 rounded shadow space-y-4 border-t-4 border-blue-600">
-        <h2 className="font-bold text-gray-700 text-sm border-b pb-2">إضافة عميل جديد</h2>
+        <h2 className="font-bold text-gray-700 text-sm border-b pb-2">إضافة عميل جديد (اترك الكود فارغاً للتوليد التلقائي)</h2>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <div><label className="text-xs font-bold text-gray-500">الكود</label><input type="text" className="w-full border p-2 rounded bg-gray-50 focus:bg-white" value={code} onChange={e => setCode(e.target.value)} required /></div>
+          <div><label className="text-xs font-bold text-gray-500">الكود (اختياري)</label><input type="text" className="w-full border p-2 rounded bg-gray-50 focus:bg-white" value={code} onChange={e => setCode(e.target.value)} placeholder="تلقائي..." /></div>
           <div><label className="text-xs font-bold text-gray-500">الاسم</label><input type="text" className="w-full border p-2 rounded focus:bg-white" value={name} onChange={e => setName(e.target.value)} required /></div>
           <div><label className="text-xs font-bold text-gray-500">هاتف 1</label><input type="text" className="w-full border p-2 rounded focus:bg-white" value={phone} onChange={e => setPhone(e.target.value)} /></div>
           <div><label className="text-xs font-bold text-gray-500">هاتف 2</label><input type="text" className="w-full border p-2 rounded bg-yellow-50 focus:bg-white" value={phone2} onChange={e => setPhone2(e.target.value)} /></div>
@@ -273,54 +290,67 @@ export default function CustomersPage() {
         <button type="submit" disabled={isDeleting} className="bg-blue-600 text-white px-6 py-3 rounded font-bold w-full disabled:opacity-50 hover:bg-blue-700 transition">حفظ العميل</button>
       </form>
 
-      {/* --- Responsive List (Cards on Mobile, Table on Desktop) --- */}
+      {/* --- Responsive List (Cards on Mobile, Table on Desktop) (تم الحفاظ عليها بالكامل) --- */}
       <div className="relative">
         
         {/* 1. Mobile View (Cards) */}
         <div className="grid grid-cols-1 gap-4 md:hidden">
             <div className="flex justify-between items-center px-2">
-                <span className="text-xs font-bold text-gray-500">العدد: {customers.length}</span>
+                <span className="text-xs font-bold text-gray-500">العدد المصفى: {filteredCustomers.length}</span>
                 <label className="flex items-center gap-2 text-xs font-bold bg-gray-100 px-3 py-1 rounded">
-                    <input type="checkbox" onChange={handleSelectAll} checked={customers.length > 0 && selectedIds.length === customers.length} />
-                    تحديد الكل
+                    <input type="checkbox" onChange={handleSelectAll} checked={filteredCustomers.length > 0 && selectedIds.length === filteredCustomers.length} />
+                    تحديد المعروض
                 </label>
             </div>
-            {customers.map(c => (
-                <div key={c.id} className={`bg-white p-4 rounded-lg shadow border-r-4 ${selectedIds.includes(c.id) ? 'border-r-indigo-500 bg-indigo-50' : 'border-r-gray-300'}`}>
-                    <div className="flex justify-between items-start mb-2">
-                        <div className="flex items-center gap-3">
-                            <input type="checkbox" className="w-5 h-5" checked={selectedIds.includes(c.id)} onChange={() => handleSelectOne(c.id)} />
-                            <div>
-                                <h3 className="font-bold text-gray-800">{c.name}</h3>
-                                <span className="text-xs bg-gray-200 px-2 py-0.5 rounded text-gray-600 font-mono">{c.code}</span>
+            
+            {/* إشعار الألوان الجديد */}
+            <div className="px-2 text-[10px] font-bold text-purple-600">💡 اللون الأرجواني = عميل أضيف من شاشة البيع</div>
+
+            {filteredCustomers.map(c => {
+                const isQuickAdd = c.source === 'QUICK'; // 👈 الميزة الجديدة: التحقق من المصدر
+                return (
+                    <div key={c.id} className={`bg-white p-4 rounded-lg shadow border-r-4 ${selectedIds.includes(c.id) ? 'border-r-indigo-500 bg-indigo-50' : isQuickAdd ? 'border-r-purple-500 bg-purple-50' : 'border-r-gray-300'}`}>
+                        <div className="flex justify-between items-start mb-2">
+                            <div className="flex items-center gap-3">
+                                <input type="checkbox" className="w-5 h-5" checked={selectedIds.includes(c.id)} onChange={() => handleSelectOne(c.id)} />
+                                <div>
+                                    <h3 className={`font-bold ${isQuickAdd ? 'text-purple-800' : 'text-gray-800'}`}>{c.name}</h3>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs bg-gray-200 px-2 py-0.5 rounded text-gray-600 font-mono">{c.code}</span>
+                                        {isQuickAdd && <span className="text-[10px] bg-purple-600 text-white px-1 rounded">جديد ✨</span>}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => handleEditClick(c)} className="bg-blue-100 text-blue-600 p-2 rounded-full text-xs">✏️</button>
+                                <button onClick={() => handleDelete(c.id)} className="bg-red-100 text-red-600 p-2 rounded-full text-xs">🗑️</button>
                             </div>
                         </div>
-                        <div className="flex gap-2">
-                            <button onClick={() => handleEditClick(c)} className="bg-blue-100 text-blue-600 p-2 rounded-full text-xs">✏️</button>
-                            <button onClick={() => handleDelete(c.id)} className="bg-red-100 text-red-600 p-2 rounded-full text-xs">🗑️</button>
+                        <div className="text-sm text-gray-600 space-y-1 pr-8 border-t pt-2 mt-2">
+                            <div className="flex items-center gap-2">
+                                <span>📞</span>
+                                <span>{c.phone || '-'}</span>
+                                {c.phone2 && <span className="text-xs bg-yellow-100 px-1 rounded">{c.phone2}</span>}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                                <span>📍</span>
+                                <span>{c.address || 'لا يوجد عنوان'}</span>
+                            </div>
                         </div>
                     </div>
-                    <div className="text-sm text-gray-600 space-y-1 pr-8 border-t pt-2 mt-2">
-                        <div className="flex items-center gap-2">
-                            <span>📞</span>
-                            <span>{c.phone || '-'}</span>
-                            {c.phone2 && <span className="text-xs bg-yellow-100 px-1 rounded">{c.phone2}</span>}
-                        </div>
-                        <div className="flex items-center gap-2 text-xs">
-                            <span>📍</span>
-                            <span>{c.address || 'لا يوجد عنوان'}</span>
-                        </div>
-                    </div>
-                </div>
-            ))}
+                );
+            })}
         </div>
 
-        {/* 2. Desktop View (Table) */}
+        {/* 2. Desktop View (Table) (تم الحفاظ عليها بالكامل) */}
         <div className="hidden md:block bg-white rounded shadow overflow-hidden">
+            <div className="p-2 bg-purple-50 text-xs font-bold text-purple-700 border-b">
+                💡 العملاء باللون <span className="bg-purple-200 px-2 rounded">الأرجواني</span> هم من تمت إضافتهم من شاشات البيع (QUICK).
+            </div>
             <table className="w-full text-sm text-right">
             <thead className="bg-gray-100">
                 <tr>
-                <th className="p-3 w-10"><input type="checkbox" onChange={handleSelectAll} checked={customers.length > 0 && selectedIds.length === customers.length} /></th>
+                <th className="p-3 w-10"><input type="checkbox" onChange={handleSelectAll} checked={filteredCustomers.length > 0 && selectedIds.length === filteredCustomers.length} /></th>
                 <th className="p-3">الكود</th>
                 <th className="p-3">الاسم</th>
                 <th className="p-3">هاتف 1</th>
@@ -330,26 +360,31 @@ export default function CustomersPage() {
                 </tr>
             </thead>
             <tbody>
-                {customers.map(c => (
-                <tr key={c.id} className={`border-b hover:bg-gray-50 ${selectedIds.includes(c.id) ? 'bg-indigo-50' : ''}`}>
-                    <td className="p-3"><input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => handleSelectOne(c.id)} /></td>
-                    <td className="p-3 font-bold">{c.code}</td>
-                    <td className="p-3">{c.name}</td>
-                    <td className="p-3">{c.phone}</td>
-                    <td className="p-3 text-gray-600">{c.phone2}</td>
-                    <td className="p-3 text-xs">{c.address}</td>
-                    <td className="p-3 flex justify-center gap-2">
-                    <button onClick={() => handleEditClick(c)} className="text-blue-600 bg-blue-100 px-2 py-1 rounded">تعديل</button>
-                    <button onClick={() => handleDelete(c.id)} disabled={isDeleting} className="text-red-600 bg-red-100 px-2 py-1 rounded disabled:opacity-50">حذف</button>
-                    </td>
-                </tr>
-                ))}
+                {filteredCustomers.map(c => {
+                const isQuickAdd = c.source === 'QUICK'; // 👈 الميزة الجديدة
+                return (
+                    <tr key={c.id} className={`border-b hover:bg-gray-50 ${selectedIds.includes(c.id) ? 'bg-indigo-50' : isQuickAdd ? 'bg-purple-50' : ''}`}>
+                        <td className="p-3"><input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => handleSelectOne(c.id)} /></td>
+                        <td className={`p-3 font-bold ${isQuickAdd ? 'text-purple-700' : ''}`}>
+                            {c.code}
+                            {isQuickAdd && <span className="mr-2 text-[10px] bg-purple-600 text-white px-1 rounded">QUICK</span>}
+                        </td>
+                        <td className={`p-3 font-bold ${isQuickAdd ? 'text-purple-800' : ''}`}>{c.name}</td>
+                        <td className="p-3 font-mono">{c.phone}</td>
+                        <td className="p-3 text-gray-600 font-mono">{c.phone2}</td>
+                        <td className="p-3 text-xs">{c.address}</td>
+                        <td className="p-3 flex justify-center gap-2">
+                        <button onClick={() => handleEditClick(c)} className="text-blue-600 bg-blue-100 px-2 py-1 rounded">تعديل</button>
+                        <button onClick={() => handleDelete(c.id)} disabled={isDeleting} className="text-red-600 bg-red-100 px-2 py-1 rounded disabled:opacity-50">حذف</button>
+                        </td>
+                    </tr>
+                )})}
             </tbody>
             </table>
         </div>
       </div>
 
-      {/* Edit Modal (Responsive) */}
+      {/* Edit Modal (Responsive) (تم الحفاظ عليه بالكامل) */}
       {isEditModalOpen && editingCustomer && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
               <div className="bg-white rounded w-full max-w-lg p-6 space-y-4 shadow-2xl">
