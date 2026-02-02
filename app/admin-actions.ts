@@ -54,7 +54,7 @@ export async function addProduct(data: any) {
                 description: data.description,
                 material: data.material,
                 price: parseFloat(data.price),
-                discount: parseFloat(data.discount) || 0,
+                discount: parseFloat(data.discount) || 0, // الخصم التلقائي
                 color: item.color,
                 stockQty: parseInt(item.stock),
                 status: data.status || 'OPEN'
@@ -172,33 +172,32 @@ export async function deleteAllProducts() {
 }
 
 export async function getProducts() {
-  const products = await prisma.product.findMany({ 
-      orderBy: { id: 'desc' }, 
-      take: 5000 
-  });
+  // السعة العالية لضمان ظهور الـ 1700 صنف
+  const products = await prisma.product.findMany({ orderBy: { id: 'desc' }, take: 5000 });
   return JSON.parse(JSON.stringify(products));
 }
 
 // ==========================================
-// 3. إدارة العملاء (Customers) - التعديلات المطلوبة ✅
+// 3. إدارة العملاء (Customers)
 // ==========================================
 
 export async function addCustomer(data: any) {
     try {
       const { name, phone, phone2, code, source, force } = data;
 
-      // 1. التحقق من الاسم (تجاهل الهمزات)
-      const normalizedName = name.replace(/[أإآ]/g, 'ا');
+      // 1. التحقق من الاسم المتشابه (تجاهل الهمزات)
+      const normalizedInputName = name.replace(/[أإآ]/g, 'ا');
       const existingByName: any[] = await prisma.$queryRaw`
         SELECT name FROM "Customer" 
-        WHERE TRANSLATE(name, 'أإآ', 'ااا') = ${normalizedName}
+        WHERE TRANSLATE(name, 'أإآ', 'ااا') = ${normalizedInputName}
         LIMIT 1
       `;
+      
       if (existingByName.length > 0) {
-          return { success: false, error: `الاسم مضاف مسبقاً بالفعل باسم: (${existingByName[0].name})` };
+          return { success: false, error: `الاسم موجود مسبقاً باسم: (${existingByName[0].name})` };
       }
 
-      // 2. التحقق من الهاتف (إذا لم يتم استخدام خاصية الـ force)
+      // 2. التحقق من تكرار الهاتف (إلا إذا تم الإجبار force)
       if (!force) {
           const phonesToCheck = [phone, phone2].filter(p => p && p.trim() !== "");
           if (phonesToCheck.length > 0) {
@@ -206,18 +205,20 @@ export async function addCustomer(data: any) {
                   where: {
                       OR: [
                           { phone: { in: phonesToCheck } },
-                          { phone2: { in: phonesToCheck } }
+                          { phone2: { in: phonesToCheck } },
+                          { phone: { in: phonesToCheck.map(p => p) } } // ضمان البحث في كل الحقول
                       ]
                   },
                   select: { name: true }
               });
+
               if (existingByPhone) {
                   return { success: false, warning: true, existingName: existingByPhone.name };
               }
           }
       }
 
-      // 3. توليد كود تلقائي إذا لزم الأمر
+      // 3. توليد كود تلقائي
       let finalCode = code;
       if (!finalCode || finalCode.trim() === "") {
         finalCode = "C-" + Date.now().toString().slice(-6);
@@ -227,9 +228,9 @@ export async function addCustomer(data: any) {
           data: {
               code: finalCode,
               name: name,
-              phone: phone,
-              phone2: phone2,
-              address: data.address,
+              phone: phone || null,
+              phone2: phone2 || null,
+              address: data.address || '',
               source: source || 'ADMIN'
           } 
       });
@@ -237,7 +238,7 @@ export async function addCustomer(data: any) {
       return { success: true, customer: JSON.parse(JSON.stringify(customer)) };
     } catch (e) { 
         console.error(e);
-        return { success: false, error: 'حدث خطأ في قاعدة البيانات أو كود مكرر' }; 
+        return { success: false, error: 'كود العميل مكرر أو خطأ في البيانات' }; 
     }
 }
 
@@ -255,7 +256,7 @@ export async function updateCustomer(id: string, data: any) {
         });
         revalidatePath('/admin/customers');
         return { success: true };
-    } catch (e) { return { success: false, error: 'حدث خطأ' }; }
+    } catch (e) { return { success: false, error: 'حدث خطأ أثناء التعديل' }; }
 }
 
 export async function addBulkCustomers(customers: any[]) {
@@ -297,7 +298,40 @@ export async function deleteCustomer(id: string) {
         revalidatePath('/admin/customers');
         return { success: true };
     } catch (e) { 
-        return { success: false, error: 'لا يمكن حذف العميل لوجود طلبات أو مدفوعات مسجلة باسمه' }; 
+        return { success: false, error: 'لا يمكن حذف العميل لوجود معاملات سابقة' }; 
+    }
+}
+
+export async function deleteBulkCustomers(ids: string[]) {
+    try {
+        const res = await prisma.customer.deleteMany({
+            where: {
+                id: { in: ids },
+                orders: { none: {} },
+                payments: { none: {} }
+            }
+        });
+        revalidatePath('/admin/customers');
+        return { success: true, deleted: res.count, failed: ids.length - res.count };
+    } catch (e) {
+        return { success: false, error: 'حدث خطأ في قاعدة البيانات' };
+    }
+}
+
+export async function deleteAllCustomers() {
+    try {
+        const totalBefore = await prisma.customer.count();
+        const res = await prisma.customer.deleteMany({
+            where: {
+                orders: { none: {} },
+                payments: { none: {} }
+            }
+        });
+        const remaining = totalBefore - res.count;
+        revalidatePath('/admin/customers');
+        return { success: true, deleted: res.count, failed: remaining };
+    } catch (e) { 
+        return { success: false, error: 'حدث خطأ غير متوقع', deleted: 0, failed: 0 }; 
     }
 }
 

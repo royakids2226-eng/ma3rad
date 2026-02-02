@@ -2,269 +2,277 @@
 
 import { PrismaClient } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
-import bcrypt from 'bcryptjs'
+import bcrypt from 'bcryptjs' // 👈 ضروري لتشفير باسوراد الموظفين الجدد
 
 const prisma = new PrismaClient()
 
-// دالة مساعدة لتطبيع الحروف العربية (إهمال الهمزات والتاء المربوطة والياء)
-function normalizeArabic(text: string) {
-  if (!text) return "";
-  return text
-    .trim()
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي');
+// ==========================================
+// 1. العملاء (جلب وبحث)
+// ==========================================
+export async function getCustomers() {
+  try {
+    const customers = await prisma.customer.findMany({ take: 20, orderBy: { name: 'asc' } });
+    return JSON.parse(JSON.stringify(customers));
+  } catch (error) { return []; }
 }
 
-// 1. إدارة المستخدمين (Users)
-export async function addUser(data: any) {
+// البحث عن العملاء (تجاهل الهمزات + البحث بالهواتف)
+export async function searchCustomers(term: string) {
+  if (!term) return [];
+  const normalizedTerm = term.replace(/[أإآ]/g, 'ا');
   try {
-    const hashedPassword = await bcrypt.hash(data.password, 10);
-    await prisma.user.create({
-      data: { code: data.code, name: data.name, password: hashedPassword, role: data.role }
+    const customers = await prisma.$queryRaw`
+      SELECT id, name, phone, "phone2", address, source 
+      FROM "Customer"
+      WHERE 
+        TRANSLATE(name, 'أإآ', 'ااا') LIKE ${'%' + normalizedTerm + '%'}
+        OR phone LIKE ${'%' + term + '%'}
+        OR "phone2" LIKE ${'%' + term + '%'}
+      LIMIT 50;
+    `;
+    return JSON.parse(JSON.stringify(customers));
+  } catch (error) {
+    console.error("Search Error:", error);
+    return [];
+  }
+}
+
+// ==========================================
+// 2. الخزن والمنتجات
+// ==========================================
+export async function getSafes() {
+  try {
+    const safes = await prisma.safe.findMany({ orderBy: { name: 'asc' } });
+    return JSON.parse(JSON.stringify(safes));
+  } catch (error) { return []; }
+}
+
+export async function searchProducts(term: string) {
+  if (!term || term.length < 2) return [];
+  try {
+    const products = await prisma.product.findMany({
+      where: { modelNo: { contains: term, mode: 'insensitive' } },
+      orderBy: { modelNo: 'asc' }
     });
-    revalidatePath('/admin/users');
-    return { success: true };
-  } catch (e) { return { success: false, error: 'الكود مستخدم من قبل' }; }
+    return JSON.parse(JSON.stringify(products));
+  } catch (error) { return []; }
 }
 
-export async function deleteUser(id: string) {
+// ==========================================
+// 3. إدارة الأوردرات (إنشاء - جلب - حذف - تحديث)
+// ==========================================
+
+// إنشاء أوردر جديد (دعم العملة)
+export async function createOrder(data: any, userId: string) {
+  const { customerId, items, total, deposit, safeId, currency } = data; 
+  
   try {
-    await prisma.user.delete({ where: { id } });
-    revalidatePath('/admin/users');
-    return { success: true };
-  } catch (e) { return { success: false }; }
-}
-
-export async function getUsers() {
-  const users = await prisma.user.findMany({ orderBy: { id: 'desc' } });
-  return JSON.parse(JSON.stringify(users));
-}
-
-// 2. إدارة المنتجات (Products)
-export async function addProduct(data: any) {
-  try {
-    for (const item of data.colors) {
-        await prisma.product.create({
-            data: {
-                modelNo: data.modelNo,
-                description: data.description,
-                material: data.material,
-                price: parseFloat(data.price),
-                discount: parseFloat(data.discount) || 0,
-                color: item.color,
-                stockQty: parseInt(item.stock),
-                status: data.status || 'OPEN'
-            }
-        });
-    }
-    revalidatePath('/admin/products');
-    return { success: true };
-  } catch (e) { return { success: false, error: 'حدث خطأ' }; }
-}
-
-export async function updateProduct(id: string, data: any) {
-    try {
-        await prisma.product.update({
-            where: { id },
-            data: {
-                modelNo: data.modelNo,
-                description: data.description,
-                material: data.material,
-                color: data.color,
-                price: parseFloat(data.price),
-                discount: parseFloat(data.discount) || 0,
-                stockQty: parseInt(data.stockQty),
-                status: data.status
-            }
-        });
-        revalidatePath('/admin/products');
-        return { success: true };
-    } catch (e) { return { success: false, error: 'فشل التعديل' }; }
-}
-
-export async function addBulkProducts(products: any[]) {
-    try {
-        let count = 0;
-        for (const p of products) {
-            if(p.modelNo && p.color) {
-                const productStatus = (p.status && p.status.toUpperCase() === 'CLOSED') ? 'CLOSED' : 'OPEN';
-                await prisma.product.upsert({
-                    where: { modelNo_color: { modelNo: String(p.modelNo), color: String(p.color) } },
-                    update: {
-                        stockQty: parseInt(p.stockQty) || 0,
-                        price: parseFloat(p.price) || 0,
-                        discount: parseFloat(p.discount) || 0,
-                        description: p.description || '',
-                        status: productStatus
-                    },
-                    create: {
-                        modelNo: String(p.modelNo),
-                        description: p.description || '',
-                        material: p.material || '',
-                        color: String(p.color),
-                        price: parseFloat(p.price) || 0,
-                        discount: parseFloat(p.discount) || 0,
-                        stockQty: parseInt(p.stockQty) || 0,
-                        status: productStatus
-                    }
-                });
-                count++;
-            }
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. إنشاء الأوردر مع حفظ العملة
+      const order = await tx.order.create({
+        data: {
+          userId, 
+          customerId, 
+          totalAmount: total, 
+          deposit: deposit || 0,
+          currency: currency || 'EGP', // 👈 حفظ العملة المختارة
+          safeId: deposit > 0 ? safeId : null,
         }
-        revalidatePath('/admin/products');
-        return { success: true, count };
-    } catch (e) { return { success: false, error: 'حدث خطأ أثناء الاستيراد' }; }
-}
-
-export async function deleteProduct(id: string) {
-  try {
-    await prisma.product.delete({ where: { id } });
-    revalidatePath('/admin/products');
-    return { success: true };
-  } catch (e) { return { success: false, error: 'لا يمكن حذف الصنف' }; }
-}
-
-export async function deleteBulkProducts(ids: string[]) {
-    try {
-        const res = await prisma.product.deleteMany({
-            where: { id: { in: ids }, orderItems: { none: {} } }
-        });
-        revalidatePath('/admin/products');
-        return { success: true, deleted: res.count, failed: ids.length - res.count };
-    } catch (e) { return { success: false, error: 'حدث خطأ أثناء الحذف' }; }
-}
-
-export async function deleteAllProducts() {
-    try {
-        const res = await prisma.product.deleteMany({ where: { orderItems: { none: {} } } });
-        const remaining = await prisma.product.count();
-        revalidatePath('/admin/products');
-        return { success: true, deleted: res.count, failed: remaining };
-    } catch (e) { return { success: false, error: 'حدث خطأ غير متوقع' }; }
-}
-
-export async function getProducts() {
-  const products = await prisma.product.findMany({ orderBy: { id: 'desc' }, take: 5000 });
-  return JSON.parse(JSON.stringify(products));
-}
-
-// ==========================================
-// 3. إدارة العملاء (Customers) - التعديل الجديد ✅
-// ==========================================
-
-export async function addCustomer(data: any, forcePhone: boolean = false) {
-    try {
-      const normalizedNewName = normalizeArabic(data.name);
-
-      // 1. التحقق من الاسم (بإهمال الهمزات) - منع بات
-      const allCustomers = await prisma.customer.findMany({ select: { name: true } });
-      const existingByName = allCustomers.find(c => normalizeArabic(c.name) === normalizedNewName);
-      
-      if (existingByName) {
-          return { success: false, error: `عذراً، هذا الاسم مسجل بالفعل تحت اسم: (${existingByName.name})` };
-      }
-
-      // 2. التحقق من الهاتف - تحذير مع إمكانية التأكيد
-      if (data.phone && !forcePhone) {
-          const existingByPhone = await prisma.customer.findFirst({
-              where: {
-                  OR: [
-                      { phone: data.phone },
-                      { phone2: data.phone }
-                  ]
-              }
-          });
-          if (existingByPhone) {
-              return { 
-                  success: false, 
-                  warning: 'PHONE_EXISTS', 
-                  message: `رقم الهاتف مسجل مسبقاً باسم: (${existingByPhone.name})`,
-                  existingName: existingByPhone.name 
-              };
-          }
-      }
-
-      // توليد الكود تلقائياً
-      let finalCode = data.code;
-      if (!finalCode || finalCode.trim() === "") {
-        finalCode = "C-" + Date.now().toString().slice(-6);
-      }
-
-      const customer = await prisma.customer.create({ 
-          data: {
-              code: finalCode,
-              name: data.name,
-              phone: data.phone,
-              phone2: data.phone2,
-              address: data.address,
-              source: data.source || 'ADMIN'
-          } 
       });
-      revalidatePath('/admin/customers');
-      return { success: true, customer: JSON.parse(JSON.stringify(customer)) };
-    } catch (e) { 
-        console.error(e);
-        return { success: false, error: 'حدث خطأ غير متوقع في قاعدة البيانات' }; 
-    }
-}
 
-export async function updateCustomer(id: string, data: any) {
-    try {
-        await prisma.customer.update({
-            where: { id },
+      // 2. إضافة الأصناف وخصم المخزون
+      for (const cartItem of items) {
+        for (const variant of cartItem.variants) {
+          await tx.orderItem.create({
             data: {
-                code: data.code,
-                name: data.name,
-                phone: data.phone,
-                phone2: data.phone2,
-                address: data.address
+              orderId: order.id,
+              productId: variant.productId,
+              quantity: variant.quantity,
+              price: variant.price,
+              discountPercent: variant.discountPercent || 0
             }
-        });
-        revalidatePath('/admin/customers');
-        return { success: true };
-    } catch (e) { return { success: false, error: 'حدث خطأ' }; }
+          });
+
+          await tx.product.update({
+            where: { id: variant.productId },
+            data: {
+              stockQty: { decrement: variant.quantity }
+            }
+          });
+        }
+      }
+      return order;
+    });
+    
+    revalidatePath('/');
+    return JSON.parse(JSON.stringify(result));
+  } catch (error) {
+    console.error("Error creating order:", error);
+    return null;
+  }
 }
 
-export async function addBulkCustomers(customers: any[]) {
-    try {
-        let count = 0;
-        for (const c of customers) {
-            if(c.code && c.name) {
-                await prisma.customer.upsert({
-                    where: { code: String(c.code) },
-                    update: {
-                        name: c.name,
-                        phone: String(c.phone || ''),
-                        phone2: String(c.phone2 || ''),
-                        address: c.address || ''
-                    },
-                    create: {
-                        code: String(c.code),
-                        name: c.name,
-                        phone: String(c.phone || ''),
-                        phone2: String(c.phone2 || ''),
-                        address: c.address || '',
-                        source: 'ADMIN'
-                    }
+// جلب الأوردر للطباعة أو التعديل (يشمل جلب كافة مدفوعات العميل للفاتورة)
+export async function getOrderById(orderId: string) {
+  if (!orderId) return null;
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { 
+          customer: {
+              include: {
+                  payments: { orderBy: { createdAt: 'desc' } } // 👈 جلب المدفوعات لفصل العملات في الفاتورة
+              }
+          }, 
+          user: true, 
+          items: { include: { product: true } } 
+      }
+    });
+    return JSON.parse(JSON.stringify(order));
+  } catch (error) { return null; }
+}
+
+// حذف الأوردر (مع إرجاع الكميات للمخزن)
+export async function deleteOrder(orderId: string) {
+  try {
+    await prisma.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } });
+        if (order) {
+            for (const item of order.items) {
+                await tx.product.update({
+                    where: { id: item.productId },
+                    data: { stockQty: { increment: item.quantity } }
                 });
-                count++;
             }
         }
-        revalidatePath('/admin/customers');
-        return { success: true, count };
-    } catch (e) { return { success: false, error: 'حدث خطأ أثناء الاستيراد' }; }
+        await tx.orderItem.deleteMany({ where: { orderId } });
+        await tx.order.delete({ where: { id: orderId } });
+    });
+    revalidatePath('/orders/list');
+    return { success: true };
+  } catch (error) { return { success: false }; }
 }
 
-export async function deleteCustomer(id: string) {
+// تحديث الأوردر بالكامل (إرجاع المخزون القديم وحفظ الجديد)
+export async function updateOrder(orderId: string, data: any) {
+    const { items, total, deposit, safeId, currency } = data;
     try {
-        await prisma.customer.delete({ where: { id } });
-        revalidatePath('/admin/customers');
+        await prisma.$transaction(async (tx) => {
+            // 1. إرجاع المخزون القديم
+            const oldOrder = await tx.order.findUnique({
+                where: { id: orderId },
+                include: { items: true }
+            });
+            if (oldOrder) {
+                for (const item of oldOrder.items) {
+                    await tx.product.update({
+                        where: { id: item.productId },
+                        data: { stockQty: { increment: item.quantity } }
+                    });
+                }
+            }
+            // 2. حذف الأصناف القديمة
+            await tx.orderItem.deleteMany({ where: { orderId } });
+            // 3. إضافة الأصناف الجديدة وخصم المخزون
+            for (const cartItem of items) {
+                for (const variant of cartItem.variants) {
+                    await tx.orderItem.create({
+                        data: {
+                            orderId: orderId,
+                            productId: variant.productId,
+                            quantity: variant.quantity,
+                            price: variant.price,
+                            discountPercent: variant.discountPercent || 0
+                        }
+                    });
+                    await tx.product.update({
+                        where: { id: variant.productId },
+                        data: { stockQty: { decrement: variant.quantity } }
+                    });
+                }
+            }
+            // 4. تحديث رأس الأوردر
+            await tx.order.update({
+                where: { id: orderId },
+                data: {
+                    totalAmount: total,
+                    deposit: deposit || 0,
+                    currency: currency || 'EGP',
+                    safeId: deposit > 0 ? safeId : null
+                }
+            });
+        });
+        revalidatePath('/orders/list');
         return { success: true };
-    } catch (e) { return { success: false, error: 'لا يمكن حذف العميل لوجود معاملات' }; }
+    } catch (error) { return { success: false }; }
 }
 
-export async function getAdminCustomers() {
-    const custs = await prisma.customer.findMany({ orderBy: { id: 'desc' }, take: 2000 });
-    return JSON.parse(JSON.stringify(custs));
+// جلب سجل الأوردرات
+export async function getUserOrders(userId: string) {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    let whereCondition = {};
+    if (user?.role !== 'ADMIN' && user?.role !== 'OWNER') {
+      whereCondition = { userId: userId };
+    }
+    const orders = await prisma.order.findMany({
+      where: whereCondition,
+      include: { 
+          customer: true, 
+          user: true, 
+          items: { include: { product: true } } 
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100
+    });
+    return { orders: JSON.parse(JSON.stringify(orders)), userRole: user?.role };
+  } catch (error) { return { orders: [], userRole: 'EMPLOYEE' }; }
+}
+
+// ==========================================
+// 4. إدارة النقدية والموظفين
+// ==========================================
+
+// إنشاء تحصيل أو صرف (دعم العملة)
+export async function createPayment(data: any, userId: string) {
+  const { type, amount, currency, safeId, customerId, targetSafeId, description } = data;
+  try {
+    await prisma.payment.create({ 
+      data: { 
+        type, 
+        amount: parseFloat(amount), 
+        currency: currency || 'EGP', // 👈 حفظ العملة
+        safeId, 
+        userId,
+        customerId: customerId || null,
+        targetSafeId: targetSafeId || null,
+        description: description || ''
+      } 
+    });
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) { return { success: false, error: 'فشل العملية' }; }
+}
+
+// تسجيل موظف جديد من شاشة اللوجن
+export async function registerEmployee(data: any) {
+  try {
+    const { code, name, password } = data;
+    const existingUser = await prisma.user.findUnique({ where: { code } });
+    if (existingUser) return { success: false, error: 'كود الموظف مستخدم بالفعل' };
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await prisma.user.create({
+      data: { code, name, password: hashedPassword, role: 'EMPLOYEE' }
+    });
+    return { success: true };
+  } catch (e) { return { success: false, error: 'حدث خطأ أثناء التسجيل' }; }
+}
+
+export async function getCurrentUser(userId: string) {
+  if (!userId) return null;
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    return JSON.parse(JSON.stringify(user));
+  } catch (error) { return null; }
 }
