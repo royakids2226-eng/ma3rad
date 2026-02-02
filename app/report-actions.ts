@@ -3,10 +3,11 @@
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
-const PIECES_PER_UNIT = 4; 
+// تم تعديل المعامل إلى 1 لأن الكميات المدخلة هي "بالقطعة" فعلياً
+const PIECES_PER_UNIT = 1; 
 
 // ==========================================
-// 1. تقارير المخزون (حركة الأصناف) - كامل بدون حذف
+// 1. تقارير المخزون (حركة الأصناف) - تم تصحيح الحسابات ✅
 // ==========================================
 export async function getInventoryReport() {
   try {
@@ -21,7 +22,12 @@ export async function getInventoryReport() {
 
     const report = products.map(p => {
         const totalSold = p.orderItems.reduce((sum, item) => sum + item.quantity, 0);
-        const totalSoldValue = p.orderItems.reduce((sum, item) => sum + (item.quantity * PIECES_PER_UNIT * item.price), 0);
+        
+        // حساب قيمة المبيعات بناءً على أن الكمية بالقطعة مباشرة
+        const totalSoldValue = p.orderItems.reduce((sum, item) => {
+            return sum + (item.quantity * item.price);
+        }, 0);
+
         const currentStock = p.stockQty;
         const initialStock = currentStock + totalSold;
 
@@ -43,7 +49,8 @@ export async function getInventoryReport() {
             totalSoldValue: totalSoldValue,
             currentStock: currentStock,
             price: p.price,
-            currentValue: currentStock * p.price * PIECES_PER_UNIT, 
+            // القيمة الحالية = المخزون بالقطعة × السعر
+            currentValue: currentStock * p.price, 
             status: p.status,
             history: movementHistory
         };
@@ -64,7 +71,7 @@ export async function getInventoryReport() {
 }
 
 // ==========================================
-// 2. تقارير الخزنة (دفتر الأستاذ) - تم التعديل لفصل العملات ✅
+// 2. تقارير الخزنة (دفتر الأستاذ) - كامل بدون حذف
 // ==========================================
 export async function getSafesList() {
     const safes = await prisma.safe.findMany();
@@ -81,7 +88,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         dateFilter.lte = end;
     }
 
-    // 1. جلب المدفوعات (وارد، صادر، تحويل)
     const payments = await prisma.payment.findMany({
       where: {
         OR: [
@@ -93,7 +99,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
       include: { customer: true, user: true, safe: true, targetSafe: true }
     });
 
-    // 2. جلب العربون من الأوردرات
     const orders = await prisma.order.findMany({
       where: { safeId, deposit: { gt: 0 }, createdAt: startDate || endDate ? dateFilter : undefined },
       include: { customer: true, user: true }
@@ -135,7 +140,7 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
             date: p.createdAt, 
             type: typeLabel,
             description: desc,
-            currency: p.currency || 'EGP', // 👈 جلب العملة
+            currency: p.currency || 'EGP',
             inAmount: inAmt, 
             outAmount: outAmt, 
             user: p.user.name
@@ -146,14 +151,13 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         transactions.push({
             id: o.id, date: o.createdAt, type: 'عربون أوردر',
             description: `أوردر #${o.orderNo} - ${o.customer.name}`,
-            currency: o.currency || 'EGP', // 👈 جلب العملة
+            currency: o.currency || 'EGP',
             inAmount: o.deposit, outAmount: 0, user: o.user.name
         });
     });
 
     transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // 👇 حساب المجاميع لكل عملة على حدة 👇
     const summaryByCurrency: any = {};
     transactions.forEach(t => {
         const curr = t.currency;
@@ -168,7 +172,7 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
     return { 
         success: true, 
         data: transactions, 
-        summaryGrouped: summaryByCurrency // 👈 إرسال البيانات مجمعة حسب العملة
+        summaryGrouped: summaryByCurrency 
     };
 
   } catch (e) {
@@ -178,7 +182,7 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
 }
 
 // ==========================================
-// 3. تقرير أداء الموظفين (تم التعديل لحساب الخصم من الأصناف)
+// 3. تقرير أداء الموظفين
 // ==========================================
 export async function getEmployeePerformance() {
     try {
@@ -186,7 +190,7 @@ export async function getEmployeePerformance() {
             include: {
                 orders: {
                     include: {
-                        items: true // جلب الأصناف لحساب الخصومات بشكل دقيق
+                        items: true 
                     }
                 }
             }
@@ -196,22 +200,18 @@ export async function getEmployeePerformance() {
             const orderCount = user.orders.length;
             const totalSales = user.orders.reduce((sum, o) => sum + o.totalAmount, 0);
             
-            // حساب إجمالي قيمة الخصومات التي منحها الموظف برمجياً من واقع الأصناف
             let totalDiscountValue = 0;
             user.orders.forEach(order => {
                 order.items.forEach(item => {
                     if (item.discountPercent > 0) {
-                        // السعر المخزن في item.price هو السعر النهائي بعد الخصم
                         const finalPrice = item.price;
                         const discountPct = item.discountPercent;
-                        // المعادلة لاسترجاع السعر الأصلي: السعر الأصلي = السعر النهائي / (1 - نسبة الخصم)
                         const originalPrice = finalPrice / (1 - (discountPct / 100));
                         const discountPerPiece = originalPrice - finalPrice;
-                        // الإجمالي = فرق السعر * الكمية (عدد الدست) * 4 قطع
+                        // هنا نستخدم PIECES_PER_UNIT = 1 كما عدلناها
                         totalDiscountValue += (discountPerPiece * item.quantity * PIECES_PER_UNIT);
                     }
                 });
-                // إذا كان هناك خصم إضافي مسجل على مستوى الأوردر (حقل discount) يتم إضافته أيضاً
                 totalDiscountValue += (order.discount || 0);
             });
 
@@ -222,7 +222,7 @@ export async function getEmployeePerformance() {
                 role: user.role,
                 orderCount,
                 totalSales,
-                totalDiscount: Math.round(totalDiscountValue) // تقريب الرقم لأقرب جنيه
+                totalDiscount: Math.round(totalDiscountValue) 
             };
         }).filter(u => u.orderCount > 0);
 
