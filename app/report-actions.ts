@@ -3,11 +3,11 @@
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
-// تم تعديل المعامل إلى 1 لأن الكميات المدخلة هي "بالقطعة" فعلياً
-const PIECES_PER_UNIT = 1; 
+// الدرزن أو الثرية تحتوي على 4 قطع (هذا هو معامل التحويل)
+const PIECES_PER_UNIT = 4; 
 
 // ==========================================
-// 1. تقارير المخزون (حركة الأصناف) - تم تصحيح الحسابات ✅
+// 1. تقارير المخزون (حركة الأصناف) - تم تعديل الحسابات للبيع بالجملة ✅
 // ==========================================
 export async function getInventoryReport() {
   try {
@@ -21,22 +21,28 @@ export async function getInventoryReport() {
     });
 
     const report = products.map(p => {
-        const totalSold = p.orderItems.reduce((sum, item) => sum + item.quantity, 0);
+        // مجموع الوحدات المباعة (درزن)
+        const totalSoldUnits = p.orderItems.reduce((sum, item) => sum + item.quantity, 0);
+        // تحويل المبيعات من درزن إلى قطع (المبيعات بالجملة)
+        const totalSoldPieces = totalSoldUnits * PIECES_PER_UNIT;
         
-        // حساب قيمة المبيعات بناءً على أن الكمية بالقطعة مباشرة
+        // حساب إجمالي قيمة المبيعات (القطع المباعة × سعر القطعة)
         const totalSoldValue = p.orderItems.reduce((sum, item) => {
-            return sum + (item.quantity * item.price);
+            return sum + (item.quantity * PIECES_PER_UNIT * item.price);
         }, 0);
 
-        const currentStock = p.stockQty;
-        const initialStock = currentStock + totalSold;
+        // الرصيد الحالي (مخزن في الداتا بيز بالقطعة)
+        const currentStockPieces = p.stockQty;
+        
+        // الرصيد الأولي (بالقطعة) = الرصيد الحالي + القطع التي تم بيعها
+        const initialStockPieces = currentStockPieces + totalSoldPieces;
 
         const movementHistory = p.orderItems.map(item => ({
             orderId: item.orderId,
             orderNo: item.order.orderNo,
             date: item.order.createdAt,
             customer: item.order.customer.name,
-            quantity: item.quantity,
+            quantity: item.quantity * PIECES_PER_UNIT, // تحويل للعرض بالقطعة
             price: item.price
         }));
 
@@ -44,13 +50,12 @@ export async function getInventoryReport() {
             id: p.id,
             modelNo: p.modelNo,
             color: p.color,
-            initialStock: initialStock,
-            totalSold: totalSold,
-            totalSoldValue: totalSoldValue,
-            currentStock: currentStock,
+            initialStock: initialStockPieces, // بالقطعة
+            totalSold: totalSoldPieces,       // بالقطعة
+            totalSoldValue: totalSoldValue,   // ج.م
+            currentStock: currentStockPieces, // بالقطعة
             price: p.price,
-            // القيمة الحالية = المخزون بالقطعة × السعر
-            currentValue: currentStock * p.price, 
+            currentValue: currentStockPieces * p.price, // القيمة الحالية للمخزن بالقطعة
             status: p.status,
             history: movementHistory
         };
@@ -90,10 +95,7 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
 
     const payments = await prisma.payment.findMany({
       where: {
-        OR: [
-          { safeId: safeId },
-          { targetSafeId: safeId }
-        ],
+        OR: [ { safeId: safeId }, { targetSafeId: safeId } ],
         createdAt: startDate || endDate ? dateFilter : undefined
       },
       include: { customer: true, user: true, safe: true, targetSafe: true }
@@ -189,9 +191,7 @@ export async function getEmployeePerformance() {
         const users = await prisma.user.findMany({
             include: {
                 orders: {
-                    include: {
-                        items: true 
-                    }
+                    include: { items: true }
                 }
             }
         });
@@ -208,7 +208,7 @@ export async function getEmployeePerformance() {
                         const discountPct = item.discountPercent;
                         const originalPrice = finalPrice / (1 - (discountPct / 100));
                         const discountPerPiece = originalPrice - finalPrice;
-                        // هنا نستخدم PIECES_PER_UNIT = 1 كما عدلناها
+                        // نستخدم 4 قطع لكل وحدة بيع جملة
                         totalDiscountValue += (discountPerPiece * item.quantity * PIECES_PER_UNIT);
                     }
                 });
@@ -222,13 +222,12 @@ export async function getEmployeePerformance() {
                 role: user.role,
                 orderCount,
                 totalSales,
-                totalDiscount: Math.round(totalDiscountValue) 
+                totalDiscount: Math.round(totalDiscountValue)
             };
         }).filter(u => u.orderCount > 0);
 
         return { success: true, data: report };
     } catch (e) {
-        console.error("Employee Performance Error:", e);
         return { success: false, error: 'فشل جلب أداء الموظفين' };
     }
 }
