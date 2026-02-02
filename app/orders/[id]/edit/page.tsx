@@ -71,7 +71,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
 
         Object.values(modelGroups).forEach((item: any) => {
             if (item.variants[0].discountPercent > 0) {
-                initialCart.push({ type: 'discount', percent: item.variants[0].discountPercent, id: Math.random() });
+                initialCart.push({ type: 'discount', percent: item.variants[0].discountPercent, id: Math.random(), isAuto: false });
             }
             item.totalQty = item.variants.reduce((s:any, v:any) => s + v.quantity, 0);
             initialCart.push(item);
@@ -105,14 +105,9 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     setSelectionMap(prev => ({ ...prev, [productId]: newQty }));
   };
 
-  // 👇 الدالة التي كانت مفقودة وتسببت في الخطأ 👇
   const handleSelectAll = () => {
     const newMap: {[key: string]: number} = {};
-    searchResults.forEach(p => { 
-        if (!(p.status === 'CLOSED' && p.stockQty <= 0)) {
-            newMap[p.id] = 1; 
-        }
-    });
+    searchResults.forEach(p => { if (!(p.status === 'CLOSED' && p.stockQty <= 0)) newMap[p.id] = 1; });
     setSelectionMap(newMap);
   };
 
@@ -158,6 +153,12 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // 👇 الدوال التي كانت مفقودة وتسببت في الخطأ 👇
+  const handleAddDiscount = (percent: number) => {
+    setCart([{ type: 'discount', percent: percent, id: Date.now(), isAuto: false }, ...cart]);
+    setShowDiscountOptions(false);
+  };
+
   const handleApplyAutoProductDiscounts = () => {
     let newCart: any[] = [];
     cart.forEach(item => {
@@ -171,6 +172,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
         } else if (item.type === 'discount' && !item.isAuto) { newCart.push(item); }
     });
     setCart(newCart);
+    setShowDiscountOptions(false);
   };
 
   const getProcessedCart = () => {
@@ -221,7 +223,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
       if (code) { setSearchTerm(code); setShowScanner(false); }
   };
 
-  if (loading) return <div className="p-10 text-center font-bold animate-pulse text-blue-600">جاري تحميل بيانات الأوردر...</div>;
+  if (loading) return <div className="p-10 text-center font-bold">جاري تحميل بيانات الأوردر...</div>;
 
   const processedDisplayCart = getProcessedCart(); 
   const currentTotal = processedDisplayCart.reduce((acc, i) => acc + i.totalLinePrice, 0);
@@ -242,7 +244,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
           <>
             <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-gray-100">
               <label className="text-xs text-gray-400 block font-bold mb-1">العميل الحالي:</label>
-              <div className="font-bold text-blue-900 text-lg">{order.customer.name}</div>
+              <div className="font-bold text-blue-900">{order.customer.name}</div>
             </div>
 
             <div className="relative mb-4 flex gap-2">
@@ -287,7 +289,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
             )}
 
             {cart.length > 0 && (
-              <div className="mt-8 animate-fade-in">
+              <div className="mt-8">
                 <div className="flex justify-between items-center mb-3">
                     <h3 className="font-bold text-gray-700">محتويات الفاتورة</h3>
                     <div className="flex gap-2">
@@ -302,9 +304,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                         )}
                     </div>
                 </div>
-                
                 <div className="mb-4"><input type="text" placeholder="🔎 بحث داخل الفاتورة..." value={cartSearchTerm} onChange={(e) => setCartSearchTerm(e.target.value)} className="w-full p-3 border rounded-xl bg-white shadow-sm" /></div>
-                
                 <div className="space-y-3">
                   {filteredDisplayList.map((item) => {
                     if (item.type === 'discount') {
@@ -325,7 +325,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                             </div>
                             <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded mb-2 border border-gray-200 flex flex-wrap gap-1">
                                 {item.variants.map((v:any, i:number) => (
-                                    <span key={i} className="inline-block bg-white px-2 py-1 rounded border mr-1 text-[10px]">{v.quantity} ({v.color})</span>
+                                    <span key={i} className="inline-block bg-white px-2 py-1 rounded border text-[10px]">{v.quantity} ({v.color})</span>
                                 ))}
                             </div>
                             <div className="flex justify-between items-center pt-2 border-t">
@@ -339,10 +339,9 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                     );
                   })}
                 </div>
-
-                <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 z-30 shadow-[0_-4px_10px_rgba(0,0,0,0.1)]">
+                <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 z-30 shadow-2xl">
                     <div className="max-w-2xl mx-auto flex justify-between items-center">
-                        <div><span className="text-gray-500 text-xs block">إجمالي التعديل الحالي</span><span className="text-xl font-black text-green-700">{currentTotal.toFixed(0)} ج.م</span></div>
+                        <div><span className="text-gray-500 text-xs block">إجمالي التعديل</span><span className="text-xl font-black text-green-700">{currentTotal.toFixed(0)} ج.م</span></div>
                         <button onClick={() => setStep(2)} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg">مراجعة وحفظ ➔</button>
                     </div>
                 </div>
@@ -370,33 +369,11 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                )}
                <div className="flex justify-between text-xl font-bold pt-4 border-t border-slate-700 text-red-400"><span>المتبقي الجديد:</span><span>{(currentTotal - parseFloat(deposit || '0')).toFixed(2)}</span></div>
             </div>
-            <button onClick={handleUpdateOrder} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xl shadow-xl hover:bg-blue-700 transition-all active:scale-95">تأكيد الحفظ ✅</button>
+            <button onClick={handleUpdateOrder} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xl shadow-xl active:scale-95 transition-all">تأكيد الحفظ ✅</button>
             <button onClick={() => setStep(1)} className="w-full mt-4 text-gray-500 font-bold py-2">العودة للتعديل</button>
           </div>
         )}
       </div>
-
-      {/* Quick Add Customer Modal */}
-      {isQuickAddOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-60 z-[100] flex justify-center items-center p-4">
-              <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl animate-slide-up">
-                  <h3 className="font-bold text-lg mb-4 border-b pb-2 text-center text-blue-900">إضافة عميل جديد</h3>
-                  <form onSubmit={handleQuickAddCustomer} className="space-y-4">
-                      <div><label className="block text-xs font-bold text-gray-500 mb-1">الاسم</label><input type="text" value={newCust.name} onChange={e => setNewCust({...newCust, name: e.target.value})} className="w-full border p-3 rounded-xl shadow-sm" required /></div>
-                      <div><label className="block text-xs font-bold text-gray-500 mb-1">الكود (تلقائي لو فارغ)</label><input type="text" value={newCust.code} onChange={e => setNewCust({...newCust, code: e.target.value})} className="w-full border p-3 rounded-xl bg-gray-50" /></div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div><label className="block text-xs font-bold text-gray-500 mb-1">هاتف 1</label><input type="text" value={newCust.phone} onChange={e => setNewCust({...newCust, phone: e.target.value})} className="w-full border p-3 rounded-xl shadow-sm" /></div>
-                        <div><label className="block text-xs font-bold text-gray-500 mb-1">هاتف 2</label><input type="text" value={newCust.phone2} onChange={e => setNewCust({...newCust, phone2: e.target.value})} className="w-full border p-3 rounded-xl shadow-sm bg-yellow-50" /></div>
-                      </div>
-                      <div><label className="block text-xs font-bold text-gray-500 mb-1">العنوان</label><input type="text" value={newCust.address} onChange={e => setNewCust({...newCust, address: e.target.value})} className="w-full border p-3 rounded-xl" /></div>
-                      <div className="flex gap-2 pt-2">
-                          <button type="button" onClick={() => setIsQuickAddOpen(false)} className="flex-1 bg-gray-100 py-3 rounded-lg font-bold transition hover:bg-gray-200">إلغاء</button>
-                          <button type="submit" disabled={isSavingCust} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold shadow-lg">حفظ واختيار ✅</button>
-                      </div>
-                  </form>
-              </div>
-          </div>
-      )}
     </div>
   );
 }
