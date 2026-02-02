@@ -42,7 +42,7 @@ export async function getUsers() {
 }
 
 // ==========================================
-// 2. إدارة المنتجات (Products) - دعم السعة العالية
+// 2. إدارة المنتجات (Products)
 // ==========================================
 
 export async function addProduct(data: any) {
@@ -54,7 +54,7 @@ export async function addProduct(data: any) {
                 description: data.description,
                 material: data.material,
                 price: parseFloat(data.price),
-                discount: parseFloat(data.discount) || 0, 
+                discount: parseFloat(data.discount) || 0,
                 color: item.color,
                 stockQty: parseInt(item.stock),
                 status: data.status || 'OPEN'
@@ -172,7 +172,6 @@ export async function deleteAllProducts() {
 }
 
 export async function getProducts() {
-  // 👇 تم زيادة الـ take إلى 5000 لكي تظهر الأصناف الـ 1700 كاملة دون أن تختفي 👇
   const products = await prisma.product.findMany({ 
       orderBy: { id: 'desc' }, 
       take: 5000 
@@ -181,12 +180,45 @@ export async function getProducts() {
 }
 
 // ==========================================
-// 3. إدارة العملاء (Customers)
+// 3. إدارة العملاء (Customers) - التعديلات المطلوبة ✅
 // ==========================================
 
 export async function addCustomer(data: any) {
     try {
-      let finalCode = data.code;
+      const { name, phone, phone2, code, source, force } = data;
+
+      // 1. التحقق من الاسم (تجاهل الهمزات)
+      const normalizedName = name.replace(/[أإآ]/g, 'ا');
+      const existingByName: any[] = await prisma.$queryRaw`
+        SELECT name FROM "Customer" 
+        WHERE TRANSLATE(name, 'أإآ', 'ااا') = ${normalizedName}
+        LIMIT 1
+      `;
+      if (existingByName.length > 0) {
+          return { success: false, error: `الاسم مضاف مسبقاً بالفعل باسم: (${existingByName[0].name})` };
+      }
+
+      // 2. التحقق من الهاتف (إذا لم يتم استخدام خاصية الـ force)
+      if (!force) {
+          const phonesToCheck = [phone, phone2].filter(p => p && p.trim() !== "");
+          if (phonesToCheck.length > 0) {
+              const existingByPhone = await prisma.customer.findFirst({
+                  where: {
+                      OR: [
+                          { phone: { in: phonesToCheck } },
+                          { phone2: { in: phonesToCheck } }
+                      ]
+                  },
+                  select: { name: true }
+              });
+              if (existingByPhone) {
+                  return { success: false, warning: true, existingName: existingByPhone.name };
+              }
+          }
+      }
+
+      // 3. توليد كود تلقائي إذا لزم الأمر
+      let finalCode = code;
       if (!finalCode || finalCode.trim() === "") {
         finalCode = "C-" + Date.now().toString().slice(-6);
       }
@@ -194,16 +226,19 @@ export async function addCustomer(data: any) {
       const customer = await prisma.customer.create({ 
           data: {
               code: finalCode,
-              name: data.name,
-              phone: data.phone,
-              phone2: data.phone2,
+              name: name,
+              phone: phone,
+              phone2: phone2,
               address: data.address,
-              source: data.source || 'ADMIN'
+              source: source || 'ADMIN'
           } 
       });
       revalidatePath('/admin/customers');
       return { success: true, customer: JSON.parse(JSON.stringify(customer)) };
-    } catch (e) { return { success: false, error: 'كود العميل مكرر أو حدث خطأ' }; }
+    } catch (e) { 
+        console.error(e);
+        return { success: false, error: 'حدث خطأ في قاعدة البيانات أو كود مكرر' }; 
+    }
 }
 
 export async function updateCustomer(id: string, data: any) {
@@ -266,40 +301,7 @@ export async function deleteCustomer(id: string) {
     }
 }
 
-export async function deleteBulkCustomers(ids: string[]) {
-    try {
-        const res = await prisma.customer.deleteMany({
-            where: {
-                id: { in: ids },
-                orders: { none: {} },
-                payments: { none: {} }
-            }
-        });
-        revalidatePath('/admin/customers');
-        return { success: true, deleted: res.count, failed: ids.length - res.count };
-    } catch (e) {
-        return { success: false, error: 'حدث خطأ في قاعدة البيانات' };
-    }
-}
-
-export async function deleteAllCustomers() {
-    try {
-        const totalBefore = await prisma.customer.count();
-        const res = await prisma.customer.deleteMany({
-            where: {
-                orders: { none: {} },
-                payments: { none: {} }
-            }
-        });
-        const remaining = totalBefore - res.count;
-        revalidatePath('/admin/customers');
-        return { success: true, deleted: res.count, failed: remaining };
-    } catch (e) { 
-        return { success: false, error: 'حدث خطأ غير متوقع', deleted: 0, failed: 0 }; 
-    }
-}
-
 export async function getAdminCustomers() {
-    const custs = await prisma.customer.findMany({ orderBy: { id: 'desc' }, take: 1000 });
+    const custs = await prisma.customer.findMany({ orderBy: { id: 'desc' }, take: 2000 });
     return JSON.parse(JSON.stringify(custs));
 }

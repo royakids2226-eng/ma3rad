@@ -25,7 +25,7 @@ export default function NewOrderPage() {
 
   // Quick Add Customer States
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
-  const [newCust, setNewCust] = useState({ name: '', phone: '', code: '', address: '' });
+  const [newCust, setNewCust] = useState({ name: '', phone: '', phone2: '', code: '', address: '' });
   const [isSavingCust, setIsSavingCust] = useState(false);
 
   // Product Search
@@ -38,7 +38,7 @@ export default function NewOrderPage() {
   const [cart, setCart] = useState<any[]>([]);
   const [cartSearchTerm, setCartSearchTerm] = useState('');
   const [deposit, setDeposit] = useState<string>('');
-  const [currency, setCurrency] = useState('EGP'); // 👈 إضافة العملة
+  const [currency, setCurrency] = useState('EGP'); 
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
   const [showDiscountOptions, setShowDiscountOptions] = useState(false);
 
@@ -141,7 +141,7 @@ export default function NewOrderPage() {
           const finalVariants = newVariants.map((v: any) => ({
               productId: v.id, quantity: v.qty, price: v.price, color: v.color, productDiscount: v.discount 
           }));
-          const totalQty = finalVariants.reduce((sum: number, v: any) => sum + v.quantity, 0);
+          const totalQty = finalVariants.reduce((sum: any, v: any) => sum + v.quantity, 0);
           const originalPrice = newVariants[0].price;
           updatedCart.unshift({
             type: 'product', id: Date.now() + Math.random(), modelNo: modelNo,
@@ -167,23 +167,19 @@ export default function NewOrderPage() {
       setShowDiscountOptions(false);
   };
 
-  // 👇 الوظيفة المعدلة: خصم الموديلات التلقائي (Sandwich Logic) لضمان عدم التأثير على موديلات أخرى 👇
   const handleApplyAutoProductDiscounts = () => {
     let newCart: any[] = [];
     cart.forEach(item => {
         if(item.type === 'product') {
             const autoPct = item.variants[0]?.productDiscount || 0;
             if(autoPct > 0) {
-                // نضع الخصم المخصص لهذا الموديل قبله
                 newCart.push({ type: 'discount', percent: autoPct, id: 'auto-' + Math.random(), isAuto: true });
                 newCart.push(item);
-                // نضع سطر خصم 0% بعده مباشرة لإرجاع السعر لأصله للأصناف التالية مالم تكن هي أيضاً بخصم
                 newCart.push({ type: 'discount', percent: 0, id: 'reset-' + Math.random(), isAuto: true });
             } else {
                 newCart.push(item);
             }
         } else if (item.type === 'discount' && !item.isAuto) {
-            // نحتفظ بالخصومات اليدوية التي أضافها الموظف
             newCart.push(item);
         }
     });
@@ -234,26 +230,48 @@ export default function NewOrderPage() {
     const newOrder = await createOrder({
       customerId: selectedCustomer.id,
       items: cleanCart, total, deposit: depositVal, safeId: selectedSafeId,
-      currency: currency // 👈 حفظ العملة المختارة
+      currency: currency 
     }, userId);
     if (newOrder && newOrder.id) router.push(`/orders/${newOrder.id}/print`);
     else alert("حدث خطأ أثناء حفظ الأوردر.");
   };
 
+  // 👇 تعديل منطق الإضافة السريعة مع التحقق من المكرر ✅
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
       e.preventDefault();
       if(!newCust.name) return alert('الاسم مطلوب');
+      
       setIsSavingCust(true);
       const res = await addCustomer({ ...newCust, source: 'QUICK' });
-      setIsSavingCust(false);
+      
+      // إذا كان هناك تحذير بشأن الهاتف
+      if (res.warning) {
+          setIsSavingCust(false);
+          if (confirm(`رقم الهاتف هذا مسجل مسبقاً باسم العميل: (${res.existingName}).\nهل تريد الاستمرار في الإضافة على أي حال؟`)) {
+              setIsSavingCust(true);
+              const resForce = await addCustomer({ ...newCust, source: 'QUICK', force: true });
+              if (resForce.success) {
+                  setSelectedCustomer(resForce.customer);
+                  setCustomerSearchTerm(resForce.customer.name);
+                  setIsQuickAddOpen(false);
+                  setNewCust({ name: '', phone: '', phone2: '', code: '', address: '' });
+              } else {
+                  alert("خطأ: " + resForce.error);
+              }
+          }
+          setIsSavingCust(false);
+          return;
+      }
+
       if(res.success) {
           setSelectedCustomer(res.customer);
           setCustomerSearchTerm(res.customer.name);
           setIsQuickAddOpen(false);
-          setNewCust({ name: '', phone: '', code: '', address: '' });
+          setNewCust({ name: '', phone: '', phone2: '', code: '', address: '' });
       } else {
           alert("خطأ: " + res.error);
       }
+      setIsSavingCust(false);
   };
 
   const processedDisplayCart = getProcessedCart(); 
@@ -346,7 +364,7 @@ export default function NewOrderPage() {
                               </div>
                             </div>
                             {isSelected && (
-                              <div className="flex items-center gap-2 bg-white rounded-lg border px-2 py-1">
+                              <div className="flex items-center gap-2 bg-white rounded-lg border px-2 py-1 shadow-sm">
                                 <button onClick={() => updateQuantity(prod.id, qty + 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">+</button>
                                 <input type="number" value={qty} onChange={(e) => updateQuantity(prod.id, parseInt(e.target.value) || 1)} className="w-10 text-center font-bold outline-none" />
                                 <button onClick={() => updateQuantity(prod.id, qty - 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">-</button>
@@ -369,9 +387,7 @@ export default function NewOrderPage() {
                 <div className="flex justify-between items-center mb-3">
                     <h3 className="font-bold text-gray-700 text-lg">محتويات السلة</h3>
                     <div className="relative flex gap-2">
-                        {/* زر الخصم التلقائي الجديد */}
                         <button onClick={handleApplyAutoProductDiscounts} className="bg-red-600 text-white px-3 py-1 rounded-lg text-[10px] md:text-sm font-bold shadow hover:bg-red-700 animate-pulse">🏷️ خصم الموديلات</button>
-                        
                         <button onClick={() => setShowDiscountOptions(!showDiscountOptions)} className="bg-yellow-500 text-white px-3 py-1 rounded-lg text-[10px] md:text-sm font-bold shadow hover:bg-yellow-600">+ خصم مخصص</button>
                         {showDiscountOptions && (
                             <div className="absolute top-full left-0 bg-white border rounded-lg shadow-xl z-20 w-48 mt-1 p-2 grid grid-cols-3 gap-2">
@@ -424,7 +440,7 @@ export default function NewOrderPage() {
                 
                 <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 z-30 shadow-[0_-4px_10px_rgba(0,0,0,0.1)]">
                     <div className="max-w-2xl mx-auto flex justify-between items-center">
-                        <div><span className="text-gray-500 text-xs block">الإجمالي الحالي</span><span className="text-xl font-black text-green-700">{currentTotal.toFixed(0)} ج.م</span></div>
+                        <div><span className="text-gray-500 text-xs block">إجمالي الفاتورة</span><span className="text-xl font-black text-green-700">{currentTotal.toFixed(0)} ج.م</span></div>
                         <button onClick={() => setStep(2)} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg">إنهاء ومراجعة ➔</button>
                     </div>
                 </div>
@@ -498,12 +514,15 @@ export default function NewOrderPage() {
                   <form onSubmit={handleQuickAddCustomer} className="space-y-4">
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">اسم العميل (مطلوب)</label><input type="text" value={newCust.name} onChange={e => setNewCust({...newCust, name: e.target.value})} className="w-full border p-3 rounded-xl shadow-sm" required /></div>
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">كود العميل (تلقائي لو تركته فارغاً)</label><input type="text" value={newCust.code} onChange={e => setNewCust({...newCust, code: e.target.value})} className="w-full border p-3 rounded-xl bg-gray-50 shadow-sm" placeholder="سيتم التوليد تلقائياً" /></div>
-                      <div><label className="block text-xs font-bold text-gray-500 mb-1">رقم الهاتف</label><input type="text" value={newCust.phone} onChange={e => setNewCust({...newCust, phone: e.target.value})} className="w-full border p-3 rounded-xl shadow-sm" /></div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div><label className="block text-xs font-bold text-gray-500 mb-1">هاتف 1</label><input type="text" value={newCust.phone} onChange={e => setNewCust({...newCust, phone: e.target.value})} className="w-full border p-3 rounded-xl shadow-sm" /></div>
+                        <div><label className="block text-xs font-bold text-gray-500 mb-1">هاتف 2</label><input type="text" value={newCust.phone2} onChange={e => setNewCust({...newCust, phone2: e.target.value})} className="w-full border p-3 rounded-xl shadow-sm bg-yellow-50" /></div>
+                      </div>
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">العنوان</label><input type="text" value={newCust.address} onChange={e => setNewCust({...newCust, address: e.target.value})} className="w-full border p-3 rounded-xl shadow-sm" /></div>
                       
                       <div className="flex gap-2 pt-2">
-                          <button type="button" onClick={() => setIsQuickAddOpen(false)} className="flex-1 bg-gray-100 py-3 rounded-xl font-bold transition hover:bg-gray-200">إلغاء</button>
-                          <button type="submit" disabled={isSavingCust} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700">حفظ واختيار ✅</button>
+                          <button type="button" onClick={() => setIsQuickAddOpen(false)} className="flex-1 bg-gray-100 py-3 rounded-lg font-bold transition hover:bg-gray-200">إلغاء</button>
+                          <button type="submit" disabled={isSavingCust} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold shadow-lg hover:bg-blue-700">حفظ واختيار ✅</button>
                       </div>
                   </form>
               </div>
