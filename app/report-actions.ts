@@ -21,19 +21,27 @@ export async function getInventoryReport() {
     });
 
     const report = products.map(p => {
-        // الحسابات تعتمد على أن stockQty هو الرصيد الأولي الثابت
+        // الرصيد الأولي: يؤخذ مباشرة من stockQty (ثابت)
         const initialStockPieces = p.stockQty || 0;
 
-        // حساب إجمالي الكميات المباعة بالقطعة من جدول التفاصيل
-        const totalSoldUnits = p.orderItems.reduce((sum, item) => sum + item.quantity, 0);
+        // حساب إجمالي الكميات المباعة
+        // نستخدم (item.quantity || 0) لضمان عدم وجود قيم فارغة
+        const totalSoldUnits = p.orderItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
+        
+        // تحويل الوحدات إلى قطع
         const totalSoldPieces = totalSoldUnits * PIECES_PER_UNIT;
         
-        // الرصيد الحالي = الرصيد الأولي المدخل (stockQty) - إجمالي المباع
+        // طباعة للتأكد في التيرمينال (Debug)
+        if (totalSoldPieces > 0) {
+            console.log(`Model: ${p.modelNo} | Sold Units: ${totalSoldUnits} | Sold Pieces: ${totalSoldPieces}`);
+        }
+
+        // الرصيد الحالي: الرصيد الأولي - المباع
         const currentStockPieces = initialStockPieces - totalSoldPieces;
 
-        // إجمالي قيمة المبيعات (القطع المباعة × سعر القطعة)
+        // إجمالي قيمة المبيعات
         const totalSoldValue = p.orderItems.reduce((sum, item) => {
-            return sum + (item.quantity * PIECES_PER_UNIT * item.price);
+            return sum + ((item.quantity || 0) * PIECES_PER_UNIT * (item.price || 0));
         }, 0);
 
         const movementHistory = p.orderItems.map(item => ({
@@ -41,7 +49,7 @@ export async function getInventoryReport() {
             orderNo: item.order.orderNo,
             date: item.order.createdAt,
             customer: item.order.customer.name,
-            quantity: item.quantity * PIECES_PER_UNIT, // تحويل للعرض بالقطعة
+            quantity: (item.quantity || 0) * PIECES_PER_UNIT, // الكمية بالقطعة
             price: item.price
         }));
 
@@ -49,9 +57,13 @@ export async function getInventoryReport() {
             id: p.id,
             modelNo: p.modelNo,
             color: p.color,
-            initialStock: initialStockPieces, // الرصيد الأولي (يساوي stockQty)
-            totalSold: totalSoldPieces,       // المباع (قطعة)
-            currentStock: currentStockPieces, // الرصيد الحالي (أولي - مباع)
+            initialStock: initialStockPieces, 
+            
+            // 👇 تم إضافة المفتاحين لضمان ظهور الرقم في الجدول مهما كان الاسم المستخدم في الفرونت
+            totalSold: totalSoldPieces,       
+            totalSoldPieces: totalSoldPieces, 
+
+            currentStock: currentStockPieces, 
             totalSoldValue: totalSoldValue,
             price: p.price,
             currentValue: currentStockPieces * p.price,
@@ -64,14 +76,15 @@ export async function getInventoryReport() {
       totalItems: report.length,
       totalInitialStock: report.reduce((acc, item) => acc + item.initialStock, 0),
       totalCurrentStock: report.reduce((acc, item) => acc + item.currentStock, 0),
-      totalSoldPieces: report.reduce((acc, item) => acc + item.totalSold, 0),
+      // التأكد من جمع المباع بشكل صحيح
+      totalSoldPieces: report.reduce((acc, item) => acc + item.totalSoldPieces, 0),
       totalSalesValue: report.reduce((acc, item) => acc + item.totalSoldValue, 0),
       totalValue: report.reduce((acc, item) => acc + item.currentValue, 0)
     };
 
     return { success: true, data: report, summary };
   } catch (e) {
-    console.error(e);
+    console.error("Inventory Error:", e);
     return { success: false, error: 'فشل جلب بيانات المخزون' };
   }
 }
