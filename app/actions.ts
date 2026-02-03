@@ -1,155 +1,278 @@
 'use server'
 
 import { PrismaClient } from '@prisma/client'
+import { revalidatePath } from 'next/cache'
+import bcrypt from 'bcryptjs' 
 
 const prisma = new PrismaClient()
-const PIECES_PER_UNIT = 4; // الثرية أو الدرزن بها 4 قطع
 
 // ==========================================
-// 1. تقارير المخزون (حركة الأصناف) - الرصيد الأولي ثابت من DB ✅
+// 1. العملاء (جلب وبحث)
 // ==========================================
-export async function getInventoryReport() {
+export async function getCustomers() {
   try {
-    const products = await prisma.product.findMany({
-      orderBy: { modelNo: 'asc' },
-      include: {
-        orderItems: {
-            include: { order: { include: { customer: true } } }
-        }
-      }
-    });
+    const customers = await prisma.customer.findMany({ take: 20, orderBy: { name: 'asc' } });
+    return JSON.parse(JSON.stringify(customers));
+  } catch (error) { return []; }
+}
 
-    const report = products.map(p => {
-        // مجموع الوحدات المباعة بالدرزن
-        const totalSoldUnits = p.orderItems.reduce((sum, item) => sum + item.quantity, 0);
-        // تحويل المبيعات لقطع (الجملة)
-        const totalSoldPieces = totalSoldUnits * PIECES_PER_UNIT;
-
-        // الرصيد الأولي (يؤخذ مباشرة من قاعدة البيانات كما طلبت)
-        const initialStock = p.stockQty;
-
-        // الرصيد الحالي = الرصيد الأولي - المباع
-        const currentStock = initialStock - totalSoldPieces;
-
-        // حساب إجمالي قيمة المبيعات (القطع المباعة × سعر البيع في الأوردر)
-        const totalSoldValue = p.orderItems.reduce((sum, item) => sum + (item.quantity * PIECES_PER_UNIT * item.price), 0);
-
-        const movementHistory = p.orderItems.map(item => ({
-            orderId: item.orderId,
-            orderNo: item.order.orderNo,
-            date: item.order.createdAt,
-            customer: item.order.customer.name,
-            quantity: item.quantity * PIECES_PER_UNIT, // عرض التاريخ بالقطعة
-            price: item.price
-        }));
-
-        return {
-            id: p.id,
-            modelNo: p.modelNo,
-            color: p.color,
-            initialStock: initialStock,      // الرصيد الأولي (مباشرة من DB)
-            totalSold: totalSoldPieces,      // المباع (قطعة)
-            totalSoldValue: totalSoldValue,  // إجمالي قيمة المبيعات ج.م
-            currentStock: currentStock,      // الرصيد الحالي (المتبقي قطعة)
-            price: p.price,
-            currentValue: currentStock * p.price, // القيمة المالية للمخزن المتبقي
-            status: p.status,
-            history: movementHistory
-        };
-    });
-
-    const summary = {
-      totalItems: report.length,
-      totalInitialStock: report.reduce((acc, item) => acc + item.initialStock, 0),
-      totalCurrentStock: report.reduce((acc, item) => acc + item.currentStock, 0),
-      totalSoldUnits: report.reduce((acc, item) => acc + item.totalSold, 0),
-      totalSalesValue: report.reduce((acc, item) => acc + item.totalSoldValue, 0),
-      totalValue: report.reduce((acc, item) => acc + item.currentValue, 0)
-    };
-
-    return { success: true, data: report, summary };
-  } catch (e) {
-    console.error(e);
-    return { success: false, error: 'فشل جلب بيانات المخزون' };
+// البحث عن العملاء (تجاهل الهمزات + البحث بالهواتف)
+export async function searchCustomers(term: string) {
+  if (!term) return [];
+  const normalizedTerm = term.replace(/[أإآ]/g, 'ا');
+  try {
+    const customers = await prisma.$queryRaw`
+      SELECT id, name, phone, "phone2", address, source 
+      FROM "Customer"
+      WHERE 
+        TRANSLATE(name, 'أإآ', 'ااا') LIKE ${'%' + normalizedTerm + '%'}
+        OR phone LIKE ${'%' + term + '%'}
+        OR "phone2" LIKE ${'%' + term + '%'}
+      LIMIT 50;
+    `;
+    return JSON.parse(JSON.stringify(customers));
+  } catch (error) {
+    console.error("Search Error:", error);
+    return [];
   }
 }
 
 // ==========================================
-// 2. تقارير الخزنة (دفتر الأستاذ)
+// 2. الخزن والمنتجات
 // ==========================================
-export async function getSafesList() {
-    const safes = await prisma.safe.findMany();
-    return JSON.parse(JSON.stringify(safes));
-}
-
-export async function getSafeLedger(safeId: string, startDate?: string, endDate?: string) {
+export async function getSafes() {
   try {
-    const dateFilter: any = {};
-    if (startDate) dateFilter.gte = new Date(startDate);
-    if (endDate) { const end = new Date(endDate); end.setHours(23, 59, 59); dateFilter.lte = end; }
+    const safes = await prisma.safe.findMany({ orderBy: { name: 'asc' } });
+    return JSON.parse(JSON.stringify(safes));
+  } catch (error) { return []; }
+}
 
-    const payments = await prisma.payment.findMany({
-      where: { OR: [ { safeId: safeId }, { targetSafeId: safeId } ], createdAt: startDate || endDate ? dateFilter : undefined },
-      include: { customer: true, user: true, safe: true, targetSafe: true }
+export async function searchProducts(term: string) {
+  if (!term || term.length < 2) return [];
+  try {
+    const products = await prisma.product.findMany({
+      where: { modelNo: { contains: term, mode: 'insensitive' } },
+      orderBy: { modelNo: 'asc' }
     });
-
-    const orders = await prisma.order.findMany({
-      where: { safeId, deposit: { gt: 0 }, createdAt: startDate || endDate ? dateFilter : undefined },
-      include: { customer: true, user: true }
-    });
-
-    let transactions: any[] = [];
-    payments.forEach((p: any) => {
-        let inAmt = 0, outAmt = 0, typeLabel = '', desc = '';
-        if (p.type === 'IN') { typeLabel = 'سند قبض'; desc = p.customer ? `إيصال #${p.receiptNo} - ${p.customer.name}` : `إيصال #${p.receiptNo}`; inAmt = p.amount; }
-        else if (p.type === 'OUT') { typeLabel = 'سند صرف'; desc = p.description || 'مصروفات'; outAmt = p.amount; }
-        else if (p.type === 'TRANSFER') {
-             if (p.safeId === safeId) { typeLabel = 'تحويل صادر'; desc = `إلى: ${p.targetSafe?.name || 'خزنة أخرى'}`; outAmt = p.amount; }
-             else { typeLabel = 'تحويل وارد'; desc = `من: ${p.safe?.name || 'خزنة أخرى'}`; inAmt = p.amount; }
-        }
-        transactions.push({ id: p.id, date: p.createdAt, type: typeLabel, description: desc, currency: p.currency || 'EGP', inAmount: inAmt, outAmount: outAmt, user: p.user.name });
-    });
-
-    orders.forEach(o => {
-        transactions.push({ id: o.id, date: o.createdAt, type: 'عربون أوردر', description: `أوردر #${o.orderNo} - ${o.customer.name}`, currency: o.currency || 'EGP', inAmount: o.deposit, outAmount: 0, user: o.user.name });
-    });
-
-    transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    const summaryByCurrency: any = {};
-    transactions.forEach(t => {
-        const curr = t.currency;
-        if (!summaryByCurrency[curr]) summaryByCurrency[curr] = { in: 0, out: 0, balance: 0 };
-        summaryByCurrency[curr].in += t.inAmount;
-        summaryByCurrency[curr].out += t.outAmount;
-        summaryByCurrency[curr].balance += (t.inAmount - t.outAmount);
-    });
-
-    return { success: true, data: transactions, summaryGrouped: summaryByCurrency };
-  } catch (e) { return { success: false, error: 'فشل جلب دفتر الخزنة' }; }
+    return JSON.parse(JSON.stringify(products));
+  } catch (error) { return []; }
 }
 
 // ==========================================
-// 3. تقرير أداء الموظفين
+// 3. إدارة الأوردرات (إنشاء - جلب - حذف - تحديث)
 // ==========================================
-export async function getEmployeePerformance() {
-    try {
-        const users = await prisma.user.findMany({ include: { orders: { include: { items: true } } } });
-        const report = users.map(user => {
-            const orderCount = user.orders.length;
-            const totalSales = user.orders.reduce((sum, o) => sum + o.totalAmount, 0);
-            let totalDiscountValue = 0;
-            user.orders.forEach(order => {
-                order.items.forEach(item => {
-                    if (item.discountPercent > 0) {
-                        const originalPrice = item.price / (1 - (item.discountPercent / 100));
-                        totalDiscountValue += ((originalPrice - item.price) * item.quantity * PIECES_PER_UNIT);
-                    }
+
+// إنشاء أوردر جديد (دعم العملة)
+export async function createOrder(data: any, userId: string) {
+  const { customerId, items, total, deposit, safeId, currency } = data; 
+  
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. إنشاء الأوردر مع حفظ العملة
+      const order = await tx.order.create({
+        data: {
+          userId, 
+          customerId, 
+          totalAmount: total, 
+          deposit: deposit || 0,
+          currency: currency || 'EGP', // 👈 حفظ العملة المختارة
+          safeId: deposit > 0 ? safeId : null,
+        }
+      });
+
+      // 2. إضافة الأصناف وخصم المخزون
+      for (const cartItem of items) {
+        for (const variant of cartItem.variants) {
+          await tx.orderItem.create({
+            data: {
+              orderId: order.id,
+              productId: variant.productId,
+              quantity: variant.quantity,
+              price: variant.price,
+              discountPercent: variant.discountPercent || 0
+            }
+          });
+
+          await tx.product.update({
+            where: { id: variant.productId },
+            data: {
+              stockQty: { decrement: variant.quantity }
+            }
+          });
+        }
+      }
+      return order;
+    });
+    
+    revalidatePath('/');
+    return JSON.parse(JSON.stringify(result));
+  } catch (error) {
+    console.error("Error creating order:", error);
+    return null;
+  }
+}
+
+// جلب الأوردر للطباعة أو التعديل (يشمل جلب كافة مدفوعات العميل للفاتورة)
+export async function getOrderById(orderId: string) {
+  if (!orderId) return null;
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { 
+          customer: {
+              include: {
+                  payments: { orderBy: { createdAt: 'desc' } } // 👈 جلب المدفوعات لفصل العملات في الفاتورة
+              }
+          }, 
+          user: true, 
+          items: { include: { product: true } } 
+      }
+    });
+    return JSON.parse(JSON.stringify(order));
+  } catch (error) { return null; }
+}
+
+// حذف الأوردر (مع إرجاع الكميات للمخزن)
+export async function deleteOrder(orderId: string) {
+  try {
+    await prisma.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } });
+        if (order) {
+            for (const item of order.items) {
+                await tx.product.update({
+                    where: { id: item.productId },
+                    data: { stockQty: { increment: item.quantity } }
                 });
-                totalDiscountValue += (order.discount || 0);
+            }
+        }
+        await tx.orderItem.deleteMany({ where: { orderId } });
+        await tx.order.delete({ where: { id: orderId } });
+    });
+    revalidatePath('/orders/list');
+    return { success: true };
+  } catch (error) { return { success: false }; }
+}
+
+// تحديث الأوردر بالكامل (إرجاع المخزون القديم وحفظ الجديد)
+export async function updateOrder(orderId: string, data: any) {
+    const { items, total, deposit, safeId, currency } = data;
+    try {
+        await prisma.$transaction(async (tx) => {
+            // 1. إرجاع المخزون القديم
+            const oldOrder = await tx.order.findUnique({
+                where: { id: orderId },
+                include: { items: true }
             });
-            return { id: user.id, name: user.name, code: user.code, role: user.role, orderCount, totalSales, totalDiscount: Math.round(totalDiscountValue) };
-        }).filter(u => u.orderCount > 0);
-        return { success: true, data: report };
-    } catch (e) { return { success: false, error: 'فشل جلب أداء الموظفين' }; }
+            if (oldOrder) {
+                for (const item of oldOrder.items) {
+                    await tx.product.update({
+                        where: { id: item.productId },
+                        data: { stockQty: { increment: item.quantity } }
+                    });
+                }
+            }
+            // 2. حذف الأصناف القديمة
+            await tx.orderItem.deleteMany({ where: { orderId } });
+            // 3. إضافة الأصناف الجديدة وخصم المخزون
+            for (const cartItem of items) {
+                for (const variant of cartItem.variants) {
+                    await tx.orderItem.create({
+                        data: {
+                            orderId: orderId,
+                            productId: variant.productId,
+                            quantity: variant.quantity,
+                            price: variant.price,
+                            discountPercent: variant.discountPercent || 0
+                        }
+                    });
+                    await tx.product.update({
+                        where: { id: variant.productId },
+                        data: { stockQty: { decrement: variant.quantity } }
+                    });
+                }
+            }
+            // 4. تحديث رأس الأوردر
+            await tx.order.update({
+                where: { id: orderId },
+                data: {
+                    totalAmount: total,
+                    deposit: deposit || 0,
+                    currency: currency || 'EGP',
+                    safeId: deposit > 0 ? safeId : null
+                }
+            });
+        });
+        revalidatePath('/orders/list');
+        return { success: true };
+    } catch (error) { return { success: false }; }
+}
+
+// جلب سجل الأوردرات
+export async function getUserOrders(userId: string) {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    let whereCondition = {};
+    if (user?.role !== 'ADMIN' && user?.role !== 'OWNER') {
+      whereCondition = { userId: userId };
+    }
+    const orders = await prisma.order.findMany({
+      where: whereCondition,
+      include: { 
+          customer: true, 
+          user: true, 
+          items: { include: { product: true } } 
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100
+    });
+    return { orders: JSON.parse(JSON.stringify(orders)), userRole: user?.role };
+  } catch (error) { return { orders: [], userRole: 'EMPLOYEE' }; }
+}
+
+// ==========================================
+// 4. إدارة النقدية والموظفين
+// ==========================================
+
+// إنشاء تحصيل أو صرف (دعم العملة)
+export async function createPayment(data: any, userId: string) {
+  const { type, amount, currency, safeId, customerId, targetSafeId, description } = data;
+  try {
+    await prisma.payment.create({ 
+      data: { 
+        type, 
+        amount: parseFloat(amount), 
+        currency: currency || 'EGP', // 👈 حفظ العملة
+        safeId, 
+        userId,
+        customerId: customerId || null,
+        targetSafeId: targetSafeId || null,
+        description: description || ''
+      } 
+    });
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) { return { success: false, error: 'فشل العملية' }; }
+}
+
+// تسجيل موظف جديد من شاشة اللوجن
+export async function registerEmployee(data: any) {
+  try {
+    const { code, name, password } = data;
+    const existingUser = await prisma.user.findUnique({ where: { code } });
+    if (existingUser) return { success: false, error: 'كود الموظف مستخدم بالفعل' };
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await prisma.user.create({
+      data: { code, name, password: hashedPassword, role: 'EMPLOYEE' }
+    });
+    return { success: true };
+  } catch (e) { return { success: false, error: 'حدث خطأ أثناء التسجيل' }; }
+}
+
+export async function getCurrentUser(userId: string) {
+  if (!userId) return null;
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    return JSON.parse(JSON.stringify(user));
+  } catch (error) { return null; }
 }
