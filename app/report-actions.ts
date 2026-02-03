@@ -1,3 +1,8 @@
+--- START OF FILE text/plain ---
+
+================================================
+FILE: app/report-actions.ts
+================================================
 'use server'
 
 import { PrismaClient } from '@prisma/client'
@@ -31,11 +36,11 @@ export async function getInventoryReport() {
             return sum + (item.quantity * PIECES_PER_UNIT * item.price);
         }, 0);
 
-        // الرصيد الحالي (مخزن في الداتا بيز بالقطعة)
-        const currentStockPieces = p.stockQty;
+        // التعديل (تصحيح): الرصيد الأولي يؤخذ مباشرة من قاعدة البيانات بالقطعة كما هو
+        const initialStockPieces = p.stockQty;
         
-        // الرصيد الأولي (بالقطعة) = الرصيد الحالي + القطع التي تم بيعها
-        const initialStockPieces = currentStockPieces + totalSoldPieces;
+        // الرصيد الحالي يساوي الرصيد الأولي مطروحاً منه ما تم بيعه
+        const currentStockPieces = initialStockPieces - totalSoldPieces;
 
         const movementHistory = p.orderItems.map(item => ({
             orderId: item.orderId,
@@ -50,10 +55,10 @@ export async function getInventoryReport() {
             id: p.id,
             modelNo: p.modelNo,
             color: p.color,
-            initialStock: initialStockPieces, // بالقطعة
+            initialStock: initialStockPieces, // بالقطعة (مباشرة من الداتا)
             totalSold: totalSoldPieces,       // بالقطعة
             totalSoldValue: totalSoldValue,   // ج.م
-            currentStock: currentStockPieces, // بالقطعة
+            currentStock: currentStockPieces, // بالقطعة (أولي - مباع)
             price: p.price,
             currentValue: currentStockPieces * p.price, // القيمة الحالية للمخزن بالقطعة
             status: p.status,
