@@ -48,15 +48,17 @@ export async function getUsers() {
 export async function addProduct(data: any) {
   try {
     for (const item of data.colors) {
+        // 👈 تم التعديل: تعيين الرصيد الحالي (currentStock) ليساوي الرصيد الافتتاحي عند الإضافة
         await prisma.product.create({
             data: {
                 modelNo: data.modelNo,
                 description: data.description,
                 material: data.material,
                 price: parseFloat(data.price),
-                discount: parseFloat(data.discount) || 0, // الخصم التلقائي
+                discount: parseFloat(data.discount) || 0, 
                 color: item.color,
                 stockQty: parseInt(item.stock),
+                currentStock: parseInt(item.stock), // ✅ إضافة الرصيد الحالي
                 status: data.status || 'OPEN'
             }
         });
@@ -70,6 +72,8 @@ export async function addProduct(data: any) {
 
 export async function updateProduct(id: string, data: any) {
     try {
+        // عند التعديل نحدث البيانات الأساسية فقط، ولا نلمس الرصيد الحالي للحفاظ على العمليات السابقة
+        // إلا إذا أردت منطقاً مختلفاً لتصحيح الجرد
         await prisma.product.update({
             where: { id },
             data: {
@@ -105,6 +109,7 @@ export async function addBulkProducts(products: any[]) {
                         }
                     },
                     update: {
+                        // عند التحديث (Update)، لا نعدل currentStock للحفاظ على المبيعات
                         stockQty: parseInt(p.stockQty) || 0,
                         price: parseFloat(p.price) || 0,
                         discount: parseFloat(p.discount) || 0,
@@ -119,6 +124,7 @@ export async function addBulkProducts(products: any[]) {
                         price: parseFloat(p.price) || 0,
                         discount: parseFloat(p.discount) || 0,
                         stockQty: parseInt(p.stockQty) || 0,
+                        currentStock: parseInt(p.stockQty) || 0, // ✅ إضافة الرصيد الحالي عند الإنشاء الجديد
                         status: productStatus
                     }
                 });
@@ -172,7 +178,6 @@ export async function deleteAllProducts() {
 }
 
 export async function getProducts() {
-  // السعة العالية لضمان ظهور الـ 1700 صنف
   const products = await prisma.product.findMany({ orderBy: { id: 'desc' }, take: 5000 });
   return JSON.parse(JSON.stringify(products));
 }

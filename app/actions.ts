@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
-// معامل التحويل (هام جداً لضبط الكميات مثل ملف التقرير)
+// معامل التحويل
 const PIECES_PER_UNIT = 4; 
 
 // ==========================================
@@ -19,7 +19,6 @@ export async function getCustomers() {
   } catch (error) { return []; }
 }
 
-// البحث عن العملاء
 export async function searchCustomers(term: string) {
   if (!term) return [];
   const normalizedTerm = term.replace(/[أإآ]/g, 'ا');
@@ -62,32 +61,30 @@ export async function searchProducts(term: string) {
 }
 
 // ==========================================
-// 3. إدارة الأوردرات (تم تعديلها لتحديث المخزون)
+// 3. إدارة الأوردرات (تعديل رسالة الخطأ)
 // ==========================================
 
-// إنشاء أوردر جديد
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, safeId, currency } = data; 
   
   try {
     const result = await prisma.$transaction(async (tx) => {
       
-      // أولاً: خصم الكميات من الرصيد الحالي (currentStock)
+      // أولاً: خصم الكميات والتحقق
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
-          // حساب عدد القطع الإجمالي
           const requestedPieces = variant.quantity * PIECES_PER_UNIT;
 
-          // التحقق من الصنف
           const product = await tx.product.findUnique({ where: { id: variant.productId } });
           if (!product) throw new Error(`الصنف غير موجود`);
 
-          // إذا كان الصنف مغلقاً والرصيد لا يسمح (اختياري حسب سياسة العمل)
+          // التحقق من الرصيد (للأصناف غير المفتوحة)
           if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
-             throw new Error(`الرصيد غير كافي للصنف: ${product.modelNo} (المتاح: ${product.currentStock})`);
+             // 👈 تعديل الرسالة لتوضيح اللون والموديل
+             throw new Error(`عذراً، الكمية نفذت للصنف: ${product.modelNo} - لون: ${product.color} (المتاح حالياً: ${product.currentStock} قطعة)`);
           }
 
-          // تنفيذ الخصم من الرصيد الحالي فقط
+          // تنفيذ الخصم
           await tx.product.update({
             where: { id: variant.productId },
             data: { currentStock: { decrement: requestedPieces } }
@@ -107,7 +104,7 @@ export async function createOrder(data: any, userId: string) {
         }
       });
 
-      // ثالثاً: إضافة أصناف الأوردر
+      // ثالثاً: إضافة الأصناف
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
           await tx.orderItem.create({
@@ -132,7 +129,6 @@ export async function createOrder(data: any, userId: string) {
   }
 }
 
-// جلب الأوردر
 export async function getOrderById(orderId: string) {
   if (!orderId) return null;
   try {
@@ -152,11 +148,9 @@ export async function getOrderById(orderId: string) {
   } catch (error) { return null; }
 }
 
-// حذف الأوردر (مع استرجاع المخزون)
 export async function deleteOrder(orderId: string) {
   try {
     await prisma.$transaction(async (tx) => {
-        // 1. استرجاع الكميات للمخزون قبل الحذف
         const orderItems = await tx.orderItem.findMany({ where: { orderId } });
         for (const item of orderItems) {
            const piecesToReturn = item.quantity * PIECES_PER_UNIT;
@@ -166,7 +160,6 @@ export async function deleteOrder(orderId: string) {
            });
         }
         
-        // 2. حذف العناصر والأوردر
         await tx.orderItem.deleteMany({ where: { orderId } });
         await tx.order.delete({ where: { id: orderId } });
     });
@@ -175,12 +168,11 @@ export async function deleteOrder(orderId: string) {
   } catch (error) { return { success: false }; }
 }
 
-// تحديث الأوردر (مع ضبط المخزون)
 export async function updateOrder(orderId: string, data: any) {
     const { items, total, deposit, safeId, currency } = data;
     try {
         await prisma.$transaction(async (tx) => {
-            // 1. استرجاع كميات الأصناف القديمة للمخزون
+            // 1. استرجاع القديم
             const oldItems = await tx.orderItem.findMany({ where: { orderId } });
             for (const item of oldItems) {
                const piecesToReturn = item.quantity * PIECES_PER_UNIT;
@@ -191,15 +183,16 @@ export async function updateOrder(orderId: string, data: any) {
             }
             await tx.orderItem.deleteMany({ where: { orderId } });
 
-            // 2. خصم الكميات الجديدة من المخزون وإضافتها للأوردر
+            // 2. خصم الجديد مع التحقق
             for (const cartItem of items) {
                 for (const variant of cartItem.variants) {
                     const requestedPieces = variant.quantity * PIECES_PER_UNIT;
                     
-                    // التحقق والخصم
                     const product = await tx.product.findUnique({ where: { id: variant.productId } });
+                    
                     if (product && product.status !== 'OPEN' && product.currentStock < requestedPieces) {
-                         throw new Error(`الرصيد لا يكفي للصنف: ${product.modelNo}`);
+                         // 👈 تعديل الرسالة هنا أيضاً
+                         throw new Error(`عذراً، الكمية نفذت للصنف: ${product.modelNo} - لون: ${product.color} (المتاح حالياً: ${product.currentStock})`);
                     }
 
                     await tx.product.update({
@@ -207,7 +200,6 @@ export async function updateOrder(orderId: string, data: any) {
                         data: { currentStock: { decrement: requestedPieces } }
                     });
 
-                    // إضافة للأوردر
                     await tx.orderItem.create({
                         data: {
                             orderId: orderId,
@@ -220,7 +212,7 @@ export async function updateOrder(orderId: string, data: any) {
                 }
             }
 
-            // 3. تحديث بيانات الأوردر المالية
+            // 3. تحديث الأوردر
             await tx.order.update({
                 where: { id: orderId },
                 data: {
@@ -236,7 +228,6 @@ export async function updateOrder(orderId: string, data: any) {
     } catch (error: any) { return { success: false, error: error.message }; }
 }
 
-// جلب سجل الأوردرات
 export async function getUserOrders(userId: string) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });

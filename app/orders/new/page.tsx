@@ -42,7 +42,7 @@ export default function NewOrderPage() {
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
   const [showDiscountOptions, setShowDiscountOptions] = useState(false);
 
-  // Order Saving State (New)
+  // Order Saving State
   const [isSavingOrder, setIsSavingOrder] = useState(false);
 
   useEffect(() => {
@@ -103,7 +103,8 @@ export default function NewOrderPage() {
   const handleSelectAll = () => {
     const newMap: {[key: string]: number} = {};
     searchResults.forEach(p => { 
-        if (!(p.status === 'CLOSED' && p.stockQty <= 0)) {
+        // 👈 منطق التحديد: استبعاد الأصناف التي رصيدها الحالي <= 0
+        if (p.currentStock > 0) {
             newMap[p.id] = 1; 
         }
     });
@@ -222,7 +223,6 @@ export default function NewOrderPage() {
       return processedItems; 
   };
 
-  // ✅ تم التعديل هنا للتعامل مع بنية الرد الجديدة { success, data, error }
   const handleSaveOrder = async () => {
     if(!session?.user) return;
     
@@ -234,7 +234,7 @@ export default function NewOrderPage() {
     if (!userId) { alert("خطأ هوية"); return; }
     if (depositVal > 0 && !selectedSafeId) { alert("⚠️ يجب اختيار الخزنة!"); return; }
     
-    setIsSavingOrder(true); // بدء التحميل
+    setIsSavingOrder(true); 
 
     try {
         const result = await createOrder({
@@ -246,7 +246,6 @@ export default function NewOrderPage() {
           currency: currency 
         }, userId);
 
-        // التحقق من النجاح بناءً على الهيكل الجديد
         if (result.success && result.data?.id) {
             router.push(`/orders/${result.data.id}/print`);
         } else {
@@ -256,7 +255,7 @@ export default function NewOrderPage() {
         console.error(error);
         alert("حدث خطأ غير متوقع أثناء الاتصال بالسيرفر.");
     } finally {
-        setIsSavingOrder(false); // إيقاف التحميل
+        setIsSavingOrder(false);
     }
   };
 
@@ -372,20 +371,28 @@ export default function NewOrderPage() {
                     </div>
                     <div className="divide-y divide-gray-100">
                       {searchResults.map(prod => {
-                        const isClosedAndEmpty = prod.status === 'CLOSED' && prod.stockQty <= 0;
+                        // 👈 التعديل الرئيسي: الاعتماد على الرصيد الحالي
+                        const isOutOfStock = prod.currentStock <= 0;
                         const isSelected = !!selectionMap[prod.id];
                         const qty = selectionMap[prod.id] || 1;
                         return (
-                          <div key={prod.id} className={`p-4 flex items-center justify-between transition-colors ${isClosedAndEmpty ? 'bg-gray-100 opacity-60' : (isSelected ? 'bg-blue-50' : 'bg-white')}`}>
+                          <div key={prod.id} className={`p-4 flex items-center justify-between transition-colors ${isOutOfStock ? 'bg-gray-100 opacity-60' : (isSelected ? 'bg-blue-50' : 'bg-white')}`}>
                             <div className="flex items-center gap-3 flex-1">
-                              <input type="checkbox" checked={isSelected} onChange={(e) => toggleSelection(prod.id, e.target.checked)} disabled={isClosedAndEmpty} className="w-6 h-6" />
-                              <div>
+                              <input 
+                                type="checkbox" 
+                                checked={isSelected} 
+                                onChange={(e) => toggleSelection(prod.id, e.target.checked)} 
+                                disabled={isOutOfStock} // 👈 منع الاختيار إذا الرصيد صفر
+                                className="w-6 h-6" 
+                              />
+                              <div className={isOutOfStock ? 'line-through decoration-red-500 decoration-2' : ''}> {/* 👈 إضافة الشطب */}
                                   <div className="font-bold">{prod.color}</div>
-                                  <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.stockQty}</div>
+                                  <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.currentStock}</div> {/* 👈 عرض الرصيد الحالي */}
                                   {prod.discount > 0 && <div className="text-[10px] text-red-600 font-bold">خصم صنف: {prod.discount}%</div>}
+                                  {isOutOfStock && <span className="text-[10px] text-red-600 font-bold block">نفذت الكمية</span>}
                               </div>
                             </div>
-                            {isSelected && (
+                            {isSelected && !isOutOfStock && (
                               <div className="flex items-center gap-2 bg-white rounded-lg border px-2 py-1 shadow-sm">
                                 <button onClick={() => updateQuantity(prod.id, qty + 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">+</button>
                                 <input type="number" value={qty} onChange={(e) => updateQuantity(prod.id, parseInt(e.target.value) || 1)} className="w-10 text-center font-bold outline-none" />
