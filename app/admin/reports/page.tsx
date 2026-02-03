@@ -79,6 +79,9 @@ function InventoryReportView() {
     const [summary, setSummary] = useState<any>({});
     const [loading, setLoading] = useState(true);
     
+    // 👇 إضافة حالة البحث 👇
+    const [searchTerm, setSearchTerm] = useState('');
+    
     const [viewMode, setViewMode] = useState<'COLOR' | 'MODEL'>('COLOR');
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
@@ -124,10 +127,24 @@ function InventoryReportView() {
 
     let displayData = viewMode === 'COLOR' ? data : getGroupedData();
 
+    // إضافة نسبة المبيع
     displayData = displayData.map((item: any) => ({
         ...item,
         salesPercentage: item.initialStock > 0 ? (item.totalSold / item.initialStock) * 100 : 0
     }));
+
+    // 👇 تطبيق فلتر البحث الحي 👇
+    if (searchTerm.trim() !== '') {
+        displayData = displayData.filter((item: any) => {
+            const term = searchTerm.toLowerCase();
+            const matchesModel = item.modelNo.toLowerCase().includes(term);
+            const matchesColor = viewMode === 'COLOR' 
+                ? item.color.toLowerCase().includes(term) 
+                : item.colors.join(' ').toLowerCase().includes(term);
+            
+            return matchesModel || matchesColor;
+        });
+    }
 
     if (sortConfig !== null) {
         displayData.sort((a: any, b: any) => {
@@ -161,21 +178,55 @@ function InventoryReportView() {
 
     return (
         <div className="space-y-12 animate-in fade-in duration-700">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-gray-100 pb-8">
+            {/* Header with Search and Toggles */}
+            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 border-b border-gray-100 pb-8">
                 <div>
                     <h2 className="text-3xl font-black text-gray-800">تحليل المخزون والأصناف</h2>
                     <p className="text-blue-500 font-bold mt-2">ملاحظة: الرصيد الأولي ثابت ويساوي (المتاح حالياً + المبيعات التاريخية بالقطعة)</p>
                 </div>
-                <div className="bg-gray-100 p-2 rounded-2xl flex text-sm shadow-inner print:hidden">
-                    <button onClick={() => { setViewMode('COLOR'); setSortConfig(null); }} className={`px-10 py-3 rounded-xl transition-all ${viewMode === 'COLOR' ? 'bg-white shadow-xl text-blue-700 font-black' : 'text-gray-500 hover:text-gray-700'}`}>عرض الألوان</button>
-                    <button onClick={() => { setViewMode('MODEL'); setSortConfig(null); }} className={`px-10 py-3 rounded-xl transition-all ${viewMode === 'MODEL' ? 'bg-white shadow-xl text-blue-700 font-black' : 'text-gray-500 hover:text-gray-700'}`}>عرض الموديلات</button>
+
+                <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
+                    {/* 👇 مربع البحث الجديد 👇 */}
+                    <div className="relative flex-1 sm:min-w-[300px] group">
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-600 transition-colors pointer-events-none">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                        <input 
+                            type="text" 
+                            placeholder="بحث سريع بكود الموديل أو اللون..." 
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-4 pr-12 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all font-bold text-gray-700"
+                        />
+                        {searchTerm && (
+                            <button 
+                                onClick={() => setSearchTerm('')}
+                                className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full p-1 transition-all"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+
+                    <div className="bg-gray-100 p-2 rounded-2xl flex text-sm shadow-inner print:hidden shrink-0">
+                        <button onClick={() => { setViewMode('COLOR'); setSortConfig(null); }} className={`px-6 md:px-10 py-3 rounded-xl transition-all ${viewMode === 'COLOR' ? 'bg-white shadow-xl text-blue-700 font-black' : 'text-gray-500 hover:text-gray-700'}`}>عرض الألوان</button>
+                        <button onClick={() => { setViewMode('MODEL'); setSortConfig(null); }} className={`px-6 md:px-10 py-3 rounded-xl transition-all ${viewMode === 'MODEL' ? 'bg-white shadow-xl text-blue-700 font-black' : 'text-gray-500 hover:text-gray-700'}`}>عرض الموديلات</button>
+                    </div>
                 </div>
             </div>
             
+            {/* Summary Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
                 <div className="bg-gradient-to-br from-blue-50 to-white p-8 rounded-[2rem] border border-blue-100 shadow-sm relative overflow-hidden group">
                     <div className="text-blue-500 text-xs font-black uppercase mb-2 tracking-widest">عدد الموديلات</div>
-                    <div className="text-5xl font-black text-blue-800 tracking-tighter">{viewMode === 'MODEL' ? displayData.length : summary.totalItems}</div>
+                    <div className="text-5xl font-black text-blue-800 tracking-tighter">
+                         {/* عرض العدد بناءً على الفلتر إذا كان هناك بحث */}
+                         {searchTerm ? displayData.length : (viewMode === 'MODEL' ? displayData.length : summary.totalItems)}
+                    </div>
                 </div>
                 <div className="bg-gradient-to-br from-indigo-50 to-white p-8 rounded-[2rem] border border-indigo-100 shadow-sm relative overflow-hidden group">
                     <div className="text-indigo-500 text-xs font-black uppercase mb-2 tracking-widest">الرصيد الحالي (قطعة)</div>
@@ -183,7 +234,6 @@ function InventoryReportView() {
                 </div>
                 <div className="bg-gradient-to-br from-yellow-50 to-white p-8 rounded-[2rem] border border-yellow-100 shadow-sm relative overflow-hidden group">
                     <div className="text-yellow-600 text-xs font-black uppercase mb-2 tracking-widest">إجمالي المباع (قطعة)</div>
-                    {/* 👇 إضافة fallback لضمان ظهور الصفر */}
                     <div className="text-5xl font-black text-yellow-700 tracking-tighter">{summary.totalSoldUnits || 0}</div>
                 </div>
                 <div className="bg-gradient-to-br from-orange-50 to-white p-8 rounded-[2rem] border border-orange-100 shadow-sm relative overflow-hidden group">
@@ -214,51 +264,63 @@ function InventoryReportView() {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                        {displayData.map((item: any) => (
-                            <tr key={item.id} className="hover:bg-blue-50/50 transition-all group">
-                                <td className="p-6 font-black text-gray-900 text-xl group-hover:text-blue-600 transition-colors">{item.modelNo}</td>
-                                <td className="p-6 text-gray-500 font-medium italic">
-                                    {viewMode === 'COLOR' ? item.color : <span className="bg-gray-100 px-3 py-1 rounded-xl text-[10px] font-bold text-gray-400">{item.colors.join('، ')}</span>}
-                                </td>
-                                <td className="p-6 font-bold text-blue-700 bg-blue-50/20">{item.initialStock}</td>
-                                <td className="p-6">
-                                    {item.totalSold > 0 ? (
-                                        <button 
-                                          onClick={() => openHistory(item)} 
-                                          className="bg-yellow-500 text-white px-5 py-2 rounded-2xl font-black hover:bg-yellow-600 transition-all shadow-lg shadow-yellow-100 active:scale-95"
-                                        >
-                                            {item.totalSold}
-                                        </button>
-                                    ) : (
-                                        <span className="text-gray-300 font-bold pr-4">0</span>
-                                    )}
-                                </td>
-                                <td className={`p-6 font-black text-2xl ${item.currentStock <= 0 ? 'text-red-600 bg-red-50/50 animate-pulse' : 'text-green-700 bg-green-50/10'}`}>
-                                    {item.currentStock}
-                                </td>
-                                <td className="p-6">
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden w-20 hidden sm:block border border-gray-200 shadow-inner">
-                                            <div 
-                                              className={`h-full rounded-full transition-all duration-1000 ease-out ${item.salesPercentage > 70 ? 'bg-green-500' : item.salesPercentage > 30 ? 'bg-yellow-500' : 'bg-red-500'}`} 
-                                              style={{ width: `${Math.min(item.salesPercentage, 100)}%` }}
-                                            ></div>
+                        {displayData.length > 0 ? (
+                            displayData.map((item: any) => (
+                                <tr key={item.id} className="hover:bg-blue-50/50 transition-all group">
+                                    <td className="p-6 font-black text-gray-900 text-xl group-hover:text-blue-600 transition-colors">{item.modelNo}</td>
+                                    <td className="p-6 text-gray-500 font-medium italic">
+                                        {viewMode === 'COLOR' ? item.color : <span className="bg-gray-100 px-3 py-1 rounded-xl text-[10px] font-bold text-gray-400">{item.colors.join('، ')}</span>}
+                                    </td>
+                                    <td className="p-6 font-bold text-blue-700 bg-blue-50/20">{item.initialStock}</td>
+                                    <td className="p-6">
+                                        {item.totalSold > 0 ? (
+                                            <button 
+                                            onClick={() => openHistory(item)} 
+                                            className="bg-yellow-500 text-white px-5 py-2 rounded-2xl font-black hover:bg-yellow-600 transition-all shadow-lg shadow-yellow-100 active:scale-95"
+                                            >
+                                                {item.totalSold}
+                                            </button>
+                                        ) : (
+                                            <span className="text-gray-300 font-bold pr-4">0</span>
+                                        )}
+                                    </td>
+                                    <td className={`p-6 font-black text-2xl ${item.currentStock <= 0 ? 'text-red-600 bg-red-50/50 animate-pulse' : 'text-green-700 bg-green-50/10'}`}>
+                                        {item.currentStock}
+                                    </td>
+                                    <td className="p-6">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden w-20 hidden sm:block border border-gray-200 shadow-inner">
+                                                <div 
+                                                className={`h-full rounded-full transition-all duration-1000 ease-out ${item.salesPercentage > 70 ? 'bg-green-500' : item.salesPercentage > 30 ? 'bg-yellow-500' : 'bg-red-500'}`} 
+                                                style={{ width: `${Math.min(item.salesPercentage, 100)}%` }}
+                                                ></div>
+                                            </div>
+                                            <span className="font-black text-sm text-gray-700">{item.salesPercentage.toFixed(1)}%</span>
                                         </div>
-                                        <span className="font-black text-sm text-gray-700">{item.salesPercentage.toFixed(1)}%</span>
+                                    </td>
+                                    <td className="p-6">
+                                        {item.status === 'OPEN' ? (
+                                            <span className="bg-green-100 text-green-700 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase shadow-sm">مفتوح</span>
+                                        ) : (
+                                            <span className="bg-red-100 text-red-700 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase shadow-sm">مغلق</span>
+                                        )}
+                                    </td>
+                                    <td className="p-6 font-mono font-bold text-lg text-slate-400">
+                                        {item.currentValue.toLocaleString()} <small className="text-[9px]">ج.م</small>
+                                    </td>
+                                </tr>
+                            ))
+                        ) : (
+                            <tr>
+                                <td colSpan={8} className="p-12 text-center text-gray-400">
+                                    <div className="flex flex-col items-center gap-4">
+                                        <span className="text-4xl">🔍</span>
+                                        <p className="font-bold text-lg">لا توجد نتائج تطابق بحثك "{searchTerm}"</p>
+                                        <button onClick={() => setSearchTerm('')} className="text-blue-500 text-sm hover:underline font-bold">إعادة تعيين البحث</button>
                                     </div>
                                 </td>
-                                <td className="p-6">
-                                    {item.status === 'OPEN' ? (
-                                        <span className="bg-green-100 text-green-700 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase shadow-sm">مفتوح</span>
-                                    ) : (
-                                        <span className="bg-red-100 text-red-700 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase shadow-sm">مغلق</span>
-                                    )}
-                                </td>
-                                <td className="p-6 font-mono font-bold text-lg text-slate-400">
-                                    {item.currentValue.toLocaleString()} <small className="text-[9px]">ج.م</small>
-                                </td>
                             </tr>
-                        ))}
+                        )}
                     </tbody>
                 </table>
             </div>
