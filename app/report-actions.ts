@@ -323,7 +323,7 @@ export async function getCurrentUser(userId: string) {
 }
 
 // ==========================================
-// 5. تقارير الجرد
+// 5. تقارير الجرد (تم التعديل لإصلاح حساب المباع)
 // ==========================================
 export async function getInventoryReport() {
   try {
@@ -337,15 +337,20 @@ export async function getInventoryReport() {
     });
 
     const report = products.map(p => {
-        const initial = p.stockQty || 0;
-        
-        // الآن الرصيد الحالي يأتي مباشرة من قاعدة البيانات وهو الأدق
+        // 1. حساب الرصيد الحالي من قاعدة البيانات
         const current = p.currentStock;
         
-        // المباع هو الفرق بين الأولي والحالي
-        const totalSoldPieces = initial - current;
+        // 2. حساب إجمالي المباع (قطعة) من سجل الأوردرات الفعلي بدلاً من الطرح
+        // هذا يضمن الدقة حتى لو كان الرصيد الأولي غير مضبوط
+        const totalSoldPieces = p.orderItems.reduce((acc, item) => {
+            return acc + ((item.quantity || 0) * PIECES_PER_UNIT);
+        }, 0);
 
-        // القيمة المباعة (تاريخياً من الأوردرات)
+        // 3. حساب الرصيد الأولي نظرياً لضبط المعادلة في التقرير
+        // الرصيد الأولي = الموجود حالياً + اللي اتباع
+        const calculatedInitial = current + totalSoldPieces;
+
+        // القيمة المباعة (مالياً)
         const soldValue = p.orderItems.reduce((acc, item) => {
             return acc + ((item.quantity || 0) * PIECES_PER_UNIT * (item.price || 0));
         }, 0);
@@ -363,9 +368,9 @@ export async function getInventoryReport() {
             id: p.id,
             modelNo: p.modelNo,
             color: p.color,
-            initialStock: initial,
-            totalSold: totalSoldPieces,
-            currentStock: current, // القيمة الحقيقة من العمود الجديد
+            initialStock: calculatedInitial, // نستخدم المحسوب لضبط التقرير
+            totalSold: totalSoldPieces,      // الرقم الحقيقي للمبيعات
+            currentStock: current, 
             totalSoldValue: soldValue,
             currentValue: current * (p.price || 0),
             price: p.price,
