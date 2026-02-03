@@ -7,7 +7,7 @@ const prisma = new PrismaClient()
 const PIECES_PER_UNIT = 4; 
 
 // ==========================================
-// 1. تقارير المخزون (حركة الأصناف) - الرصيد الأولي ثابت من الداتا ✅
+// 1. تقارير المخزون (حركة الأصناف)
 // ==========================================
 export async function getInventoryReport() {
   try {
@@ -21,17 +21,17 @@ export async function getInventoryReport() {
     });
 
     const report = products.map(p => {
-        // 1. الرصيد الأولي: يؤخذ مباشرة من stockQty (الذي أصبح ثابتاً الآن)
-        const initialStockPieces = p.stockQty;
+        // الحسابات تعتمد على أن stockQty هو الرصيد الأولي الثابت
+        const initialStockPieces = p.stockQty || 0;
 
-        // 2. حساب إجمالي المباع بالقطعة
+        // حساب إجمالي الكميات المباعة بالقطعة من جدول التفاصيل
         const totalSoldUnits = p.orderItems.reduce((sum, item) => sum + item.quantity, 0);
         const totalSoldPieces = totalSoldUnits * PIECES_PER_UNIT;
         
-        // 3. الرصيد الحالي: أولي ثابت مطروحاً منه المباع
+        // الرصيد الحالي = الرصيد الأولي المدخل (stockQty) - إجمالي المباع
         const currentStockPieces = initialStockPieces - totalSoldPieces;
 
-        // 4. حساب إجمالي قيمة المبيعات
+        // إجمالي قيمة المبيعات (القطع المباعة × سعر القطعة)
         const totalSoldValue = p.orderItems.reduce((sum, item) => {
             return sum + (item.quantity * PIECES_PER_UNIT * item.price);
         }, 0);
@@ -49,12 +49,12 @@ export async function getInventoryReport() {
             id: p.id,
             modelNo: p.modelNo,
             color: p.color,
-            initialStock: initialStockPieces, // بالقطعة (مباشرة من الداتا)
-            totalSold: totalSoldPieces,       // بالقطعة (محسوب)
-            currentStock: currentStockPieces, // بالقطعة (أولي - مباع)
-            totalSoldValue: totalSoldValue,   // ج.م
+            initialStock: initialStockPieces, // الرصيد الأولي (يساوي stockQty)
+            totalSold: totalSoldPieces,       // المباع (قطعة)
+            currentStock: currentStockPieces, // الرصيد الحالي (أولي - مباع)
+            totalSoldValue: totalSoldValue,
             price: p.price,
-            currentValue: currentStockPieces * p.price, // القيمة الحالية للمخزن بالقطعة
+            currentValue: currentStockPieces * p.price,
             status: p.status,
             history: movementHistory
         };
@@ -71,12 +71,13 @@ export async function getInventoryReport() {
 
     return { success: true, data: report, summary };
   } catch (e) {
+    console.error(e);
     return { success: false, error: 'فشل جلب بيانات المخزون' };
   }
 }
 
 // ==========================================
-// 2. تقارير الخزنة (دفتر الأستاذ) - كامل بدون حذف
+// 2. تقارير الخزنة (دفتر الأستاذ)
 // ==========================================
 export async function getSafesList() {
     const safes = await prisma.safe.findMany();
