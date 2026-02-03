@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react';
 import { getCustomers, searchProducts, createOrder, getSafes, searchCustomers } from '@/app/actions';
-import { addCustomer } from '@/app/admin-actions'; // استيراد وظيفة الإضافة
+import { addCustomer } from '@/app/admin-actions'; 
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Scanner } from '@yudiel/react-qr-scanner';
@@ -41,6 +41,9 @@ export default function NewOrderPage() {
   const [currency, setCurrency] = useState('EGP'); 
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
   const [showDiscountOptions, setShowDiscountOptions] = useState(false);
+
+  // Order Saving State (New)
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
 
   useEffect(() => {
     getCustomers().then(setCustomerResults);
@@ -219,24 +222,44 @@ export default function NewOrderPage() {
       return processedItems; 
   };
 
+  // ✅ تم التعديل هنا للتعامل مع بنية الرد الجديدة { success, data, error }
   const handleSaveOrder = async () => {
     if(!session?.user) return;
+    
     const cleanCart = getProcessedCart();
     const total = cleanCart.reduce((acc, item) => acc + item.totalLinePrice, 0);
     const userId = session.user.image as string; 
     const depositVal = parseFloat(deposit) || 0;
+    
     if (!userId) { alert("خطأ هوية"); return; }
     if (depositVal > 0 && !selectedSafeId) { alert("⚠️ يجب اختيار الخزنة!"); return; }
-    const newOrder = await createOrder({
-      customerId: selectedCustomer.id,
-      items: cleanCart, total, deposit: depositVal, safeId: selectedSafeId,
-      currency: currency 
-    }, userId);
-    if (newOrder && newOrder.id) router.push(`/orders/${newOrder.id}/print`);
-    else alert("حدث خطأ أثناء حفظ الأوردر.");
+    
+    setIsSavingOrder(true); // بدء التحميل
+
+    try {
+        const result = await createOrder({
+          customerId: selectedCustomer.id,
+          items: cleanCart, 
+          total, 
+          deposit: depositVal, 
+          safeId: selectedSafeId,
+          currency: currency 
+        }, userId);
+
+        // التحقق من النجاح بناءً على الهيكل الجديد
+        if (result.success && result.data?.id) {
+            router.push(`/orders/${result.data.id}/print`);
+        } else {
+            alert(result.error || "حدث خطأ أثناء حفظ الأوردر.");
+        }
+    } catch (error) {
+        console.error(error);
+        alert("حدث خطأ غير متوقع أثناء الاتصال بالسيرفر.");
+    } finally {
+        setIsSavingOrder(false); // إيقاف التحميل
+    }
   };
 
-  // 👇 تعديل منطق الإضافة السريعة مع التحقق من المكرر ✅
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
       e.preventDefault();
       if(!newCust.name) return alert('الاسم مطلوب');
@@ -244,7 +267,6 @@ export default function NewOrderPage() {
       setIsSavingCust(true);
       const res = await addCustomer({ ...newCust, source: 'QUICK' });
       
-      // إذا كان هناك تحذير بشأن الهاتف
       if (res.warning) {
           setIsSavingCust(false);
           if (confirm(`رقم الهاتف هذا مسجل مسبقاً باسم العميل: (${res.existingName}).\nهل تريد الاستمرار في الإضافة على أي حال؟`)) {
@@ -500,8 +522,14 @@ export default function NewOrderPage() {
                <div className="flex justify-between text-xl font-bold pt-4 border-t border-slate-700 text-red-400"><span>المتبقي (آجل):</span><span>{(currentTotal - depositVal).toFixed(2)}</span></div>
             </div>
             
-            <button onClick={handleSaveOrder} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xl shadow-xl hover:bg-blue-700 transition-all active:scale-95">تأكيد وحفظ الأوردر ✅</button>
-            <button onClick={() => setStep(1)} className="w-full mt-4 text-gray-500 font-bold py-2">العودة لتعديل الأصناف</button>
+            <button 
+                onClick={handleSaveOrder} 
+                disabled={isSavingOrder}
+                className={`w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xl shadow-xl hover:bg-blue-700 transition-all active:scale-95 ${isSavingOrder ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+                {isSavingOrder ? '⏳ جاري الحفظ والتحقق...' : 'تأكيد وحفظ الأوردر ✅'}
+            </button>
+            <button onClick={() => setStep(1)} disabled={isSavingOrder} className="w-full mt-4 text-gray-500 font-bold py-2">العودة لتعديل الأصناف</button>
           </div>
         )}
       </div>
