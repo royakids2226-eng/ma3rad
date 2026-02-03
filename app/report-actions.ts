@@ -3,11 +3,10 @@
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
-// الدرزن أو الثرية تحتوي على 4 قطع (هذا هو معامل التحويل)
-const PIECES_PER_UNIT = 4; 
+const PIECES_PER_UNIT = 4; // معامل التحويل: كل وحدة مبيعات تساوي 4 قطع
 
 // ==========================================
-// 1. تقارير المخزون (حركة الأصناف)
+// 1. تقارير المخزون (حركة الأصناف) - تم الإصلاح ✅
 // ==========================================
 export async function getInventoryReport() {
   try {
@@ -21,35 +20,29 @@ export async function getInventoryReport() {
     });
 
     const report = products.map(p => {
-        // الرصيد الأولي: يؤخذ مباشرة من stockQty (ثابت)
-        const initialStockPieces = p.stockQty || 0;
+        // 1. الرصيد الأولي: ثابت من قاعدة البيانات
+        const initial = p.stockQty || 0;
 
-        // حساب إجمالي الكميات المباعة
-        // نستخدم (item.quantity || 0) لضمان عدم وجود قيم فارغة
-        const totalSoldUnits = p.orderItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
-        
-        // تحويل الوحدات إلى قطع
-        const totalSoldPieces = totalSoldUnits * PIECES_PER_UNIT;
-        
-        // طباعة للتأكد في التيرمينال (Debug)
-        if (totalSoldPieces > 0) {
-            console.log(`Model: ${p.modelNo} | Sold Units: ${totalSoldUnits} | Sold Pieces: ${totalSoldPieces}`);
-        }
+        // 2. حساب المباع (تجميع مباشر ومختصر)
+        // نجمع الكميات (quantity) من الأوردرات ونضربها في 4
+        const soldUnits = p.orderItems.reduce((acc, item) => acc + (item.quantity || 0), 0);
+        const soldPieces = soldUnits * PIECES_PER_UNIT;
 
-        // الرصيد الحالي: الرصيد الأولي - المباع
-        const currentStockPieces = initialStockPieces - totalSoldPieces;
+        // 3. الرصيد الحالي
+        const current = initial - soldPieces;
 
-        // إجمالي قيمة المبيعات
-        const totalSoldValue = p.orderItems.reduce((sum, item) => {
-            return sum + ((item.quantity || 0) * PIECES_PER_UNIT * (item.price || 0));
+        // 4. القيمة المالية للمباع
+        const soldValue = p.orderItems.reduce((acc, item) => {
+            return acc + ((item.quantity || 0) * PIECES_PER_UNIT * (item.price || 0));
         }, 0);
 
-        const movementHistory = p.orderItems.map(item => ({
+        // سجل الحركة
+        const history = p.orderItems.map(item => ({
             orderId: item.orderId,
             orderNo: item.order.orderNo,
             date: item.order.createdAt,
             customer: item.order.customer.name,
-            quantity: (item.quantity || 0) * PIECES_PER_UNIT, // الكمية بالقطعة
+            quantity: (item.quantity || 0) * PIECES_PER_UNIT,
             price: item.price
         }));
 
@@ -57,40 +50,41 @@ export async function getInventoryReport() {
             id: p.id,
             modelNo: p.modelNo,
             color: p.color,
-            initialStock: initialStockPieces, 
             
-            // 👇 تم إضافة المفتاحين لضمان ظهور الرقم في الجدول مهما كان الاسم المستخدم في الفرونت
-            totalSold: totalSoldPieces,       
-            totalSoldPieces: totalSoldPieces, 
-
-            currentStock: currentStockPieces, 
-            totalSoldValue: totalSoldValue,
+            // البيانات الأساسية
+            initialStock: initial,      // الرصيد الأولي
+            totalSold: soldPieces,      // المباع (الاسم القياسي للجدول)
+            currentStock: current,      // الرصيد الحالي
+            
+            // بيانات إضافية للقيم المالية
+            totalSoldValue: soldValue,
+            currentValue: current * (p.price || 0),
             price: p.price,
-            currentValue: currentStockPieces * p.price,
+            
             status: p.status,
-            history: movementHistory
+            history: history
         };
     });
 
+    // ملخص التقرير (Totals)
     const summary = {
       totalItems: report.length,
       totalInitialStock: report.reduce((acc, item) => acc + item.initialStock, 0),
       totalCurrentStock: report.reduce((acc, item) => acc + item.currentStock, 0),
-      // التأكد من جمع المباع بشكل صحيح
-      totalSoldPieces: report.reduce((acc, item) => acc + item.totalSoldPieces, 0),
+      totalSoldPieces: report.reduce((acc, item) => acc + item.totalSold, 0),
       totalSalesValue: report.reduce((acc, item) => acc + item.totalSoldValue, 0),
       totalValue: report.reduce((acc, item) => acc + item.currentValue, 0)
     };
 
     return { success: true, data: report, summary };
   } catch (e) {
-    console.error("Inventory Error:", e);
+    console.error("Inventory Report Error:", e);
     return { success: false, error: 'فشل جلب بيانات المخزون' };
   }
 }
 
 // ==========================================
-// 2. تقارير الخزنة (دفتر الأستاذ)
+// 2. تقارير الخزنة (دفتر الأستاذ) - كما هو تماماً
 // ==========================================
 export async function getSafesList() {
     const safes = await prisma.safe.findMany();
@@ -198,7 +192,7 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
 }
 
 // ==========================================
-// 3. تقرير أداء الموظفين
+// 3. تقرير أداء الموظفين - كما هو تماماً
 // ==========================================
 export async function getEmployeePerformance() {
     try {
