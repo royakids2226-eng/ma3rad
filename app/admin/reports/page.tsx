@@ -172,7 +172,6 @@ function InventoryReportView() {
                 </div>
             </div>
             
-            {/* 👇 تعديل: تكبير فونت اختصارات الأرصدة (Summary Cards) 👇 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
                 <div className="bg-gradient-to-br from-blue-50 to-white p-8 rounded-[2rem] border border-blue-100 shadow-sm relative overflow-hidden group">
                     <div className="text-blue-500 text-xs font-black uppercase mb-2 tracking-widest">عدد الموديلات</div>
@@ -184,7 +183,8 @@ function InventoryReportView() {
                 </div>
                 <div className="bg-gradient-to-br from-yellow-50 to-white p-8 rounded-[2rem] border border-yellow-100 shadow-sm relative overflow-hidden group">
                     <div className="text-yellow-600 text-xs font-black uppercase mb-2 tracking-widest">إجمالي المباع (قطعة)</div>
-                    <div className="text-5xl font-black text-yellow-700 tracking-tighter">{summary.totalSoldUnits}</div>
+                    {/* 👇 إضافة fallback لضمان ظهور الصفر */}
+                    <div className="text-5xl font-black text-yellow-700 tracking-tighter">{summary.totalSoldUnits || 0}</div>
                 </div>
                 <div className="bg-gradient-to-br from-orange-50 to-white p-8 rounded-[2rem] border border-orange-100 shadow-sm relative overflow-hidden group">
                     <div className="text-orange-500 text-xs font-black uppercase mb-2 tracking-widest">إجمالي المبيعات</div>
@@ -263,7 +263,7 @@ function InventoryReportView() {
                 </table>
             </div>
 
-            {/* مودال تفاصيل التاريخ (النسخة الأصلية الكاملة) */}
+            {/* مودال تفاصيل التاريخ */}
             {selectedHistory && (
                 <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex justify-center items-center p-4 animate-in fade-in duration-500" onClick={() => setSelectedHistory(null)}>
                     <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-3xl overflow-hidden animate-in zoom-in-95 duration-500" onClick={e => e.stopPropagation()}>

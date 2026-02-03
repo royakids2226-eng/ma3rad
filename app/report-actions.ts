@@ -71,7 +71,8 @@ export async function getInventoryReport() {
       totalItems: report.length,
       totalInitialStock: report.reduce((acc, item) => acc + item.initialStock, 0),
       totalCurrentStock: report.reduce((acc, item) => acc + item.currentStock, 0),
-      totalSoldPieces: report.reduce((acc, item) => acc + item.totalSold, 0),
+      // 👇 التعديل هنا: تغيير الاسم ليتطابق مع ما تطلبه الواجهة (page.tsx)
+      totalSoldUnits: report.reduce((acc, item) => acc + item.totalSold, 0), 
       totalSalesValue: report.reduce((acc, item) => acc + item.totalSoldValue, 0),
       totalValue: report.reduce((acc, item) => acc + item.currentValue, 0)
     };
@@ -84,7 +85,7 @@ export async function getInventoryReport() {
 }
 
 // ==========================================
-// 2. تقارير الخزنة (دفتر الأستاذ) - كما هو تماماً
+// 2. تقارير الخزنة (دفتر الأستاذ)
 // ==========================================
 export async function getSafesList() {
     const safes = await prisma.safe.findMany();
@@ -192,7 +193,7 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
 }
 
 // ==========================================
-// 3. تقرير أداء الموظفين - كما هو تماماً
+// 3. تقرير أداء الموظفين
 // ==========================================
 export async function getEmployeePerformance() {
     try {
