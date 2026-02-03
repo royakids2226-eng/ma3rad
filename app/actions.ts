@@ -6,6 +6,9 @@ import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
+// معامل التحويل (هام جداً لضبط الكميات مثل ملف التقرير)
+const PIECES_PER_UNIT = 4; 
+
 // ==========================================
 // 1. العملاء (جلب وبحث)
 // ==========================================
@@ -16,7 +19,7 @@ export async function getCustomers() {
   } catch (error) { return []; }
 }
 
-// البحث عن العملاء (تجاهل الهمزات + البحث بالهواتف)
+// البحث عن العملاء
 export async function searchCustomers(term: string) {
   if (!term) return [];
   const normalizedTerm = term.replace(/[أإآ]/g, 'ا');
@@ -59,28 +62,52 @@ export async function searchProducts(term: string) {
 }
 
 // ==========================================
-// 3. إدارة الأوردرات (إنشاء - جلب - حذف - تحديث)
+// 3. إدارة الأوردرات (تم تعديلها لتحديث المخزون)
 // ==========================================
 
-// إنشاء أوردر جديد (دعم العملة)
+// إنشاء أوردر جديد
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, safeId, currency } = data; 
   
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // 1. إنشاء الأوردر مع حفظ العملة
+      
+      // أولاً: خصم الكميات من الرصيد الحالي (currentStock)
+      for (const cartItem of items) {
+        for (const variant of cartItem.variants) {
+          // حساب عدد القطع الإجمالي
+          const requestedPieces = variant.quantity * PIECES_PER_UNIT;
+
+          // التحقق من الصنف
+          const product = await tx.product.findUnique({ where: { id: variant.productId } });
+          if (!product) throw new Error(`الصنف غير موجود`);
+
+          // إذا كان الصنف مغلقاً والرصيد لا يسمح (اختياري حسب سياسة العمل)
+          if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
+             throw new Error(`الرصيد غير كافي للصنف: ${product.modelNo} (المتاح: ${product.currentStock})`);
+          }
+
+          // تنفيذ الخصم من الرصيد الحالي فقط
+          await tx.product.update({
+            where: { id: variant.productId },
+            data: { currentStock: { decrement: requestedPieces } }
+          });
+        }
+      }
+
+      // ثانياً: إنشاء الأوردر
       const order = await tx.order.create({
         data: {
           userId, 
           customerId, 
           totalAmount: total, 
           deposit: deposit || 0,
-          currency: currency || 'EGP', // 👈 حفظ العملة المختارة
+          currency: currency || 'EGP',
           safeId: deposit > 0 ? safeId : null,
         }
       });
 
-      // 2. إضافة الأصناف (بدون خصم المخزن ليبقى stockQty ثابتاً كرصيد أولي)
+      // ثالثاً: إضافة أصناف الأوردر
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
           await tx.orderItem.create({
@@ -92,21 +119,20 @@ export async function createOrder(data: any, userId: string) {
               discountPercent: variant.discountPercent || 0
             }
           });
-          // تم حذف سطر update product decrement ليبقى الرصيد الأولي ثابتاً
         }
       }
       return order;
     });
     
     revalidatePath('/');
-    return JSON.parse(JSON.stringify(result));
-  } catch (error) {
+    return { success: true, data: JSON.parse(JSON.stringify(result)) };
+  } catch (error: any) {
     console.error("Error creating order:", error);
-    return null;
+    return { success: false, error: error.message || 'فشل إنشاء الطلب' };
   }
 }
 
-// جلب الأوردر للطباعة أو التعديل (يشمل جلب كافة مدفوعات العميل للفاتورة)
+// جلب الأوردر
 export async function getOrderById(orderId: string) {
   if (!orderId) return null;
   try {
@@ -115,7 +141,7 @@ export async function getOrderById(orderId: string) {
       include: { 
           customer: {
               include: {
-                  payments: { orderBy: { createdAt: 'desc' } } // 👈 جلب المدفوعات لفصل العملات في الفاتورة
+                  payments: { orderBy: { createdAt: 'desc' } }
               }
           }, 
           user: true, 
@@ -126,10 +152,21 @@ export async function getOrderById(orderId: string) {
   } catch (error) { return null; }
 }
 
-// حذف الأوردر (بدون إرجاع الكميات لأننا لا نخصمها أصلاً)
+// حذف الأوردر (مع استرجاع المخزون)
 export async function deleteOrder(orderId: string) {
   try {
     await prisma.$transaction(async (tx) => {
+        // 1. استرجاع الكميات للمخزون قبل الحذف
+        const orderItems = await tx.orderItem.findMany({ where: { orderId } });
+        for (const item of orderItems) {
+           const piecesToReturn = item.quantity * PIECES_PER_UNIT;
+           await tx.product.update({
+              where: { id: item.productId },
+              data: { currentStock: { increment: piecesToReturn } }
+           });
+        }
+        
+        // 2. حذف العناصر والأوردر
         await tx.orderItem.deleteMany({ where: { orderId } });
         await tx.order.delete({ where: { id: orderId } });
     });
@@ -138,16 +175,39 @@ export async function deleteOrder(orderId: string) {
   } catch (error) { return { success: false }; }
 }
 
-// تحديث الأوردر بالكامل (بدون لمس المخزن ليبقى الرصيد الأولي ثابتاً)
+// تحديث الأوردر (مع ضبط المخزون)
 export async function updateOrder(orderId: string, data: any) {
     const { items, total, deposit, safeId, currency } = data;
     try {
         await prisma.$transaction(async (tx) => {
-            // 1. حذف الأصناف القديمة
+            // 1. استرجاع كميات الأصناف القديمة للمخزون
+            const oldItems = await tx.orderItem.findMany({ where: { orderId } });
+            for (const item of oldItems) {
+               const piecesToReturn = item.quantity * PIECES_PER_UNIT;
+               await tx.product.update({
+                  where: { id: item.productId },
+                  data: { currentStock: { increment: piecesToReturn } }
+               });
+            }
             await tx.orderItem.deleteMany({ where: { orderId } });
-            // 2. إضافة الأصناف الجديدة
+
+            // 2. خصم الكميات الجديدة من المخزون وإضافتها للأوردر
             for (const cartItem of items) {
                 for (const variant of cartItem.variants) {
+                    const requestedPieces = variant.quantity * PIECES_PER_UNIT;
+                    
+                    // التحقق والخصم
+                    const product = await tx.product.findUnique({ where: { id: variant.productId } });
+                    if (product && product.status !== 'OPEN' && product.currentStock < requestedPieces) {
+                         throw new Error(`الرصيد لا يكفي للصنف: ${product.modelNo}`);
+                    }
+
+                    await tx.product.update({
+                        where: { id: variant.productId },
+                        data: { currentStock: { decrement: requestedPieces } }
+                    });
+
+                    // إضافة للأوردر
                     await tx.orderItem.create({
                         data: {
                             orderId: orderId,
@@ -159,7 +219,8 @@ export async function updateOrder(orderId: string, data: any) {
                     });
                 }
             }
-            // 3. تحديث رأس الأوردر
+
+            // 3. تحديث بيانات الأوردر المالية
             await tx.order.update({
                 where: { id: orderId },
                 data: {
@@ -172,7 +233,7 @@ export async function updateOrder(orderId: string, data: any) {
         });
         revalidatePath('/orders/list');
         return { success: true };
-    } catch (error) { return { success: false }; }
+    } catch (error: any) { return { success: false, error: error.message }; }
 }
 
 // جلب سجل الأوردرات
@@ -200,8 +261,6 @@ export async function getUserOrders(userId: string) {
 // ==========================================
 // 4. إدارة النقدية والموظفين
 // ==========================================
-
-// إنشاء تحصيل أو صرف (دعم العملة)
 export async function createPayment(data: any, userId: string) {
   const { type, amount, currency, safeId, customerId, targetSafeId, description } = data;
   try {
@@ -209,7 +268,7 @@ export async function createPayment(data: any, userId: string) {
       data: { 
         type, 
         amount: parseFloat(amount), 
-        currency: currency || 'EGP', // 👈 حفظ العملة
+        currency: currency || 'EGP', 
         safeId, 
         userId,
         customerId: customerId || null,
@@ -222,7 +281,6 @@ export async function createPayment(data: any, userId: string) {
   } catch (error) { return { success: false, error: 'فشل العملية' }; }
 }
 
-// تسجيل موظف جديد من شاشة اللوجن
 export async function registerEmployee(data: any) {
   try {
     const { code, name, password } = data;
