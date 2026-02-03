@@ -60,43 +60,35 @@ export async function searchProducts(term: string) {
 }
 
 // ==========================================
-// 3. إدارة الأوردرات (إنشاء - جلب - حذف - تحديث)
+// 3. إدارة الأوردرات
 // ==========================================
-
-// إنشاء أوردر جديد (نظام الخصم الذري الآمن)
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, safeId, currency } = data; 
   
   try {
     const result = await prisma.$transaction(async (tx) => {
-      
-      // 1. محاولة خصم الكميات مباشرة من الرصيد
+      // 1. خصم الكميات
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
-          
           const requestedPieces = variant.quantity * PIECES_PER_UNIT;
-
-          // جملة التحديث الذرية (Atomic Update)
-          // تحاول إنقاص الرصيد فقط إذا كان (الرصيد الحالي >= المطلوب)
           const updateResult = await tx.product.updateMany({
             where: {
               id: variant.productId,
-              currentStock: { gte: requestedPieces } // الشرط الحاسم
+              currentStock: { gte: requestedPieces }
             },
             data: {
               currentStock: { decrement: requestedPieces }
             }
           });
 
-          // إذا كانت نتيجة التحديث 0، فهذا يعني أن الشرط لم يتحقق (الرصيد لا يكفي)
           if (updateResult.count === 0) {
              const product = await tx.product.findUnique({ where: { id: variant.productId } });
-             throw new Error(`عذراً، الرصيد نفذ للصنف: ${product?.modelNo} - ${product?.color}. المتاح: ${product?.currentStock} قطعة.`);
+             throw new Error(`عذراً، الرصيد نفذ للصنف: ${product?.modelNo} - ${product?.color}`);
           }
         }
       }
 
-      // 2. إذا نجح الخصم، ننشئ الأوردر
+      // 2. إنشاء الأوردر
       const order = await tx.order.create({
         data: {
           userId, 
@@ -134,7 +126,6 @@ export async function createOrder(data: any, userId: string) {
   }
 }
 
-// جلب الأوردر للطباعة أو التعديل
 export async function getOrderById(orderId: string) {
   if (!orderId) return null;
   try {
@@ -154,16 +145,10 @@ export async function getOrderById(orderId: string) {
   } catch (error) { return null; }
 }
 
-// حذف الأوردر (مع استرجاع الكميات للمخزون)
 export async function deleteOrder(orderId: string) {
   try {
     await prisma.$transaction(async (tx) => {
-        // 1. جلب الأصناف لمعرفة الكميات التي يجب إرجاعها
-        const orderItems = await tx.orderItem.findMany({
-           where: { orderId }
-        });
-
-        // 2. إرجاع الكميات للمخزون
+        const orderItems = await tx.orderItem.findMany({ where: { orderId } });
         for (const item of orderItems) {
            const piecesToReturn = item.quantity * PIECES_PER_UNIT;
            await tx.product.update({
@@ -171,8 +156,6 @@ export async function deleteOrder(orderId: string) {
               data: { currentStock: { increment: piecesToReturn } }
            });
         }
-
-        // 3. حذف الأصناف والأوردر
         await tx.orderItem.deleteMany({ where: { orderId } });
         await tx.order.delete({ where: { id: orderId } });
     });
@@ -181,15 +164,11 @@ export async function deleteOrder(orderId: string) {
   } catch (error) { return { success: false }; }
 }
 
-// تحديث الأوردر (إرجاع القديم ثم خصم الجديد)
 export async function updateOrder(orderId: string, data: any) {
     const { items, total, deposit, safeId, currency } = data;
     try {
         await prisma.$transaction(async (tx) => {
-            // 1. جلب الأصناف القديمة
             const oldItems = await tx.orderItem.findMany({ where: { orderId } });
-
-            // 2. إرجاع كميات الأصناف القديمة للمخزون
             for (const item of oldItems) {
                const piecesToReturn = item.quantity * PIECES_PER_UNIT;
                await tx.product.update({
@@ -197,15 +176,11 @@ export async function updateOrder(orderId: string, data: any) {
                   data: { currentStock: { increment: piecesToReturn } }
                });
             }
-
-            // 3. حذف الأصناف القديمة من الجدول
             await tx.orderItem.deleteMany({ where: { orderId } });
 
-            // 4. خصم الكميات الجديدة (بنفس منطق الإنشاء الآمن)
             for (const cartItem of items) {
               for (const variant of cartItem.variants) {
                 const requestedPieces = variant.quantity * PIECES_PER_UNIT;
-                
                 const updateResult = await tx.product.updateMany({
                     where: {
                       id: variant.productId,
@@ -218,10 +193,9 @@ export async function updateOrder(orderId: string, data: any) {
 
                 if (updateResult.count === 0) {
                    const product = await tx.product.findUnique({ where: { id: variant.productId } });
-                   throw new Error(`عذراً، التعديل مرفوض. الرصيد لا يكفي للصنف: ${product?.modelNo} - ${product?.color}. المتاح: ${product?.currentStock}`);
+                   throw new Error(`عذراً، الرصيد لا يكفي للصنف: ${product?.modelNo}`);
                 }
 
-                // إنشاء الصنف الجديد
                 await tx.orderItem.create({
                     data: {
                         orderId: orderId,
@@ -234,7 +208,6 @@ export async function updateOrder(orderId: string, data: any) {
               }
             }
 
-            // 5. تحديث رأس الأوردر
             await tx.order.update({
                 where: { id: orderId },
                 data: {
@@ -252,7 +225,6 @@ export async function updateOrder(orderId: string, data: any) {
     }
 }
 
-// جلب سجل الأوردرات
 export async function getUserOrders(userId: string) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -277,8 +249,6 @@ export async function getUserOrders(userId: string) {
 // ==========================================
 // 4. إدارة النقدية والموظفين
 // ==========================================
-
-// إنشاء تحصيل أو صرف
 export async function createPayment(data: any, userId: string) {
   const { type, amount, currency, safeId, customerId, targetSafeId, description } = data;
   try {
@@ -299,7 +269,6 @@ export async function createPayment(data: any, userId: string) {
   } catch (error) { return { success: false, error: 'فشل العملية' }; }
 }
 
-// تسجيل موظف جديد
 export async function registerEmployee(data: any) {
   try {
     const { code, name, password } = data;
@@ -323,7 +292,7 @@ export async function getCurrentUser(userId: string) {
 }
 
 // ==========================================
-// 5. تقارير الجرد (تم التعديل لإصلاح حساب المباع)
+// 5. تقارير الجرد (التعديل النهائي)
 // ==========================================
 export async function getInventoryReport() {
   try {
@@ -337,18 +306,16 @@ export async function getInventoryReport() {
     });
 
     const report = products.map(p => {
-        // 1. حساب الرصيد الحالي من قاعدة البيانات
+        // 1. الرصيد الأولي: يؤخذ مباشرة من المخزن (القيمة الثابتة)
+        const initial = p.stockQty || 0;
+        
+        // 2. الرصيد الحالي: يؤخذ مباشرة من قاعدة البيانات
         const current = p.currentStock;
         
-        // 2. حساب إجمالي المباع (قطعة) من سجل الأوردرات الفعلي بدلاً من الطرح
-        // هذا يضمن الدقة حتى لو كان الرصيد الأولي غير مضبوط
+        // 3. المباع: يتم حسابه بجمع الأوردرات لضمان ظهوره بغض النظر عن المخزن
         const totalSoldPieces = p.orderItems.reduce((acc, item) => {
             return acc + ((item.quantity || 0) * PIECES_PER_UNIT);
         }, 0);
-
-        // 3. حساب الرصيد الأولي نظرياً لضبط المعادلة في التقرير
-        // الرصيد الأولي = الموجود حالياً + اللي اتباع
-        const calculatedInitial = current + totalSoldPieces;
 
         // القيمة المباعة (مالياً)
         const soldValue = p.orderItems.reduce((acc, item) => {
@@ -368,9 +335,9 @@ export async function getInventoryReport() {
             id: p.id,
             modelNo: p.modelNo,
             color: p.color,
-            initialStock: calculatedInitial, // نستخدم المحسوب لضبط التقرير
-            totalSold: totalSoldPieces,      // الرقم الحقيقي للمبيعات
-            currentStock: current, 
+            initialStock: initial,   // كما هو في قاعدة البيانات
+            totalSold: totalSoldPieces, // محسوب من الفواتير
+            currentStock: current,   // كما هو في قاعدة البيانات
             totalSoldValue: soldValue,
             currentValue: current * (p.price || 0),
             price: p.price,
