@@ -103,8 +103,11 @@ export default function NewOrderPage() {
   const handleSelectAll = () => {
     const newMap: {[key: string]: number} = {};
     searchResults.forEach(p => { 
-        // 👈 منطق التحديد: استبعاد الأصناف التي رصيدها الحالي <= 0
-        if (p.currentStock > 0) {
+        // 👈 منطق تحديد الكل: نستبعد فقط الأصناف المغلقة المنتهية الكمية
+        // إذا كان مفتوح (حتى لو رصيد صفر) -> يضاف
+        // إذا كان مغلق ورصيد > 0 -> يضاف
+        const isSoldOut = p.status !== 'OPEN' && p.currentStock <= 0;
+        if (!isSoldOut) {
             newMap[p.id] = 1; 
         }
     });
@@ -371,28 +374,30 @@ export default function NewOrderPage() {
                     </div>
                     <div className="divide-y divide-gray-100">
                       {searchResults.map(prod => {
-                        // 👈 التعديل الرئيسي: الاعتماد على الرصيد الحالي
-                        const isOutOfStock = prod.currentStock <= 0;
+                        // 👈 هنا التعديل الجوهري للمنطق
+                        // الصنف يعتبر "غير متاح" فقط إذا لم يكن مفتوحاً + رصيده صفر أو أقل
+                        const isSoldOut = prod.status !== 'OPEN' && prod.currentStock <= 0;
                         const isSelected = !!selectionMap[prod.id];
                         const qty = selectionMap[prod.id] || 1;
+                        
                         return (
-                          <div key={prod.id} className={`p-4 flex items-center justify-between transition-colors ${isOutOfStock ? 'bg-gray-100 opacity-60' : (isSelected ? 'bg-blue-50' : 'bg-white')}`}>
+                          <div key={prod.id} className={`p-4 flex items-center justify-between transition-colors ${isSoldOut ? 'bg-gray-100 opacity-60' : (isSelected ? 'bg-blue-50' : 'bg-white')}`}>
                             <div className="flex items-center gap-3 flex-1">
                               <input 
                                 type="checkbox" 
                                 checked={isSelected} 
                                 onChange={(e) => toggleSelection(prod.id, e.target.checked)} 
-                                disabled={isOutOfStock} // 👈 منع الاختيار إذا الرصيد صفر
+                                disabled={isSoldOut} // 👈 تعطيل فقط إذا كان مغلق وانتهت الكمية
                                 className="w-6 h-6" 
                               />
-                              <div className={isOutOfStock ? 'line-through decoration-red-500 decoration-2' : ''}> {/* 👈 إضافة الشطب */}
+                              <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> {/* 👈 شطب فقط إذا كان مغلق وانتهت الكمية */}
                                   <div className="font-bold">{prod.color}</div>
-                                  <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.currentStock}</div> {/* 👈 عرض الرصيد الحالي */}
+                                  <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.currentStock}</div>
                                   {prod.discount > 0 && <div className="text-[10px] text-red-600 font-bold">خصم صنف: {prod.discount}%</div>}
-                                  {isOutOfStock && <span className="text-[10px] text-red-600 font-bold block">نفذت الكمية</span>}
+                                  {isSoldOut && <span className="text-[10px] text-red-600 font-bold block">نفذت الكمية</span>}
                               </div>
                             </div>
-                            {isSelected && !isOutOfStock && (
+                            {isSelected && !isSoldOut && (
                               <div className="flex items-center gap-2 bg-white rounded-lg border px-2 py-1 shadow-sm">
                                 <button onClick={() => updateQuantity(prod.id, qty + 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">+</button>
                                 <input type="number" value={qty} onChange={(e) => updateQuantity(prod.id, parseInt(e.target.value) || 1)} className="w-10 text-center font-bold outline-none" />
