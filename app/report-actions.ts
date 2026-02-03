@@ -1,8 +1,4 @@
---- START OF FILE text/plain ---
 
-================================================
-FILE: app/report-actions.ts
-================================================
 'use server'
 
 import { PrismaClient } from '@prisma/client'
