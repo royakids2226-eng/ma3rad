@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -26,33 +28,34 @@ model Customer {
   phone     String?
   phone2    String?
   address   String?
-  source    String    @default("ADMIN") // 👈 ADMIN (إكسيل) أو QUICK (بيع)
+  source    String    @default("ADMIN")
   orders    Order[]
   payments  Payment[]
 }
 
 model Product {
-  id          String      @id @default(cuid())
-  modelNo     String
-  description String?
-  material    String?
-  color       String
-  stockQty    Int         @default(0)
-  price       Float
-  discount    Float       @default(0.0) // 👈 تم الإضافة: نسبة الخصم التلقائي للصنف
-  status      String      @default("OPEN") 
-  orderItems  OrderItem[]
+  id           String      @id @default(cuid())
+  modelNo      String
+  description  String?
+  material     String?
+  color        String
+  stockQty     Int         @default(0) // الرصيد الافتتاحي (ثابت)
+  currentStock Int         @default(0) // 👈 الرصيد الحالي الفعلي (جديد)
+  price        Float
+  discount     Float       @default(0.0)
+  status       String      @default("OPEN") 
+  orderItems   OrderItem[]
 
   @@unique([modelNo, color])
 }
 
 model Safe {
-  id              String    @id @default(cuid())
-  name            String
-  orders          Order[]
-  payments        Payment[] @relation("SourceSafe")
-  incomingTransfers Payment[] @relation("TargetSafe") // 👈 علاقة عكسية للتحويلات الواردة
-  createdAt       DateTime  @default(now())
+  id                String    @id @default(cuid())
+  name              String
+  orders            Order[]
+  payments          Payment[] @relation("SourceSafe")
+  incomingTransfers Payment[] @relation("TargetSafe")
+  createdAt         DateTime  @default(now())
 }
 
 model Order {
@@ -61,7 +64,7 @@ model Order {
   createdAt   DateTime    @default(now())
   
   deposit     Float       @default(0.0)
-  currency    String      @default("EGP") // 👈 العملة (EGP, USD, SAR, KWD)
+  currency    String      @default("EGP")
   discount    Float       @default(0.0) 
 
   totalAmount Float
