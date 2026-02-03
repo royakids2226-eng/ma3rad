@@ -67,24 +67,27 @@ export async function createOrder(data: any, userId: string) {
   
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // 1. خصم الكميات
+      // 1. خصم الكميات بناءً على حالة الصنف (OPEN vs CLOSED)
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
           const requestedPieces = variant.quantity * PIECES_PER_UNIT;
-          const updateResult = await tx.product.updateMany({
-            where: {
-              id: variant.productId,
-              currentStock: { gte: requestedPieces }
-            },
-            data: {
-              currentStock: { decrement: requestedPieces }
-            }
-          });
+          
+          // جلب الصنف للتحقق من حالته ورصيده
+          const product = await tx.product.findUnique({ where: { id: variant.productId } });
+          if (!product) throw new Error(`الصنف غير موجود`);
 
-          if (updateResult.count === 0) {
-             const product = await tx.product.findUnique({ where: { id: variant.productId } });
-             throw new Error(`عذراً، الرصيد نفذ للصنف: ${product?.modelNo} - ${product?.color}`);
+          // المنطق الجديد:
+          // إذا كان الصنف "ليس مفتوحاً" (أي مغلق) ورصيده الحالي أقل من المطلوب -> نرفض العملية
+          // إذا كان مفتوحاً -> سيتم الخصم حتى لو نزل بالسالب
+          if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
+             throw new Error(`عذراً، الرصيد غير كافي للصنف المغلق: ${product.modelNo} - ${product.color} (المتاح: ${product.currentStock})`);
           }
+
+          // تنفيذ الخصم
+          await tx.product.update({
+            where: { id: variant.productId },
+            data: { currentStock: { decrement: requestedPieces } }
+          });
         }
       }
 
@@ -148,6 +151,7 @@ export async function getOrderById(orderId: string) {
 export async function deleteOrder(orderId: string) {
   try {
     await prisma.$transaction(async (tx) => {
+        // استرجاع الكميات للمخزون قبل الحذف
         const orderItems = await tx.orderItem.findMany({ where: { orderId } });
         for (const item of orderItems) {
            const piecesToReturn = item.quantity * PIECES_PER_UNIT;
@@ -168,6 +172,7 @@ export async function updateOrder(orderId: string, data: any) {
     const { items, total, deposit, safeId, currency } = data;
     try {
         await prisma.$transaction(async (tx) => {
+            // 1. استرجاع كميات الأصناف القديمة
             const oldItems = await tx.orderItem.findMany({ where: { orderId } });
             for (const item of oldItems) {
                const piecesToReturn = item.quantity * PIECES_PER_UNIT;
@@ -178,23 +183,22 @@ export async function updateOrder(orderId: string, data: any) {
             }
             await tx.orderItem.deleteMany({ where: { orderId } });
 
+            // 2. خصم الكميات الجديدة (بنفس منطق التحقق من الحالة)
             for (const cartItem of items) {
               for (const variant of cartItem.variants) {
                 const requestedPieces = variant.quantity * PIECES_PER_UNIT;
-                const updateResult = await tx.product.updateMany({
-                    where: {
-                      id: variant.productId,
-                      currentStock: { gte: requestedPieces }
-                    },
-                    data: {
-                      currentStock: { decrement: requestedPieces }
-                    }
-                });
+                
+                const product = await tx.product.findUnique({ where: { id: variant.productId } });
+                if (!product) throw new Error(`الصنف غير موجود`);
 
-                if (updateResult.count === 0) {
-                   const product = await tx.product.findUnique({ where: { id: variant.productId } });
-                   throw new Error(`عذراً، الرصيد لا يكفي للصنف: ${product?.modelNo}`);
+                if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
+                    throw new Error(`عذراً، الرصيد لا يكفي للصنف المغلق: ${product.modelNo} أثناء التعديل`);
                 }
+
+                await tx.product.update({
+                    where: { id: variant.productId },
+                    data: { currentStock: { decrement: requestedPieces } }
+                });
 
                 await tx.orderItem.create({
                     data: {
@@ -208,6 +212,7 @@ export async function updateOrder(orderId: string, data: any) {
               }
             }
 
+            // 3. تحديث بيانات الأوردر
             await tx.order.update({
                 where: { id: orderId },
                 data: {
@@ -292,7 +297,7 @@ export async function getCurrentUser(userId: string) {
 }
 
 // ==========================================
-// 5. تقارير الجرد (التعديل النهائي)
+// 5. تقارير الجرد
 // ==========================================
 export async function getInventoryReport() {
   try {
@@ -306,18 +311,17 @@ export async function getInventoryReport() {
     });
 
     const report = products.map(p => {
-        // 1. الرصيد الأولي: يؤخذ مباشرة من المخزن (القيمة الثابتة)
+        // الرصيد الأولي (ثابت من إدخال الأدمن)
         const initial = p.stockQty || 0;
         
-        // 2. الرصيد الحالي: يؤخذ مباشرة من قاعدة البيانات
+        // الرصيد الحالي (المتغير في قاعدة البيانات)
         const current = p.currentStock;
         
-        // 3. المباع: يتم حسابه بجمع الأوردرات لضمان ظهوره بغض النظر عن المخزن
+        // المباع (محسوب من الفواتير لضمان الدقة في التقرير)
         const totalSoldPieces = p.orderItems.reduce((acc, item) => {
             return acc + ((item.quantity || 0) * PIECES_PER_UNIT);
         }, 0);
 
-        // القيمة المباعة (مالياً)
         const soldValue = p.orderItems.reduce((acc, item) => {
             return acc + ((item.quantity || 0) * PIECES_PER_UNIT * (item.price || 0));
         }, 0);
@@ -335,9 +339,9 @@ export async function getInventoryReport() {
             id: p.id,
             modelNo: p.modelNo,
             color: p.color,
-            initialStock: initial,   // كما هو في قاعدة البيانات
-            totalSold: totalSoldPieces, // محسوب من الفواتير
-            currentStock: current,   // كما هو في قاعدة البيانات
+            initialStock: initial,
+            totalSold: totalSoldPieces,
+            currentStock: current, 
             totalSoldValue: soldValue,
             currentValue: current * (p.price || 0),
             price: p.price,
