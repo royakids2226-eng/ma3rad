@@ -80,7 +80,7 @@ export async function createOrder(data: any, userId: string) {
         }
       });
 
-      // 2. إضافة الأصناف وخصم المخزون
+      // 2. إضافة الأصناف (بدون خصم المخزن ليبقى stockQty ثابتاً كرصيد أولي)
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
           await tx.orderItem.create({
@@ -92,13 +92,7 @@ export async function createOrder(data: any, userId: string) {
               discountPercent: variant.discountPercent || 0
             }
           });
-
-          await tx.product.update({
-            where: { id: variant.productId },
-            data: {
-              stockQty: { decrement: variant.quantity }
-            }
-          });
+          // تم حذف سطر update product decrement ليبقى الرصيد الأولي ثابتاً
         }
       }
       return order;
@@ -132,19 +126,10 @@ export async function getOrderById(orderId: string) {
   } catch (error) { return null; }
 }
 
-// حذف الأوردر (مع إرجاع الكميات للمخزن)
+// حذف الأوردر (بدون إرجاع الكميات لأننا لا نخصمها أصلاً)
 export async function deleteOrder(orderId: string) {
   try {
     await prisma.$transaction(async (tx) => {
-        const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } });
-        if (order) {
-            for (const item of order.items) {
-                await tx.product.update({
-                    where: { id: item.productId },
-                    data: { stockQty: { increment: item.quantity } }
-                });
-            }
-        }
         await tx.orderItem.deleteMany({ where: { orderId } });
         await tx.order.delete({ where: { id: orderId } });
     });
@@ -153,27 +138,14 @@ export async function deleteOrder(orderId: string) {
   } catch (error) { return { success: false }; }
 }
 
-// تحديث الأوردر بالكامل (إرجاع المخزون القديم وحفظ الجديد)
+// تحديث الأوردر بالكامل (بدون لمس المخزن ليبقى الرصيد الأولي ثابتاً)
 export async function updateOrder(orderId: string, data: any) {
     const { items, total, deposit, safeId, currency } = data;
     try {
         await prisma.$transaction(async (tx) => {
-            // 1. إرجاع المخزون القديم
-            const oldOrder = await tx.order.findUnique({
-                where: { id: orderId },
-                include: { items: true }
-            });
-            if (oldOrder) {
-                for (const item of oldOrder.items) {
-                    await tx.product.update({
-                        where: { id: item.productId },
-                        data: { stockQty: { increment: item.quantity } }
-                    });
-                }
-            }
-            // 2. حذف الأصناف القديمة
+            // 1. حذف الأصناف القديمة
             await tx.orderItem.deleteMany({ where: { orderId } });
-            // 3. إضافة الأصناف الجديدة وخصم المخزون
+            // 2. إضافة الأصناف الجديدة
             for (const cartItem of items) {
                 for (const variant of cartItem.variants) {
                     await tx.orderItem.create({
@@ -185,13 +157,9 @@ export async function updateOrder(orderId: string, data: any) {
                             discountPercent: variant.discountPercent || 0
                         }
                     });
-                    await tx.product.update({
-                        where: { id: variant.productId },
-                        data: { stockQty: { decrement: variant.quantity } }
-                    });
                 }
             }
-            // 4. تحديث رأس الأوردر
+            // 3. تحديث رأس الأوردر
             await tx.order.update({
                 where: { id: orderId },
                 data: {
