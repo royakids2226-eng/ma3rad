@@ -1,4 +1,3 @@
-
 'use server'
 
 import { PrismaClient } from '@prisma/client'
@@ -8,7 +7,7 @@ const prisma = new PrismaClient()
 const PIECES_PER_UNIT = 4; 
 
 // ==========================================
-// 1. تقارير المخزون (حركة الأصناف) - تم تعديل الحسابات للبيع بالجملة ✅
+// 1. تقارير المخزون (حركة الأصناف) - تم تعديل الحسابات ✅
 // ==========================================
 export async function getInventoryReport() {
   try {
@@ -22,21 +21,23 @@ export async function getInventoryReport() {
     });
 
     const report = products.map(p => {
-        // مجموع الوحدات المباعة (درزن)
+        // 1. مجموع الوحدات المباعة (درزن/ثرية) من جدول orderItems
         const totalSoldUnits = p.orderItems.reduce((sum, item) => sum + item.quantity, 0);
-        // تحويل المبيعات من درزن إلى قطع (المبيعات بالجملة)
+        
+        // 2. تحويل المبيعات إلى قطع
         const totalSoldPieces = totalSoldUnits * PIECES_PER_UNIT;
         
-        // حساب إجمالي قيمة المبيعات (القطع المباعة × سعر القطعة)
+        // 3. حساب إجمالي قيمة المبيعات (القطع المباعة × سعر القطعة)
         const totalSoldValue = p.orderItems.reduce((sum, item) => {
             return sum + (item.quantity * PIECES_PER_UNIT * item.price);
         }, 0);
 
-        // التعديل (تصحيح): الرصيد الأولي يؤخذ مباشرة من قاعدة البيانات بالقطعة كما هو
-        const initialStockPieces = p.stockQty;
-        
-        // الرصيد الحالي يساوي الرصيد الأولي مطروحاً منه ما تم بيعه
-        const currentStockPieces = initialStockPieces - totalSoldPieces;
+        // 4. الرصيد الحالي (الموجود فعلياً في المخزن الآن بالقطعة)
+        const currentStockPieces = p.stockQty;
+
+        // 5. الرصيد الأولي (الثابت): هو ما تبقى في المخزن + ما تم بيعه فعلياً
+        // هذا يضمن أن الرصيد الأولي لا ينقص عند البيع بل يمثل الكمية الافتتاحية
+        const initialStockPieces = currentStockPieces + totalSoldPieces;
 
         const movementHistory = p.orderItems.map(item => ({
             orderId: item.orderId,
@@ -51,12 +52,12 @@ export async function getInventoryReport() {
             id: p.id,
             modelNo: p.modelNo,
             color: p.color,
-            initialStock: initialStockPieces, // بالقطعة (مباشرة من الداتا)
-            totalSold: totalSoldPieces,       // بالقطعة
-            totalSoldValue: totalSoldValue,   // ج.م
-            currentStock: currentStockPieces, // بالقطعة (أولي - مباع)
+            initialStock: initialStockPieces, // الرصيد الافتتاحي (ثابت)
+            totalSold: totalSoldPieces,       // إجمالي المباع بالقطعة
+            totalSoldValue: totalSoldValue,   // إجمالي قيمة المبيعات
+            currentStock: currentStockPieces, // الرصيد المتبقي حالياً
             price: p.price,
-            currentValue: currentStockPieces * p.price, // القيمة الحالية للمخزن بالقطعة
+            currentValue: currentStockPieces * p.price, // قيمة البضاعة المتبقية
             status: p.status,
             history: movementHistory
         };
@@ -64,14 +65,16 @@ export async function getInventoryReport() {
 
     const summary = {
       totalItems: report.length,
+      totalInitialStock: report.reduce((acc, item) => acc + item.initialStock, 0),
       totalCurrentStock: report.reduce((acc, item) => acc + item.currentStock, 0),
-      totalSoldUnits: report.reduce((acc, item) => acc + item.totalSold, 0),
+      totalSoldPieces: report.reduce((acc, item) => acc + item.totalSold, 0),
       totalSalesValue: report.reduce((acc, item) => acc + item.totalSoldValue, 0),
       totalValue: report.reduce((acc, item) => acc + item.currentValue, 0)
     };
 
     return { success: true, data: report, summary };
   } catch (e) {
+    console.error(e);
     return { success: false, error: 'فشل جلب بيانات المخزون' };
   }
 }
