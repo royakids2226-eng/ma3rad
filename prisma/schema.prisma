@@ -110,3 +110,14 @@ model Payment {
   targetSafeId String?  
   targetSafe   Safe?    @relation("TargetSafe", fields: [targetSafeId], references: [id])
 }
+// جدول استلام الأصناف (المخزن الفرعي)
+model WarehouseReceipt {
+  uniqueid String   @id             // المعرف الفريد (مثل: 17561165692176nwfn)
+  date     DateTime                 // التاريخ والوقت
+  empName  String                   // اسم الموظف (emp name)
+  modelNo  String                   // رقم الموديل (model no)
+  most     Int                      // الكمية (most)
+
+  @@index([modelNo])                // لتسريع البحث برقم الموديل
+  @@index([date])                   // لتسريع البحث بالتاريخ
+}
