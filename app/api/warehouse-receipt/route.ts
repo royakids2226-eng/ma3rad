@@ -1,48 +1,66 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma'; // تأكد من استيراد النسخة التي أنشأناها في الخطوة السابقة
 
-const prisma = new PrismaClient();
-
-// دالة POST لاستقبال البيانات وإضافتها للجدول
+// دالة POST لاستقبال البيانات
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    
+    // طباعة البيانات القادمة في Logs الخاصة بـ Vercel للتأكد من وصولها
+    console.log("Incoming Data Payload:", body);
+
     const { uniqueid, date, empName, modelNo, most } = body;
 
-    // التحقق من البيانات المطلوبة
-    if (!uniqueid || !date || !empName || !modelNo || most === undefined) {
+    // 1. التحقق من صحة البيانات (Validation)
+    if (!uniqueid || !date || !empName || !modelNo) {
       return NextResponse.json(
-        { success: false, error: 'بيانات غير مكتملة' },
+        { success: false, error: 'بيانات ناقصة: يجب إرسال جميع الحقول المطلوبة' },
         { status: 400 }
       );
     }
 
-    // إضافة البيانات لقاعدة البيانات
+    // التأكد أن "القص" رقم صحيح
+    const parsedMost = parseInt(most);
+    if (isNaN(parsedMost)) {
+      return NextResponse.json(
+        { success: false, error: 'قيمة (most) يجب أن تكون رقماً' },
+        { status: 400 }
+      );
+    }
+
+    // 2. عملية الحفظ في قاعدة البيانات
     const newReceipt = await prisma.warehouseReceipt.create({
       data: {
         uniqueid: String(uniqueid),
-        date: new Date(date), // تحويل النص إلى تاريخ
+        date: new Date(date), // التأكد من تحويل النص إلى تاريخ
         empName: String(empName),
         modelNo: String(modelNo),
-        most: parseInt(most)
+        most: parsedMost
       }
     });
 
-    return NextResponse.json({ success: true, data: newReceipt });
+    console.log("Successfully Saved:", newReceipt);
+
+    return NextResponse.json({ 
+      success: true, 
+      message: "تم الحفظ بنجاح", 
+      data: newReceipt 
+    }, { status: 200 });
 
   } catch (error: any) {
-    console.error('Error adding warehouse receipt:', error);
+    console.error('SERVER ERROR - Warehouse Receipt:', error);
     
-    // التحقق من خطأ التكرار (Unique Constraint)
+    // التعامل مع خطأ التكرار (Unique Constraint)
     if (error.code === 'P2002') {
       return NextResponse.json(
-        { success: false, error: 'رقم العملية (uniqueid) مسجل مسبقاً' },
+        { success: false, error: `السجل مكرر: المعرف ${error.meta?.target} موجود مسبقاً` },
         { status: 409 }
       );
     }
 
+    // أخطاء الاتصال أو غيرها
     return NextResponse.json(
-      { success: false, error: 'حدث خطأ أثناء الحفظ في قاعدة البيانات' },
+      { success: false, error: 'حدث خطأ في السيرفر: ' + (error.message || error) },
       { status: 500 }
     );
   }
