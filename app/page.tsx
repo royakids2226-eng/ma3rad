@@ -47,26 +47,35 @@ export default async function Home() {
 
       {/* Main Actions */}
       <div className="grid grid-cols-1 gap-4">
+        {/* زر أوردر جديد - الأكبر والأهم */}
         <Link href="/orders/new" className="bg-blue-600 text-white p-6 rounded-xl shadow-lg flex items-center justify-between hover:bg-blue-700 transition transform hover:scale-[1.01]">
           <span className="text-2xl font-bold">أوردر جديد 🛒</span>
           <span className="text-4xl">+</span>
         </Link>
 
+        {/* شبكة الأزرار الفرعية */}
         <div className="grid grid-cols-2 gap-4">
           <Link href="/orders/list" className="bg-white p-4 rounded-xl shadow text-gray-700 font-bold border border-gray-200 text-center hover:bg-gray-50 flex flex-col justify-center items-center gap-2">
              <span className="text-2xl">📝</span>
              <span>الأوردرات السابقة</span>
           </Link>
-          {/* 👇 تم التعديل هنا */}
+
           <Link href="/payments/new" className="bg-white p-4 rounded-xl shadow text-gray-700 font-bold border border-gray-200 text-center hover:bg-gray-50 flex flex-col justify-center items-center gap-2">
              <span className="text-2xl">💰</span>
              <span>إدارة النقدية</span>
+          </Link>
+
+          {/* 👇 الزر الجديد: فرز الأوردرات */}
+          {/* col-span-2 لجعله يأخذ العرض الكامل أسفل الزرين السابقين */}
+          <Link href="/sorting" className="col-span-2 bg-white p-5 rounded-xl shadow text-emerald-700 font-bold border border-emerald-100 text-center hover:bg-emerald-50 flex flex-row justify-center items-center gap-3 transition-colors">
+             <span className="text-3xl">📦</span>
+             <span className="text-lg">فرز المخزن (جاهزية الأوردرات)</span>
           </Link>
         </div>
       </div>
       
       <div className="mt-10 text-center text-gray-400 text-xs">
-        نظام إدارة المبيعات v1.6
+        نظام إدارة المبيعات v1.7
       </div>
     </div>
   );
