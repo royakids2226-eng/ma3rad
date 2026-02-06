@@ -1,22 +1,17 @@
 import { prisma } from '@/lib/prisma';
 import SortingClient from './SortingClient';
 
-// تعريف نوع البيانات للمخزون
 interface StockMap {
   [key: string]: number;
 }
 
-// دالة لجلب البيانات وتوزيع الحصص (Server-Side Logic)
 async function getOrdersWithAllocation() {
-  // 1. جلب رصيد المخزن الفعلي وتجميعه
+  // 1. جلب المخزون
   const warehouseStock = await prisma.warehouseReceipt.groupBy({
     by: ['modelNo'],
-    _sum: {
-      most: true,
-    },
+    _sum: { most: true },
   });
 
-  // تحويل المخزون إلى كائن (Running Stock) للخصم منه
   let runningStock: StockMap = {};
   warehouseStock.forEach((item) => {
     if (item.modelNo && item._sum.most) {
@@ -24,73 +19,76 @@ async function getOrdersWithAllocation() {
     }
   });
 
-  // 2. جلب الأوردرات مرتبة من الأقدم للأحدث (FIFO Allocation)
+  // 2. جلب الأوردرات
   const orders = await prisma.order.findMany({
     orderBy: { createdAt: 'asc' }, 
     include: {
       customer: true,
       items: {
-        include: {
-          product: true,
-        },
+        include: { product: true },
       },
     },
   });
 
-  // 3. خوارزمية التوزيع (تخصيص الكميات)
+  // 3. خوارزمية التوزيع وتفاصيل الأصناف
   const processedOrders = orders.map((order) => {
     let totalItemsRequired = 0;
     let totalItemsAllocated = 0;
 
-    order.items.forEach((item) => {
+    // مصفوفة جديدة نحتفظ فيها بحالة كل صنف
+    const itemDetails = order.items.map((item) => {
       const modelNo = item.product.modelNo;
-      
-      // تحويل الكمية لقطع (ضرب × 4)
-      const qtyNeeded = item.quantity * 4;
-      
-      // الرصيد الحالي المتاح في هذه اللحظة
+      const qtyNeeded = item.quantity * 4; // تحويل لقطع
       const currentStock = runningStock[modelNo] || 0;
-
-      // حجز الكمية (الأقل من المطلوب أو المتاح)
       const qtyAllocated = Math.min(qtyNeeded, currentStock);
 
-      // خصم المحجوز من الرصيد العام (حتى لا يأخذه الأوردر التالي)
+      // خصم من الرصيد العام
       if (runningStock[modelNo]) {
         runningStock[modelNo] -= qtyAllocated;
       }
 
       totalItemsRequired += qtyNeeded;
       totalItemsAllocated += qtyAllocated;
+
+      return {
+        id: item.id,
+        modelNo: modelNo,
+        description: item.product.description || '', // وصف المنتج
+        color: item.product.color,
+        originalQty: item.quantity, // الكمية بالدستة كما طلبها العميل
+        qtyNeededPieces: qtyNeeded,
+        qtyAllocatedPieces: qtyAllocated,
+        isFullyReady: qtyAllocated >= qtyNeeded, // هل اكتمل؟
+        price: item.price
+      };
     });
 
-    // حساب النسبة المئوية
     const percentage = totalItemsRequired > 0 
       ? Math.round((totalItemsAllocated / totalItemsRequired) * 100) 
       : 0;
 
-    // إرجاع كائن بيانات مبسط للمكون التفاعلي
     return {
       id: order.id,
       orderNo: order.orderNo,
-      customer: { name: order.customer.name },
+      customer: { 
+        name: order.customer.name,
+        phone: order.customer.phone,
+        address: order.customer.address 
+      },
       createdAt: order.createdAt,
       readinessPercentage: percentage,
       itemsAllocated: totalItemsAllocated,
-      itemsTotal: totalItemsRequired
+      itemsTotal: totalItemsRequired,
+      itemDetails: itemDetails // 👈 نمرر التفاصيل للواجهة
     };
   });
 
-  // نعيد المصفوفة معكوسة (الأحدث في البداية) كترتيب افتراضي للعرض
   return processedOrders.reverse();
 }
 
-// لضمان عدم تخزين الصفحة وتحديث البيانات عند كل طلب
 export const dynamic = 'force-dynamic';
 
 export default async function SortingPage() {
-  // تنفيذ منطق الحساب على السيرفر
   const orders = await getOrdersWithAllocation();
-
-  // تمرير البيانات الجاهزة للمكون التفاعلي (Client Component)
   return <SortingClient initialOrders={orders} />;
 }
