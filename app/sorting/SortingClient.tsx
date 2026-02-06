@@ -41,6 +41,10 @@ type OrderType = {
 
 export default function SortingClient({ initialOrders }: { initialOrders: OrderType[] }) {
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // 👈 استعادة حالة الترتيب
+  const [sortBy, setSortBy] = useState('date-desc');
+
   const [showCompleted, setShowCompleted] = useState(false); // تبديل بين الجاري والمنتهي
   const [selectedOrder, setSelectedOrder] = useState<OrderType | null>(null);
   
@@ -50,13 +54,14 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
 
   const [isPending, startTransition] = useTransition();
 
-  // 1. الفلترة
-  const filteredOrders = useMemo(() => {
-    let result = initialOrders;
+  // 1. الفلترة والترتيب (تم الإصلاح هنا)
+  const filteredAndSortedOrders = useMemo(() => {
+    let result = [...initialOrders]; // نسخة جديدة لتجنب تعديل الأصل
 
-    // فلترة حسب الحالة (منتهي / جاري)
+    // أ. فلترة حسب الحالة (منتهي / جاري)
     result = result.filter(o => showCompleted ? o.isCompletelyDone : !o.isCompletelyDone);
 
+    // ب. فلترة البحث
     if (searchTerm) {
       const lowerTerm = searchTerm.toLowerCase();
       result = result.filter(
@@ -65,8 +70,19 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
           o.orderNo.toString().includes(lowerTerm)
       );
     }
+
+    // ج. الترتيب (تمت إعادته)
+    result.sort((a, b) => {
+        switch (sortBy) {
+          case 'ready-desc': return b.readinessPercentage - a.readinessPercentage;
+          case 'ready-asc': return a.readinessPercentage - b.readinessPercentage;
+          case 'date-asc': return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          case 'date-desc': default: return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        }
+    });
+
     return result;
-  }, [initialOrders, searchTerm, showCompleted]);
+  }, [initialOrders, searchTerm, showCompleted, sortBy]);
 
 
   // 2. استخراج قائمة الباتشات السابقة للأوردر المختار
@@ -180,8 +196,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     startTransition(async () => {
         const result = await executeOrderBatch(selectedOrder.id, itemsToFulfill);
         if (result.success) {
-            // بعد الحفظ بنجاح، ننتقل تلقائياً لعرض الباتش الأخير (الذي تم إنشاؤه للتو) نظرياً
-            // لكن هنا للتبسيط سنقوم بالطباعة ثم إغلاق المودال تلقائياً عبر التحديث
             setTimeout(() => window.print(), 500);
         } else {
             alert('حدث خطأ أثناء الحفظ.');
@@ -242,12 +256,24 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
+                
+                {/* 👈 قائمة الترتيب المضافة */}
+                <select 
+                    className="w-full md:w-64 p-2 border border-slate-200 rounded-lg bg-white"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                >
+                    <option value="date-desc">التاريخ: الأحدث أولاً</option>
+                    <option value="date-asc">التاريخ: الأقدم أولاً</option>
+                    <option value="ready-desc">الجاهزية: الأعلى أولاً</option>
+                    <option value="ready-asc">الجاهزية: الأقل أولاً</option>
+                </select>
            </div>
         </div>
 
         {/* Orders Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredOrders.map((order) => {
+          {filteredAndSortedOrders.map((order) => {
              let statusColor = "bg-red-500";
              let statusText = "text-red-600";
              
@@ -294,9 +320,9 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
               </div>
             );
           })}
-          {filteredOrders.length === 0 && (
+          {filteredAndSortedOrders.length === 0 && (
             <div className="col-span-full text-center py-10 text-gray-500">
-                لا توجد أوردرات في هذه القائمة.
+                لا توجد أوردرات تطابق البحث.
             </div>
           )}
         </div>
