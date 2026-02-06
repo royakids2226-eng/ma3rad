@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -40,7 +38,7 @@ model Product {
   material     String?
   color        String
   stockQty     Int         @default(0) // الرصيد الافتتاحي (ثابت)
-  currentStock Int         @default(0) // 👈 الرصيد الحالي الفعلي (جديد)
+  currentStock Int         @default(0) // الرصيد الحالي الفعلي
   price        Float
   discount     Float       @default(0.0)
   status       String      @default("OPEN") 
@@ -83,7 +81,8 @@ model OrderItem {
   order           Order   @relation(fields: [orderId], references: [id])
   productId       String
   product         Product @relation(fields: [productId], references: [id])
-  quantity        Int
+  quantity        Int     // الكمية الأصلية المطلوبة (بالدرزن حسب سياقك)
+  fulfilledQty    Int     @default(0) // 👈 جديد: الكمية التي تم صرفها بالفعل (بالقطعة)
   price           Float
   discountPercent Int     @default(0)
 }
@@ -110,14 +109,14 @@ model Payment {
   targetSafeId String?  
   targetSafe   Safe?    @relation("TargetSafe", fields: [targetSafeId], references: [id])
 }
-// جدول استلام الأصناف (المخزن الفرعي)
-model WarehouseReceipt {
-  uniqueid String   @id             // المعرف الفريد (مثل: 17561165692176nwfn)
-  date     DateTime                 // التاريخ والوقت
-  empName  String                   // اسم الموظف (emp name)
-  modelNo  String                   // رقم الموديل (model no)
-  most     Int                      // الكمية (most)
 
-  @@index([modelNo])                // لتسريع البحث برقم الموديل
-  @@index([date])                   // لتسريع البحث بالتاريخ
+model WarehouseReceipt {
+  uniqueid String   @id             
+  date     DateTime                 
+  empName  String                   
+  modelNo  String                   
+  most     Int                      
+
+  @@index([modelNo])                
+  @@index([date])                   
 }
