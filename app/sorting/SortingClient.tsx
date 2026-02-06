@@ -58,22 +58,19 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
   }, [initialOrders, searchTerm, sortBy]);
 
   // 2. دالة تجميع الأصناف (Grouping) لجدول الطباعة
-  // هذه الدالة تدمج الموديلات المتشابهة وتجمع كمياتها وألوانها
   const getGroupedInvoiceItems = (items: ItemDetail[]) => {
     const groups: { [key: string]: any } = {};
 
     items.forEach((item) => {
       if (!groups[item.modelNo]) {
-        // أول مرة نرى هذا الموديل
         groups[item.modelNo] = {
           ...item,
-          colors: [item.color], // نبدأ مصفوفة الألوان
+          colors: [item.color],
           totalQty: item.originalQty, // إجمالي الكمية (د)
           totalNeededPieces: item.qtyNeededPieces,
           totalAllocatedPieces: item.qtyAllocatedPieces,
         };
       } else {
-        // الموديل موجود مسبقاً، نقوم بالتحديث
         groups[item.modelNo].colors.push(item.color);
         groups[item.modelNo].totalQty += item.originalQty;
         groups[item.modelNo].totalNeededPieces += item.qtyNeededPieces;
@@ -81,17 +78,13 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
       }
     });
 
-    // تحويل الكائن لمصفوفة وإعادة حساب حالة الجاهزية للإجمالي
     return Object.values(groups).map((group: any) => ({
       ...group,
-      // دمج الألوان في نص واحد (مع إزالة التكرار إن وجد)
       colorsDisplay: [...new Set(group.colors)].join(' + '),
-      // هل الموديل بالكامل جاهز؟
       isFullyReady: group.totalAllocatedPieces >= group.totalNeededPieces
     }));
   };
 
-  // نحسب القائمة المجمعة فقط عند فتح فاتورة
   const invoiceItems = useMemo(() => {
     if (!selectedOrder) return [];
     return getGroupedInvoiceItems(selectedOrder.itemDetails);
@@ -219,7 +212,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                 )}
               </div>
 
-              {/* الجدول يستخدم البيانات المجمعة (invoiceItems) بدلاً من البيانات الخام */}
+              {/* الجدول */}
               <table className="w-full border-collapse border border-gray-300 mb-8">
                 <thead>
                   <tr className="bg-gray-100 print:bg-gray-200">
@@ -240,6 +233,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         {item.description && <span className="text-gray-500 text-xs block">{item.description}</span>}
                       </td>
                       <td className="border border-gray-300 p-2 font-medium">{item.colorsDisplay}</td>
+                      {/* الكمية المطلوبة تظل بالدرزن كما هو بالعنوان (د) */}
                       <td className="border border-gray-300 p-2 text-center font-bold text-lg">{item.totalQty}</td>
                       <td className="border border-gray-300 p-2 text-center">{item.price}</td>
                       <td className="border border-gray-300 p-2 text-center">
@@ -248,9 +242,10 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         ) : (
                           <div className="flex flex-col items-center">
                             <span className="text-red-500 font-bold text-xl">❌</span>
+                            {/* هنا التعديل: ضرب الكمية المتاحة في 4 */}
                             {item.totalAllocatedPieces > 0 && (
-                                <span className="text-[10px] text-gray-500 whitespace-nowrap">
-                                    متاح: {item.totalAllocatedPieces} ق
+                                <span className="text-[12px] text-gray-700 whitespace-nowrap font-bold mt-1">
+                                    متاح: {item.totalAllocatedPieces * 4} ق
                                 </span>
                             )}
                           </div>
