@@ -30,12 +30,12 @@ type OrderType = {
 export default function SortingClient({ initialOrders }: { initialOrders: OrderType[] }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('date-desc');
-  
-  // حالة لإدارة الفاتورة المفتوحة
   const [selectedOrder, setSelectedOrder] = useState<OrderType | null>(null);
 
+  // 1. منطق الفلترة والترتيب للقائمة الرئيسية
   const filteredAndSortedOrders = useMemo(() => {
     let result = [...initialOrders];
+
     if (searchTerm) {
       const lowerTerm = searchTerm.toLowerCase();
       result = result.filter(
@@ -44,6 +44,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
           o.orderNo.toString().includes(lowerTerm)
       );
     }
+
     result.sort((a, b) => {
       switch (sortBy) {
         case 'ready-desc': return b.readinessPercentage - a.readinessPercentage;
@@ -52,17 +53,56 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
         case 'date-desc': default: return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       }
     });
+
     return result;
   }, [initialOrders, searchTerm, sortBy]);
 
-  // دالة الطباعة
+  // 2. دالة تجميع الأصناف (Grouping) لجدول الطباعة
+  // هذه الدالة تدمج الموديلات المتشابهة وتجمع كمياتها وألوانها
+  const getGroupedInvoiceItems = (items: ItemDetail[]) => {
+    const groups: { [key: string]: any } = {};
+
+    items.forEach((item) => {
+      if (!groups[item.modelNo]) {
+        // أول مرة نرى هذا الموديل
+        groups[item.modelNo] = {
+          ...item,
+          colors: [item.color], // نبدأ مصفوفة الألوان
+          totalQty: item.originalQty, // إجمالي الكمية (د)
+          totalNeededPieces: item.qtyNeededPieces,
+          totalAllocatedPieces: item.qtyAllocatedPieces,
+        };
+      } else {
+        // الموديل موجود مسبقاً، نقوم بالتحديث
+        groups[item.modelNo].colors.push(item.color);
+        groups[item.modelNo].totalQty += item.originalQty;
+        groups[item.modelNo].totalNeededPieces += item.qtyNeededPieces;
+        groups[item.modelNo].totalAllocatedPieces += item.qtyAllocatedPieces;
+      }
+    });
+
+    // تحويل الكائن لمصفوفة وإعادة حساب حالة الجاهزية للإجمالي
+    return Object.values(groups).map((group: any) => ({
+      ...group,
+      // دمج الألوان في نص واحد (مع إزالة التكرار إن وجد)
+      colorsDisplay: [...new Set(group.colors)].join(' + '),
+      // هل الموديل بالكامل جاهز؟
+      isFullyReady: group.totalAllocatedPieces >= group.totalNeededPieces
+    }));
+  };
+
+  // نحسب القائمة المجمعة فقط عند فتح فاتورة
+  const invoiceItems = useMemo(() => {
+    if (!selectedOrder) return [];
+    return getGroupedInvoiceItems(selectedOrder.itemDetails);
+  }, [selectedOrder]);
+
   const handlePrint = () => {
     window.print();
   };
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen" dir="rtl">
-      {/* إخفاء واجهة التحكم عند الطباعة */}
       <div className="print:hidden">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -96,10 +136,9 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
           </select>
         </div>
 
-        {/* Grid */}
+        {/* Orders Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredAndSortedOrders.map((order) => {
-             // تحديد الألوان
              let statusColor = "bg-red-500";
              let statusText = "text-red-600";
              if (order.readinessPercentage === 100) {
@@ -130,7 +169,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                    <span>مطلوب: {order.itemsTotal} / محجوز: {order.itemsAllocated}</span>
                 </div>
 
-                {/* زر تنفيذ الأوردر */}
                 <button 
                   onClick={() => setSelectedOrder(order)}
                   className="w-full py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors font-bold flex justify-center items-center gap-2"
@@ -150,7 +188,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
         <div className="fixed inset-0 z-50 flex justify-center items-start overflow-y-auto bg-black bg-opacity-50 print:bg-white print:p-0">
           <div className="bg-white w-full max-w-4xl m-4 p-8 rounded-xl shadow-2xl relative print:shadow-none print:w-full print:max-w-none print:m-0 print:rounded-none">
             
-            {/* أزرار التحكم (تختفي عند الطباعة) */}
             <div className="flex justify-between mb-8 print:hidden border-b pb-4">
               <h2 className="text-xl font-bold">معاينة الفاتورة</h2>
               <div className="flex gap-2">
@@ -159,15 +196,12 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
               </div>
             </div>
 
-            {/* تصميم الفاتورة */}
             <div className="print:block" dir="rtl">
-              {/* ترويسة الفاتورة */}
               <div className="text-center mb-8 border-b border-black pb-4">
                  <h1 className="text-3xl font-bold mb-2">طلب صرف بضاعة</h1>
                  <p className="text-gray-600">تاريخ: {new Date().toLocaleDateString('ar-EG')}</p>
               </div>
 
-              {/* بيانات العميل */}
               <div className="grid grid-cols-2 gap-8 mb-8 bg-gray-50 p-4 rounded print:bg-transparent print:p-0 print:border print:border-gray-300">
                 <div>
                   <p className="text-gray-500 text-sm">اسم العميل</p>
@@ -185,38 +219,38 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                 )}
               </div>
 
-              {/* جدول الأصناف */}
+              {/* الجدول يستخدم البيانات المجمعة (invoiceItems) بدلاً من البيانات الخام */}
               <table className="w-full border-collapse border border-gray-300 mb-8">
                 <thead>
                   <tr className="bg-gray-100 print:bg-gray-200">
                     <th className="border border-gray-300 p-2 text-right w-12">#</th>
                     <th className="border border-gray-300 p-2 text-right">الموديل</th>
-                    <th className="border border-gray-300 p-2 text-right">اللون</th>
+                    <th className="border border-gray-300 p-2 text-right">الألوان</th>
                     <th className="border border-gray-300 p-2 text-center">الكمية (د)</th>
                     <th className="border border-gray-300 p-2 text-center">السعر</th>
                     <th className="border border-gray-300 p-2 text-center w-24">الحالة</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedOrder.itemDetails.map((item, index) => (
-                    <tr key={item.id} className={item.isFullyReady ? "" : "bg-red-50 print:bg-transparent"}>
+                  {invoiceItems.map((item: any, index: number) => (
+                    <tr key={index} className={item.isFullyReady ? "" : "bg-red-50 print:bg-transparent"}>
                       <td className="border border-gray-300 p-2 text-center">{index + 1}</td>
                       <td className="border border-gray-300 p-2">
-                        <span className="font-bold">{item.modelNo}</span>
+                        <span className="font-bold text-lg">{item.modelNo}</span>
                         {item.description && <span className="text-gray-500 text-xs block">{item.description}</span>}
                       </td>
-                      <td className="border border-gray-300 p-2">{item.color}</td>
-                      <td className="border border-gray-300 p-2 text-center font-bold">{item.originalQty}</td>
+                      <td className="border border-gray-300 p-2 font-medium">{item.colorsDisplay}</td>
+                      <td className="border border-gray-300 p-2 text-center font-bold text-lg">{item.totalQty}</td>
                       <td className="border border-gray-300 p-2 text-center">{item.price}</td>
                       <td className="border border-gray-300 p-2 text-center">
                         {item.isFullyReady ? (
-                          <span className="text-emerald-600 font-bold text-xl">✔ جاهز</span>
+                          <span className="text-emerald-600 font-bold text-xl">✔</span>
                         ) : (
                           <div className="flex flex-col items-center">
                             <span className="text-red-500 font-bold text-xl">❌</span>
-                            {item.qtyAllocatedPieces > 0 && (
-                                <span className="text-[10px] text-gray-500">
-                                    متاح: {item.qtyAllocatedPieces} ق
+                            {item.totalAllocatedPieces > 0 && (
+                                <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                                    متاح: {item.totalAllocatedPieces} ق
                                 </span>
                             )}
                           </div>
@@ -227,7 +261,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                 </tbody>
               </table>
 
-              {/* الملخص */}
               <div className="flex justify-between items-center border-t border-black pt-4">
                 <div>
                    <p>نسبة الجاهزية: <span className="font-bold">{selectedOrder.readinessPercentage}%</span></p>
