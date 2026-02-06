@@ -219,7 +219,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                     <th className="border border-gray-300 p-2 text-right w-12">#</th>
                     <th className="border border-gray-300 p-2 text-right">الموديل</th>
                     <th className="border border-gray-300 p-2 text-right">الألوان</th>
-                    <th className="border border-gray-300 p-2 text-center">الكمية (د)</th>
+                    {/* تم تغيير العنوان هنا من (د) إلى (قطعة) */}
+                    <th className="border border-gray-300 p-2 text-center">الكمية (قطعة)</th>
                     <th className="border border-gray-300 p-2 text-center">السعر</th>
                     <th className="border border-gray-300 p-2 text-center w-24">الحالة</th>
                   </tr>
@@ -233,8 +234,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         {item.description && <span className="text-gray-500 text-xs block">{item.description}</span>}
                       </td>
                       <td className="border border-gray-300 p-2 font-medium">{item.colorsDisplay}</td>
-                      {/* الكمية المطلوبة تظل بالدرزن كما هو بالعنوان (د) */}
-                      <td className="border border-gray-300 p-2 text-center font-bold text-lg">{item.totalQty}</td>
+                      {/* تم ضرب الكمية هنا في 4 لتصبح بالقطعة بدلاً من الدرزن */}
+                      <td className="border border-gray-300 p-2 text-center font-bold text-lg">{item.totalQty * 4}</td>
                       <td className="border border-gray-300 p-2 text-center">{item.price}</td>
                       <td className="border border-gray-300 p-2 text-center">
                         {item.isFullyReady ? (
@@ -242,9 +243,9 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         ) : (
                           <div className="flex flex-col items-center">
                             <span className="text-red-500 font-bold text-xl">❌</span>
-                            {/* هنا التعديل: ضرب الكمية المتاحة في 4 */}
                             {item.totalAllocatedPieces > 0 && (
                                 <span className="text-[12px] text-gray-700 whitespace-nowrap font-bold mt-1">
+                                    {/* هنا أيضاً نتأكد من العرض */}
                                     متاح: {item.totalAllocatedPieces * 4} ق
                                 </span>
                             )}
