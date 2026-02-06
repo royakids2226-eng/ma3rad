@@ -5,6 +5,12 @@ import Link from 'next/link';
 import { executeOrderBatch } from './actions';
 
 // تعريف الأنواع
+type LogItem = {
+    batchId: string;
+    quantity: number;
+    createdAt: Date;
+};
+
 type ItemDetail = {
   id: string;
   orderItemId: string;
@@ -15,9 +21,10 @@ type ItemDetail = {
   totalQtyPieces: number;
   alreadyFulfilled: number;
   remainingNeeded: number;
-  qtyAllocatedPieces: number; // المتاح للصرف الآن
+  qtyAllocatedPieces: number;
   isFullyReady: boolean;
   price: number;
+  logs: LogItem[]; // سجلات الصرف
 };
 
 type OrderType = {
@@ -34,17 +41,21 @@ type OrderType = {
 
 export default function SortingClient({ initialOrders }: { initialOrders: OrderType[] }) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState('date-desc');
+  const [showCompleted, setShowCompleted] = useState(false); // تبديل بين الجاري والمنتهي
   const [selectedOrder, setSelectedOrder] = useState<OrderType | null>(null);
   
-  // وضع العرض داخل المودال: 'batch' (للصرف الحالي) أو 'history' (لما تم تنفيذه سابقاً)
-  const [printMode, setPrintMode] = useState<'batch' | 'history'>('batch');
-  
+  // أوضاع العرض: 'current_batch' | 'full_history' | 'specific_batch'
+  const [viewMode, setViewMode] = useState<'current' | 'history' | 'specific'>('current');
+  const [selectedBatchId, setSelectedBatchId] = useState<string>(''); // الباتش المختار من القائمة
+
   const [isPending, startTransition] = useTransition();
 
-  // 1. منطق الفلترة والترتيب
-  const filteredAndSortedOrders = useMemo(() => {
-    let result = [...initialOrders];
+  // 1. الفلترة
+  const filteredOrders = useMemo(() => {
+    let result = initialOrders;
+
+    // فلترة حسب الحالة (منتهي / جاري)
+    result = result.filter(o => showCompleted ? o.isCompletelyDone : !o.isCompletelyDone);
 
     if (searchTerm) {
       const lowerTerm = searchTerm.toLowerCase();
@@ -54,100 +65,105 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
           o.orderNo.toString().includes(lowerTerm)
       );
     }
-
-    result.sort((a, b) => {
-      switch (sortBy) {
-        case 'ready-desc': return b.readinessPercentage - a.readinessPercentage;
-        case 'ready-asc': return a.readinessPercentage - b.readinessPercentage;
-        case 'date-asc': return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        case 'date-desc': default: return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      }
-    });
-
     return result;
-  }, [initialOrders, searchTerm, sortBy]);
+  }, [initialOrders, searchTerm, showCompleted]);
 
-  // 2. تجميع الأصناف للعرض في الفاتورة
-  const getGroupedInvoiceItems = (items: ItemDetail[]) => {
+
+  // 2. استخراج قائمة الباتشات السابقة للأوردر المختار
+  const pastBatches = useMemo(() => {
+      if (!selectedOrder) return [];
+      
+      const batchesMap = new Map<string, Date>();
+      selectedOrder.itemDetails.forEach(item => {
+          item.logs.forEach(log => {
+              if (!batchesMap.has(log.batchId)) {
+                  batchesMap.set(log.batchId, new Date(log.createdAt));
+              }
+          });
+      });
+
+      // تحويلها لمصفوفة وترتيبها الأحدث أولاً
+      return Array.from(batchesMap.entries()).map(([id, date]) => ({
+          id,
+          date
+      })).sort((a, b) => b.date.getTime() - a.date.getTime());
+
+  }, [selectedOrder]);
+
+
+  // 3. تجميع الأصناف حسب وضع العرض
+  const invoiceItems = useMemo(() => {
+    if (!selectedOrder) return [];
+
     const groups: { [key: string]: any } = {};
 
-    items.forEach((item) => {
+    selectedOrder.itemDetails.forEach((item) => {
+      // تحديد الكمية المراد عرضها بناءً على الوضع المختار
+      let quantityToShow = 0;
+      let colorsToShow: {[key:string]: number} = {};
+
+      if (viewMode === 'current') {
+          // عرض ما هو متاح للصرف الآن (Allocated)
+          quantityToShow = item.qtyAllocatedPieces;
+          if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
+
+      } else if (viewMode === 'history') {
+          // عرض إجمالي ما تم تنفيذه سابقاً
+          quantityToShow = item.alreadyFulfilled;
+           if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
+
+      } else if (viewMode === 'specific' && selectedBatchId) {
+          // عرض كمية الباتش المحدد فقط
+          const batchLog = item.logs.find(log => log.batchId === selectedBatchId);
+          quantityToShow = batchLog ? batchLog.quantity : 0;
+          if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
+      }
+
+      // التجميع
       if (!groups[item.modelNo]) {
         groups[item.modelNo] = {
           ...item,
-          // تجميع ألوان الكمية المتاحة حالياً
-          colorCountsBatch: item.qtyAllocatedPieces > 0 ? { [item.color]: item.qtyAllocatedPieces } : {},
-          // تجميع ألوان الكمية المنفذة سابقاً
-          colorCountsHistory: item.alreadyFulfilled > 0 ? { [item.color]: item.alreadyFulfilled } : {},
+          displayQty: quantityToShow,
+          colorsCount: colorsToShow,
           
-          totalQtyDozens: item.originalQtyDozens,
           totalQtyPieces: item.totalQtyPieces,
-          
-          totalAlreadyFulfilled: item.alreadyFulfilled,
           totalRemaining: item.remainingNeeded,
-          totalAllocatedNow: item.qtyAllocatedPieces,
         };
       } else {
-        groups[item.modelNo].totalQtyDozens += item.originalQtyDozens;
         groups[item.modelNo].totalQtyPieces += item.totalQtyPieces;
-        groups[item.modelNo].totalAlreadyFulfilled += item.alreadyFulfilled;
         groups[item.modelNo].totalRemaining += item.remainingNeeded;
-        groups[item.modelNo].totalAllocatedNow += item.qtyAllocatedPieces;
+        groups[item.modelNo].displayQty += quantityToShow;
 
-        // تجميع الألوان للباتش الحالي
-        if (item.qtyAllocatedPieces > 0) {
-            if (groups[item.modelNo].colorCountsBatch[item.color]) {
-                groups[item.modelNo].colorCountsBatch[item.color] += item.qtyAllocatedPieces;
-            } else {
-                groups[item.modelNo].colorCountsBatch[item.color] = item.qtyAllocatedPieces;
-            }
-        }
-
-        // تجميع الألوان للسجل السابق
-        if (item.alreadyFulfilled > 0) {
-            if (groups[item.modelNo].colorCountsHistory[item.color]) {
-                groups[item.modelNo].colorCountsHistory[item.color] += item.alreadyFulfilled;
-            } else {
-                groups[item.modelNo].colorCountsHistory[item.color] = item.alreadyFulfilled;
-            }
+        if (quantityToShow > 0) {
+            groups[item.modelNo].colorsCount[item.color] = (groups[item.modelNo].colorsCount[item.color] || 0) + quantityToShow;
         }
       }
     });
 
     return Object.values(groups).map((group: any) => {
-        // تنسيق عرض الألوان بناءً على الوضع
-        const formatColors = (counts: any) => Object.entries(counts)
+        const colorsStr = Object.entries(group.colorsCount)
           .map(([color, qty]) => `${color} (${qty})`)
           .join(' + ');
-        
-        const batchColors = formatColors(group.colorCountsBatch);
-        const historyColors = formatColors(group.colorCountsHistory);
 
         return {
             ...group,
-            batchColorsDisplay: batchColors === '' ? '-' : batchColors,
-            historyColorsDisplay: historyColors === '' ? '-' : historyColors,
-            // تحديد الحالة (صح/خطأ) بناءً على الوضع
-            isReadyInBatch: group.totalAllocatedNow > 0,
-            hasHistory: group.totalAlreadyFulfilled > 0,
-            isFullyDone: group.totalRemaining === 0
+            colorsDisplay: colorsStr === '' ? '-' : colorsStr,
+            isCheck: group.displayQty > 0 // علامة الصح إذا كان هناك كمية في هذا العرض
         };
     });
-  };
+  }, [selectedOrder, viewMode, selectedBatchId]);
 
-  const invoiceItems = useMemo(() => {
-    if (!selectedOrder) return [];
-    return getGroupedInvoiceItems(selectedOrder.itemDetails);
-  }, [selectedOrder]);
 
   const handleExecuteAndPrint = async () => {
     if (!selectedOrder) return;
-    if (printMode === 'history') {
+    
+    // إذا لم نكن في وضع "صرف جديد"، زر الطباعة يفتح نافذة الطباعة فقط
+    if (viewMode !== 'current') {
         window.print();
         return;
     }
 
-    if (!confirm('هل أنت متأكد من تنفيذ الكميات المتاحة وحفظها؟ سيتم خصمها من المخزون.')) return;
+    if (!confirm('هل أنت متأكد من تنفيذ الكميات المتاحة وحفظها؟')) return;
 
     const itemsToFulfill = selectedOrder.itemDetails
       .filter(item => item.qtyAllocatedPieces > 0)
@@ -164,6 +180,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     startTransition(async () => {
         const result = await executeOrderBatch(selectedOrder.id, itemsToFulfill);
         if (result.success) {
+            // بعد الحفظ بنجاح، ننتقل تلقائياً لعرض الباتش الأخير (الذي تم إنشاؤه للتو) نظرياً
+            // لكن هنا للتبسيط سنقوم بالطباعة ثم إغلاق المودال تلقائياً عبر التحديث
             setTimeout(() => window.print(), 500);
         } else {
             alert('حدث خطأ أثناء الحفظ.');
@@ -171,15 +189,15 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     });
   };
 
-  // عند فتح المودال، نحدد الوضع الافتراضي
   const openModal = (order: OrderType) => {
     setSelectedOrder(order);
-    // إذا لم يكن هناك شيء متاح للصرف الآن، نذهب تلقائياً لوضع التاريخ (السجل)
-    if (order.itemsAllocatedNow === 0 && order.itemsPendingTotal < order.itemDetails.reduce((a, b) => a + b.totalQtyPieces, 0)) {
-        setPrintMode('history');
+    // إذا كان الأوردر منتهي، نفتح مباشرة على التاريخ
+    if (order.isCompletelyDone) {
+        setViewMode('history');
     } else {
-        setPrintMode('batch');
+        setViewMode('current');
     }
+    setSelectedBatchId('');
   };
 
   return (
@@ -188,8 +206,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-slate-800">📦 فرز الأوردرات (دفعات)</h1>
-            <p className="text-slate-500 mt-1">إدارة صرف البضاعة (FIFO) وطباعة أذونات الصرف.</p>
+            <h1 className="text-3xl font-bold text-slate-800">📦 سجلات الفرز والتنفيذ</h1>
+            <p className="text-slate-500 mt-1">متابعة صرف الأوردرات وطباعة الباتشات السابقة.</p>
           </div>
           <div className="flex gap-2">
             <Link href="/" className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg transition-colors h-10 flex items-center">
@@ -198,70 +216,87 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
           </div>
         </div>
 
-        {/* Search Bar */}
-        <div className="bg-white p-4 rounded-xl shadow-sm mb-6 flex flex-col md:flex-row gap-4 border border-slate-100">
-          <input 
-            type="text" 
-            placeholder="ابحث باسم العميل أو رقم الأوردر..." 
-            className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <select 
-            className="w-full md:w-64 p-2 border border-slate-200 rounded-lg bg-white"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-          >
-            <option value="date-desc">التاريخ: الأحدث أولاً</option>
-            <option value="ready-desc">الجاهزية: الأعلى أولاً</option>
-          </select>
+        {/* Tabs & Search */}
+        <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-slate-100 space-y-4">
+           {/* Tabs */}
+           <div className="flex gap-2 border-b border-gray-100 pb-2">
+              <button 
+                onClick={() => setShowCompleted(false)}
+                className={`px-6 py-2 rounded-lg font-bold transition-all ${!showCompleted ? 'bg-slate-800 text-white shadow-lg' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+              >
+                 ⏳ قيد التنفيذ
+              </button>
+              <button 
+                onClick={() => setShowCompleted(true)}
+                className={`px-6 py-2 rounded-lg font-bold transition-all ${showCompleted ? 'bg-green-600 text-white shadow-lg' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+              >
+                 ✅ تم الانتهاء (الأرشيف)
+              </button>
+           </div>
+
+           <div className="flex flex-col md:flex-row gap-4">
+                <input 
+                    type="text" 
+                    placeholder="ابحث باسم العميل أو رقم الأوردر..." 
+                    className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+           </div>
         </div>
 
         {/* Orders Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredAndSortedOrders.map((order) => {
+          {filteredOrders.map((order) => {
              let statusColor = "bg-red-500";
              let statusText = "text-red-600";
-             if (order.readinessPercentage === 100) {
-                statusColor = "bg-emerald-500";
-                statusText = "text-emerald-600";
+             
+             if (order.isCompletelyDone) {
+                statusColor = "bg-green-600";
+                statusText = "text-green-700";
              } else if (order.readinessPercentage > 0) {
                 statusColor = "bg-amber-500";
                 statusText = "text-amber-600";
              }
 
             return (
-              <div key={order.id} className="bg-white rounded-lg shadow-sm p-5 border border-slate-100 relative group">
+              <div key={order.id} className={`bg-white rounded-lg shadow-sm p-5 border relative group ${order.isCompletelyDone ? 'border-green-200 bg-green-50' : 'border-slate-100'}`}>
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h2 className="text-lg font-bold text-slate-800">{order.customer.name}</h2>
                     <span className="text-sm text-slate-500">#{order.orderNo}</span>
                   </div>
                   <div className={`text-xl font-bold ${statusText}`}>
-                    {order.readinessPercentage}% <span className="text-xs text-gray-400 font-normal">(متاح)</span>
+                    {order.isCompletelyDone ? 'مكتمل ✅' : `${order.readinessPercentage}%`}
                   </div>
                 </div>
 
-                <div className="w-full bg-slate-100 rounded-full h-4 mb-4 overflow-hidden">
-                  <div className={`${statusColor} h-4 rounded-full`} style={{ width: `${order.readinessPercentage}%` }}></div>
-                </div>
+                {!order.isCompletelyDone && (
+                    <div className="w-full bg-slate-100 rounded-full h-4 mb-4 overflow-hidden">
+                        <div className={`${statusColor} h-4 rounded-full`} style={{ width: `${order.readinessPercentage}%` }}></div>
+                    </div>
+                )}
 
                 <div className="flex justify-between items-center text-sm text-slate-600 mb-4">
-                   <span>متبقي: {order.itemsPendingTotal} / جاهز للصرف: {order.itemsAllocatedNow}</span>
+                   {order.isCompletelyDone ? (
+                       <span>تم تسليم كافة البنود</span>
+                   ) : (
+                       <span>متبقي: {order.itemsPendingTotal} / متاح الآن: {order.itemsAllocatedNow}</span>
+                   )}
                 </div>
 
                 <button 
                   onClick={() => openModal(order)}
-                  className="w-full py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors font-bold flex justify-center items-center gap-2"
+                  className={`w-full py-2 text-white rounded-lg transition-colors font-bold flex justify-center items-center gap-2 ${order.isCompletelyDone ? 'bg-green-600 hover:bg-green-700' : 'bg-slate-800 hover:bg-slate-700'}`}
                 >
-                  📄 معاينة / طباعة
+                  {order.isCompletelyDone ? '📄 مراجعة الأرشيف' : '📄 تنفيذ / طباعة'}
                 </button>
               </div>
             );
           })}
-          {filteredAndSortedOrders.length === 0 && (
+          {filteredOrders.length === 0 && (
             <div className="col-span-full text-center py-10 text-gray-500">
-                لا توجد أوردرات مطابقة للبحث.
+                لا توجد أوردرات في هذه القائمة.
             </div>
           )}
         </div>
@@ -277,55 +312,88 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
             {/* أزرار التحكم - لا تظهر في الطباعة */}
             <div className="flex flex-col gap-4 mb-8 print:hidden border-b pb-4">
               <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-bold">معاينة إذن الصرف</h2>
+                  <h2 className="text-xl font-bold">
+                      {selectedOrder.isCompletelyDone ? 'أرشيف التسليمات' : 'إدارة الصرف'}
+                  </h2>
                   <button onClick={() => setSelectedOrder(null)} className="text-gray-500 hover:text-red-500 text-2xl font-bold">&times;</button>
               </div>
               
-              {/* تبديل الوضع */}
-              <div className="flex bg-gray-100 p-1 rounded-lg w-fit">
+              {/* خيارات العرض */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
+                
+                {/* 1. الصرف الحالي */}
                 <button 
-                    onClick={() => setPrintMode('batch')}
-                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${printMode === 'batch' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => { setViewMode('current'); setSelectedBatchId(''); }}
+                    disabled={selectedOrder.isCompletelyDone}
+                    className={`p-3 rounded-lg border text-sm font-bold flex flex-col items-center gap-1
+                        ${viewMode === 'current' ? 'bg-white border-blue-500 text-blue-600 shadow-md ring-1 ring-blue-500' : 'bg-gray-100 text-gray-500 border-transparent hover:bg-white'}
+                        ${selectedOrder.isCompletelyDone ? 'opacity-50 cursor-not-allowed' : ''}
+                    `}
                 >
-                    الدفعة الحالية (جاهز للصرف)
+                    <span>⚡ دفعة جديدة (متاحة الآن)</span>
                 </button>
+
+                {/* 2. باتش سابق محدد */}
+                <div className={`p-3 rounded-lg border flex flex-col gap-2 ${viewMode === 'specific' ? 'bg-white border-purple-500 shadow-md ring-1 ring-purple-500' : 'bg-gray-100 border-transparent'}`}>
+                    <label className={`text-sm font-bold text-center ${viewMode === 'specific' ? 'text-purple-600' : 'text-gray-500'}`}>📅 باتش سابق (أرشيف)</label>
+                    <select 
+                        className="w-full p-1 text-sm border rounded"
+                        value={selectedBatchId}
+                        onChange={(e) => { 
+                            setSelectedBatchId(e.target.value); 
+                            setViewMode(e.target.value ? 'specific' : viewMode);
+                        }}
+                    >
+                        <option value="">-- اختر تاريخ الصرف --</option>
+                        {pastBatches.map(batch => (
+                            <option key={batch.id} value={batch.id}>
+                                {new Date(batch.date).toLocaleString('ar-EG')}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                {/* 3. الإجمالي */}
                 <button 
-                    onClick={() => setPrintMode('history')}
-                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${printMode === 'history' ? 'bg-white shadow text-purple-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => { setViewMode('history'); setSelectedBatchId(''); }}
+                    className={`p-3 rounded-lg border text-sm font-bold flex flex-col items-center gap-1
+                        ${viewMode === 'history' ? 'bg-white border-gray-600 text-gray-800 shadow-md ring-1 ring-gray-600' : 'bg-gray-100 text-gray-500 border-transparent hover:bg-white'}
+                    `}
                 >
-                    سجل التنفيذ السابق (إعادة طباعة)
+                    <span>∑ إجمالي كل ما تم صرفه</span>
                 </button>
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 mt-2">
                 <button 
                     onClick={handleExecuteAndPrint} 
-                    disabled={isPending || (printMode === 'batch' && selectedOrder.itemsAllocatedNow === 0)}
+                    disabled={isPending || (viewMode === 'current' && selectedOrder.itemsAllocatedNow === 0)}
                     className={`px-6 py-2 rounded text-white flex items-center gap-2 font-bold shadow-md
-                        ${isPending || (printMode === 'batch' && selectedOrder.itemsAllocatedNow === 0) 
+                        ${isPending || (viewMode === 'current' && selectedOrder.itemsAllocatedNow === 0) 
                             ? 'bg-gray-400 cursor-not-allowed' 
-                            : printMode === 'batch' ? 'bg-green-600 hover:bg-green-700' : 'bg-purple-600 hover:bg-purple-700'
+                            : viewMode === 'current' ? 'bg-green-600 hover:bg-green-700' : 'bg-slate-800 hover:bg-slate-900'
                         }`}
                 >
-                    {isPending ? 'جاري الحفظ...' : (printMode === 'batch' ? '💾 تنفيذ وطباعة الدفعة' : '🖨️ طباعة السجل السابق')}
+                    {isPending ? 'جاري الحفظ...' : (viewMode === 'current' ? '💾 حفظ وطباعة الدفعة' : '🖨️ طباعة السجل المعروض')}
                 </button>
                 <button onClick={() => setSelectedOrder(null)} className="bg-red-100 text-red-600 px-4 py-2 rounded hover:bg-red-200">إغلاق</button>
               </div>
-
-              {printMode === 'batch' && selectedOrder.itemsAllocatedNow === 0 && (
-                  <div className="bg-amber-50 text-amber-700 px-4 py-2 rounded border border-amber-200 text-sm">
-                      ⚠️ تنبيه: لا توجد كميات متوفرة حالياً للصرف في هذا الأوردر. يمكنك التبديل لوضع "سجل التنفيذ السابق" لطباعة ما تم صرفه سابقاً.
-                  </div>
-              )}
             </div>
 
             {/* ورقة الطباعة */}
             <div className="print:block" dir="rtl">
               <div className="text-center mb-8 border-b border-black pb-4">
                  <h1 className="text-3xl font-bold mb-2">
-                    {printMode === 'batch' ? 'إذن صرف بضاعة (دفعة جديدة)' : 'تقرير صرف بضاعة (سجل سابق)'}
+                    {viewMode === 'current' ? 'إذن صرف بضاعة' : (viewMode === 'specific' ? 'نسخة طبق الأصل (باتش سابق)' : 'تقرير إجمالي المسحوبات')}
                  </h1>
-                 <p className="text-gray-600">تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</p>
+                 <p className="text-gray-600">
+                     تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}
+                     {viewMode === 'specific' && selectedBatchId && (
+                         <span className="block text-sm font-bold mt-1">
+                             (تاريخ تنفيذ الباتش: {pastBatches.find(b => b.id === selectedBatchId)?.date.toLocaleString('ar-EG')})
+                         </span>
+                     )}
+                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-8 mb-8 bg-gray-50 p-4 rounded print:bg-transparent print:p-0 print:border print:border-gray-300">
@@ -337,12 +405,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                   <p className="text-gray-500 text-sm">رقم الأوردر</p>
                   <p className="font-bold text-lg">#{selectedOrder.orderNo}</p>
                 </div>
-                {selectedOrder.customer.phone && (
-                   <div><p className="text-gray-500 text-sm">الهاتف</p><p>{selectedOrder.customer.phone}</p></div>
-                )}
-                {selectedOrder.customer.address && (
-                   <div><p className="text-gray-500 text-sm">العنوان</p><p>{selectedOrder.customer.address}</p></div>
-                )}
               </div>
 
               {/* الجدول */}
@@ -352,86 +414,43 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                     <th className="border border-gray-300 p-2 w-10">م</th>
                     <th className="border border-gray-300 p-2 w-10">حالة</th>
                     <th className="border border-gray-300 p-2 text-right">الموديل</th>
-                    <th className="border border-gray-300 p-2 text-right">
-                        {printMode === 'batch' ? 'ألوان (الصرف الحالي)' : 'ألوان (تم صرفها)'}
-                    </th>
-                    <th className="border border-gray-300 p-2 text-center w-20">المطلوب (الكل)</th>
-                    
-                    {printMode === 'batch' ? (
-                        <>
-                             <th className="border border-gray-300 p-2 text-center w-24 bg-gray-200 print:bg-gray-300 font-bold">يصرف الآن</th>
-                             <th className="border border-gray-300 p-2 text-center w-20 text-gray-500">متبقي</th>
-                        </>
-                    ) : (
-                        <>
-                             <th className="border border-gray-300 p-2 text-center w-24 bg-gray-200 print:bg-gray-300 font-bold">تم صرفه</th>
-                             <th className="border border-gray-300 p-2 text-center w-20 text-gray-500">متبقي</th>
-                        </>
-                    )}
+                    <th className="border border-gray-300 p-2 text-right">الألوان</th>
+                    <th className="border border-gray-300 p-2 text-center w-20">المطلوب</th>
+                    <th className="border border-gray-300 p-2 text-center w-24 bg-gray-200 print:bg-gray-300 font-bold">الكمية</th>
+                    <th className="border border-gray-300 p-2 text-center w-20 text-gray-500">متبقي</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {invoiceItems.map((item: any, index: number) => {
-                    // تحديد الحالة والعلامة
-                    let isCheck = false;
-                    let displayQty = 0;
-                    let colorsDisplay = '';
-
-                    if (printMode === 'batch') {
-                        isCheck = item.isReadyInBatch;
-                        displayQty = item.totalAllocatedNow;
-                        colorsDisplay = item.batchColorsDisplay;
-                    } else {
-                        isCheck = item.hasHistory;
-                        displayQty = item.totalAlreadyFulfilled;
-                        colorsDisplay = item.historyColorsDisplay;
-                    }
-
-                    return (
-                        <tr key={index} className="text-sm">
+                  {invoiceItems.map((item: any, index: number) => (
+                    <tr key={index} className="text-sm">
                         <td className="border border-gray-300 p-2 text-center">{index + 1}</td>
-                        
-                        {/* عمود الصح والخطأ */}
                         <td className="border border-gray-300 p-2 text-center text-lg">
-                            {isCheck ? '✅' : '❌'}
+                            {item.isCheck ? '✅' : '❌'}
                         </td>
-
                         <td className="border border-gray-300 p-2">
                             <span className="font-bold text-base block">{item.modelNo}</span>
                             {item.description && <span className="text-gray-500 text-xs">{item.description}</span>}
                         </td>
-                        
                         <td className="border border-gray-300 p-2 font-medium text-xs">
-                            {colorsDisplay}
+                            {item.colorsDisplay}
                         </td>
-
-                        {/* إجمالي المطلوب بالقطعة */}
                         <td className="border border-gray-300 p-2 text-center text-gray-600">
                             {item.totalQtyPieces}
                         </td>
-
-                        {/* العمود الرئيسي المتغير */}
-                        <td className={`border border-gray-300 p-2 text-center font-bold text-lg ${isCheck ? 'bg-gray-50 print:bg-gray-100' : ''}`}>
-                            {displayQty > 0 ? displayQty : '-'}
+                        <td className={`border border-gray-300 p-2 text-center font-bold text-lg ${item.isCheck ? 'bg-gray-50 print:bg-gray-100' : ''}`}>
+                            {item.displayQty > 0 ? item.displayQty : '-'}
                         </td>
-
-                        {/* المتبقي */}
                         <td className="border border-gray-300 p-2 text-center text-gray-400">
                             {item.totalRemaining > 0 ? item.totalRemaining : '0'}
                         </td>
-                        </tr>
-                    );
-                  })}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
 
               <div className="flex justify-between items-center border-t border-black pt-4 mt-4">
                 <div>
-                   {printMode === 'batch' ? (
-                       <p>إجمالي المصروف في هذه الدفعة: <span className="font-bold">{selectedOrder.itemsAllocatedNow} قطعة</span></p>
-                   ) : (
-                       <p>إجمالي ما تم تنفيذه سابقاً: <span className="font-bold text-purple-700">{selectedOrder.itemDetails.reduce((a,b)=>a+b.alreadyFulfilled, 0)} قطعة</span></p>
-                   )}
+                   <p className="font-bold text-lg">الإجمالي: {invoiceItems.reduce((acc:number, cur:any) => acc + cur.displayQty, 0)} قطعة</p>
                 </div>
                 <div className="text-left text-sm space-y-8 mt-4">
                    <p>توقيع المستلم: .......................................</p>

@@ -6,32 +6,26 @@ interface StockMap {
 }
 
 async function getOrdersWithAllocation() {
-  // 1. جلب إجمالي الوارد (المخزن)
+  // 1. جلب إجمالي الوارد
   const warehouseIn = await prisma.warehouseReceipt.groupBy({
     by: ['modelNo'],
     _sum: { most: true },
   });
 
-  // 2. جلب إجمالي المنصرف (ما تم تنفيذه في أوردرات سابقة)
-  // نحتاج تجميع fulfilledQty لكل منتج من جدول OrderItem
-  // بما أن OrderItem مربوط بـ Product وليس modelNo مباشرة، سنجلب البيانات ونجمعها يدوياً أو عبر groupBy إذا كان prisma يدعم ذلك عبر العلاقة (Prisma groupBy limited on relations).
-  // الحل الأضمن: جلب كل OrderItem الذي له fulfilledQty > 0
+  // 2. جلب إجمالي المنصرف
   const fulfilledItems = await prisma.orderItem.findMany({
     where: { fulfilledQty: { gt: 0 } },
     include: { product: true },
   });
 
-  // حساب الرصيد الفعلي المتاح (الوارد - المنصرف)
   let availableStock: StockMap = {};
 
-  // أضف الوارد
   warehouseIn.forEach((item) => {
     if (item.modelNo && item._sum.most) {
       availableStock[item.modelNo] = item._sum.most;
     }
   });
 
-  // اخصم المنصرف
   fulfilledItems.forEach((item) => {
     const model = item.product.modelNo;
     if (availableStock[model]) {
@@ -39,46 +33,44 @@ async function getOrdersWithAllocation() {
     }
   });
 
-  // تنظيف الأرصدة السالبة (تحوطاً)
   Object.keys(availableStock).forEach(key => {
     if (availableStock[key] < 0) availableStock[key] = 0;
   });
 
 
-  // 3. جلب الأوردرات التي لم تكتمل بعد
+  // 3. جلب الأوردرات (بما فيها المنتهية)
+  // ⚠️ نضيف include: { logs: true } لجلب السجلات
   const orders = await prisma.order.findMany({
-    orderBy: { createdAt: 'asc' }, // FIFO
+    orderBy: { createdAt: 'asc' }, 
     include: {
       customer: true,
       items: {
-        include: { product: true },
+        include: { 
+            product: true,
+            logs: true // 👈 هام جداً
+        },
       },
     },
   });
 
-  // 4. خوارزمية التوزيع وتفاصيل الأصناف
+  // 4. الحسابات
   const processedOrders = orders.map((order) => {
-    let totalItemsPending = 0;   // إجمالي القطع المتبقية للتنفيذ في هذا الأوردر
-    let totalItemsAllocated = 0; // إجمالي القطع التي يمكن توفيرها الآن (الباتش الحالي)
-
-    // هل الأوردر مكتمل بالكامل سابقاً؟ (لا يوجد أي صنف له رصيد متبقي)
+    let totalItemsPending = 0;
+    let totalItemsAllocated = 0;
     let isCompletelyDone = true;
 
     const itemDetails = order.items.map((item) => {
       const modelNo = item.product.modelNo;
       
-      // الحسابات
-      const totalQtyPieces = item.quantity * 4; // المطلوب الكلي (قطعة)
-      const alreadyFulfilled = item.fulfilledQty; // ما تم تنفيذه سابقاً (قطعة)
-      const remainingNeeded = Math.max(0, totalQtyPieces - alreadyFulfilled); // المتبقي (قطعة)
+      const totalQtyPieces = item.quantity * 4; 
+      const alreadyFulfilled = item.fulfilledQty; 
+      const remainingNeeded = Math.max(0, totalQtyPieces - alreadyFulfilled); 
 
       if (remainingNeeded > 0) isCompletelyDone = false;
 
-      // حساب المتاح للتنفيذ الآن من الرصيد الحر
       const currentStock = availableStock[modelNo] || 0;
       const qtyAllocatedNow = Math.min(remainingNeeded, currentStock);
 
-      // خصم ما تم حجزه لهذا الأوردر من الرصيد العام المؤقت
       if (availableStock[modelNo]) {
         availableStock[modelNo] -= qtyAllocatedNow;
       }
@@ -96,17 +88,22 @@ async function getOrdersWithAllocation() {
         originalQtyDozens: item.quantity,
         totalQtyPieces: totalQtyPieces,
         
-        alreadyFulfilled: alreadyFulfilled, // تم تنفيذه سابقاً
-        remainingNeeded: remainingNeeded,   // ما يحتاجه الآن
-        qtyAllocatedPieces: qtyAllocatedNow,// ما سأنفذه في هذا الباتش
+        alreadyFulfilled: alreadyFulfilled,
+        remainingNeeded: remainingNeeded,
+        qtyAllocatedPieces: qtyAllocatedNow,
 
-        isFullyReady: qtyAllocatedNow >= remainingNeeded && remainingNeeded > 0, // هل هذا الباتش يغلق الصنف؟
-        price: item.price
+        isFullyReady: qtyAllocatedNow >= remainingNeeded && remainingNeeded > 0,
+        price: item.price,
+
+        // 👈 نمرر السجلات للعميل
+        logs: item.logs.map(log => ({
+            batchId: log.batchId,
+            quantity: log.quantity,
+            createdAt: log.createdAt
+        }))
       };
     });
 
-    // حساب النسبة المئوية بناءً على (المتوفر الآن / المتبقي)
-    // إذا لم يتبق شيء (0)، فالنسبة 100% (أو يتم تجاهله لاحقاً)
     const percentage = totalItemsPending > 0 
       ? Math.round((totalItemsAllocated / totalItemsPending) * 100) 
       : (isCompletelyDone ? 100 : 0);
@@ -121,21 +118,16 @@ async function getOrdersWithAllocation() {
       },
       createdAt: order.createdAt,
       readinessPercentage: percentage,
-      
-      // بيانات للعرض
-      itemsAllocatedNow: totalItemsAllocated, // قطع جاهزة للصرف الآن
-      itemsPendingTotal: totalItemsPending,   // قطع مطلوبة لإغلاق الأوردر
-      isCompletelyDone: isCompletelyDone,     // هل الأوردر منتهي تماماً؟
-      
+      itemsAllocatedNow: totalItemsAllocated,
+      itemsPendingTotal: totalItemsPending,
+      isCompletelyDone: isCompletelyDone,
       itemDetails: itemDetails
     };
   });
 
-  // تصفية الأوردرات المنتهية تماماً (اختياري، لكن يفضل إخفاؤها أو وضعها في قسم آخر)
-  // هنا سنعرض فقط الأوردرات التي بها متبقي > 0
-  const activeOrders = processedOrders.filter(o => !o.isCompletelyDone).reverse();
-
-  return activeOrders;
+  // نعيد ترتيب المصفوفة ليكون الأحدث أولاً، ولا نقوم بإخفاء المنتهية هنا
+  // سنترك الفلترة للعميل (Client Component)
+  return processedOrders.reverse();
 }
 
 export const dynamic = 'force-dynamic';

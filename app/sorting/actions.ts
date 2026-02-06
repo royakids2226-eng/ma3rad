@@ -2,30 +2,43 @@
 
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { randomUUID } from 'crypto'; // لإنشاء معرف فريد للباتش
 
 type FulfillmentItem = {
   orderItemId: string;
-  qtyToFulfill: number; // الكمية التي سيتم صرفها الآن (بالقطعة)
+  qtyToFulfill: number;
 };
 
 export async function executeOrderBatch(orderId: string, items: FulfillmentItem[]) {
   try {
-    // نستخدم transaction لضمان سلامة البيانات
+    // إنشاء معرف موحد لهذه الدفعة (Batch ID)
+    const batchId = randomUUID();
+
     await prisma.$transaction(
       items.map((item) => {
-        return prisma.orderItem.update({
-          where: { id: item.orderItemId },
-          data: {
-            // نقوم بزيادة الكمية المنفذة بالقيمة الجديدة
-            fulfilledQty: {
-              increment: item.qtyToFulfill,
-            },
-          },
-        });
-      })
+        // عمليتان لكل صنف:
+        // 1. تحديث إجمالي المنفذ في OrderItem
+        // 2. إنشاء سجل جديد في FulfillmentLog
+        return [
+            prisma.orderItem.update({
+                where: { id: item.orderItemId },
+                data: {
+                    fulfilledQty: {
+                        increment: item.qtyToFulfill,
+                    },
+                },
+            }),
+            prisma.fulfillmentLog.create({
+                data: {
+                    orderItemId: item.orderItemId,
+                    quantity: item.qtyToFulfill,
+                    batchId: batchId,
+                }
+            })
+        ];
+      }).flat() // دمج المصفوفات لأننا نرجع مصفوفتين لكل عنصر
     );
 
-    // إعادة تحميل صفحة الفرز لتحديث البيانات والحسابات
     revalidatePath('/sorting');
     
     return { success: true };

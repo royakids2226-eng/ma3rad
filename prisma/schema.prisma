@@ -37,8 +37,8 @@ model Product {
   description  String?
   material     String?
   color        String
-  stockQty     Int         @default(0) // الرصيد الافتتاحي (ثابت)
-  currentStock Int         @default(0) // الرصيد الحالي الفعلي
+  stockQty     Int         @default(0)
+  currentStock Int         @default(0)
   price        Float
   discount     Float       @default(0.0)
   status       String      @default("OPEN") 
@@ -81,10 +81,23 @@ model OrderItem {
   order           Order   @relation(fields: [orderId], references: [id])
   productId       String
   product         Product @relation(fields: [productId], references: [id])
-  quantity        Int     // الكمية الأصلية المطلوبة (بالدرزن حسب سياقك)
-  fulfilledQty    Int     @default(0) // 👈 جديد: الكمية التي تم صرفها بالفعل (بالقطعة)
+  quantity        Int     
+  fulfilledQty    Int     @default(0) 
   price           Float
   discountPercent Int     @default(0)
+  
+  // العلاقة الجديدة لسجل الصرف
+  logs            FulfillmentLog[]
+}
+
+// 👈 هذا هو الجدول الجديد
+model FulfillmentLog {
+  id          String   @id @default(cuid())
+  orderItemId String
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
+  quantity    Int       // الكمية المصروفة في هذه الحركة
+  batchId     String    // كود موحد لكل الأصناف التي صرفت في نفس اللحظة
+  createdAt   DateTime  @default(now())
 }
 
 model Payment {
