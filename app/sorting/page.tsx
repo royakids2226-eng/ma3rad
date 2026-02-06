@@ -12,7 +12,6 @@ async function getOrdersWithReadiness() {
   });
 
   // تحويل المخزون إلى Map لسهولة البحث بسرعة عالية
-  // الشكل: { "MODEL-001": 50, "MODEL-002": 20 }
   const stockMap = new Map<string, number>();
   warehouseStock.forEach((item) => {
     if (item.modelNo && item._sum.most) {
@@ -20,9 +19,9 @@ async function getOrdersWithReadiness() {
     }
   });
 
-  // 2. جلب الأوردرات المفتوحة (أو الكل حسب الحاجة) مع تفاصيل الأصناف والعملاء
+  // 2. جلب الأوردرات
   const orders = await prisma.order.findMany({
-    orderBy: { createdAt: 'desc' }, // الأحدث أولاً
+    orderBy: { createdAt: 'desc' },
     include: {
       customer: true,
       items: {
@@ -33,22 +32,21 @@ async function getOrdersWithReadiness() {
     },
   });
 
-  // 3. حساب نسبة الجاهزية لكل أوردر
+  // 3. حساب نسبة الجاهزية
   const ordersWithStatus = orders.map((order) => {
     let totalItemsRequired = 0;
     let totalItemsAvailableInStock = 0;
 
     order.items.forEach((item) => {
       const modelNo = item.product.modelNo;
-      const requiredQty = item.quantity;
       
-      // الكمية الموجودة فعلياً في المخزن لهذا الموديل
-      // (نستخدم القيمة المحفوظة في الذاكرة لتجنب استعلامات كثيرة)
+      // ⚠️ التعديل هنا: ضرب كمية الأوردر في 4 لتحويلها إلى قطع
+      const requiredQty = item.quantity * 4; 
+      
+      // الكمية الموجودة فعلياً في المخزن (بالقطعة)
       const actualStockQty = stockMap.get(modelNo) || 0;
 
-      // الكمية المتوفرة لهذا البند تحديداً
-      // (لا يمكن أن تزيد عن الكمية المطلوبة في الأوردر)
-      // ملاحظة: هذا حساب نظري (هل البضاعة موجودة بالمخزن؟) ولا يخصم المحجوز لأوردرات أخرى
+      // الكمية الجاهزة لهذا البند (لا تتعدى المطلوب)
       const readyQty = Math.min(requiredQty, actualStockQty);
 
       totalItemsRequired += requiredQty;
@@ -63,15 +61,15 @@ async function getOrdersWithReadiness() {
     return {
       ...order,
       readinessPercentage: percentage,
-      itemsFound: totalItemsAvailableInStock,
-      itemsTotal: totalItemsRequired
+      itemsFound: totalItemsAvailableInStock, // عدد القطع الجاهزة
+      itemsTotal: totalItemsRequired          // إجمالي القطع المطلوبة (بعد الضرب في 4)
     };
   });
 
   return ordersWithStatus;
 }
 
-export const dynamic = 'force-dynamic'; // لضمان عدم تخزين الصفحة (Cache) وتحديث البيانات دائماً
+export const dynamic = 'force-dynamic';
 
 export default async function SortingPage() {
   const orders = await getOrdersWithReadiness();
@@ -82,7 +80,7 @@ export default async function SortingPage() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">📦 فرز ومتابعة الأوردرات</h1>
-          <p className="text-slate-500 mt-1">مقارنة الأوردرات برصيد المخزن الفعلي (القص)</p>
+          <p className="text-slate-500 mt-1">مقارنة القطع المطلوبة (×4) برصيد المخزن الفعلي</p>
         </div>
         <Link 
           href="/" 
@@ -95,7 +93,6 @@ export default async function SortingPage() {
       {/* Grid of Orders */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {orders.map((order) => {
-          // تحديد لون الحالة بناءً على النسبة
           let statusColor = "bg-red-500";
           let statusText = "text-red-600";
           let cardBorder = "border-l-4 border-l-red-500";
@@ -118,7 +115,7 @@ export default async function SortingPage() {
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h2 className="text-lg font-bold text-slate-800">{order.customer.name}</h2>
-                    <span className="text-sm text-slate-500">أوردر رقم: #{order.orderNo}</span>
+                    <span className="text-sm text-slate-500">#{order.orderNo}</span>
                   </div>
                   <div className={`text-xl font-bold ${statusText}`}>
                     {order.readinessPercentage}%
@@ -136,11 +133,11 @@ export default async function SortingPage() {
                 {/* Details Footer */}
                 <div className="flex justify-between items-center text-sm text-slate-600 mt-2">
                   <span>
-                    الكمية: {order.itemsTotal} / <span className="font-bold">المتاح: {order.itemsFound}</span>
+                     مطلوب: <span className="font-bold">{order.itemsTotal}</span> / متاح: <span className="font-bold text-emerald-600">{order.itemsFound}</span> (قطعة)
                   </span>
-                  <span className="text-xs text-slate-400">
+                </div>
+                <div className="text-xs text-slate-400 mt-1 text-left">
                     {new Date(order.createdAt).toLocaleDateString('ar-EG')}
-                  </span>
                 </div>
 
               </div>
