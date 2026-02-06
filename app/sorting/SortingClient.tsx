@@ -62,27 +62,45 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     const groups: { [key: string]: any } = {};
 
     items.forEach((item) => {
+      // تحويل الكمية لقطع لاستخدامها في تفصيل الألوان
+      const itemPieces = item.originalQty * 4;
+
       if (!groups[item.modelNo]) {
         groups[item.modelNo] = {
           ...item,
-          colors: [item.color],
+          // هنا ننشئ كائناً لتخزين الكمية لكل لون: { "أحمر": 4, "أزرق": 8 }
+          colorCounts: { [item.color]: itemPieces },
           totalQty: item.originalQty, // إجمالي الكمية (د)
           totalNeededPieces: item.qtyNeededPieces,
           totalAllocatedPieces: item.qtyAllocatedPieces,
         };
       } else {
-        groups[item.modelNo].colors.push(item.color);
+        // إذا كان الموديل موجوداً، نجمع الكميات
         groups[item.modelNo].totalQty += item.originalQty;
         groups[item.modelNo].totalNeededPieces += item.qtyNeededPieces;
         groups[item.modelNo].totalAllocatedPieces += item.qtyAllocatedPieces;
+
+        // تحديث كمية اللون المحدد
+        if (groups[item.modelNo].colorCounts[item.color]) {
+          groups[item.modelNo].colorCounts[item.color] += itemPieces;
+        } else {
+          groups[item.modelNo].colorCounts[item.color] = itemPieces;
+        }
       }
     });
 
-    return Object.values(groups).map((group: any) => ({
-      ...group,
-      colorsDisplay: [...new Set(group.colors)].join(' + '),
-      isFullyReady: group.totalAllocatedPieces >= group.totalNeededPieces
-    }));
+    return Object.values(groups).map((group: any) => {
+      // تحويل كائن الألوان إلى نص منسق: "لون (كمية) + لون (كمية)"
+      const colorsDisplay = Object.entries(group.colorCounts)
+        .map(([color, qty]) => `${color} (${qty})`)
+        .join(' + ');
+
+      return {
+        ...group,
+        colorsDisplay: colorsDisplay, // النص الجديد
+        isFullyReady: group.totalAllocatedPieces >= group.totalNeededPieces
+      };
+    });
   };
 
   const invoiceItems = useMemo(() => {
@@ -219,7 +237,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                     <th className="border border-gray-300 p-2 text-right w-12">#</th>
                     <th className="border border-gray-300 p-2 text-right">الموديل</th>
                     <th className="border border-gray-300 p-2 text-right">الألوان</th>
-                    {/* تم تغيير العنوان هنا من (د) إلى (قطعة) */}
                     <th className="border border-gray-300 p-2 text-center">الكمية (قطعة)</th>
                     <th className="border border-gray-300 p-2 text-center">السعر</th>
                     <th className="border border-gray-300 p-2 text-center w-24">الحالة</th>
@@ -234,7 +251,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         {item.description && <span className="text-gray-500 text-xs block">{item.description}</span>}
                       </td>
                       <td className="border border-gray-300 p-2 font-medium">{item.colorsDisplay}</td>
-                      {/* تم ضرب الكمية هنا في 4 لتصبح بالقطعة بدلاً من الدرزن */}
                       <td className="border border-gray-300 p-2 text-center font-bold text-lg">{item.totalQty * 4}</td>
                       <td className="border border-gray-300 p-2 text-center">{item.price}</td>
                       <td className="border border-gray-300 p-2 text-center">
@@ -245,7 +261,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                             <span className="text-red-500 font-bold text-xl">❌</span>
                             {item.totalAllocatedPieces > 0 && (
                                 <span className="text-[12px] text-gray-700 whitespace-nowrap font-bold mt-1">
-                                    {/* هنا أيضاً نتأكد من العرض */}
                                     متاح: {item.totalAllocatedPieces * 4} ق
                                 </span>
                             )}
