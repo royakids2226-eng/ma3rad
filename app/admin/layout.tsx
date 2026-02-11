@@ -23,57 +23,61 @@ export default async function AdminLayout({
   });
 
   // التحقق من الصلاحية (أدمن أو مالك)
-  // ملاحظة: إذا كان المحاسب لديه دور مختلف عن ADMIN يرجى إضافته هنا
   if (!user || (user.role !== "ADMIN" && user.role !== "OWNER")) {
     redirect("/");
   }
 
   return (
     <div className="min-h-screen bg-gray-100 font-sans" dir="rtl">
-      <nav className="bg-slate-900 text-white p-4 shadow-md mb-6 sticky top-0 z-50">
+      <nav className="bg-slate-900 text-white p-4 shadow-xl mb-8 sticky top-0 z-50 backdrop-blur-md bg-slate-900/95 border-b border-slate-800">
         <div className="container mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           
-          <div className="text-xl font-bold flex items-center gap-2">
-            <span>🛡️ لوحة التحكم</span>
-            <span className="text-xs font-normal bg-slate-700 px-2 py-1 rounded text-gray-300">
-              {user.name}
-            </span>
+          <div className="text-xl font-bold flex items-center gap-3">
+            <span className="text-2xl">🛡️</span>
+            <div>
+                <span className="block leading-none">لوحة التحكم</span>
+                <span className="text-[10px] font-normal text-slate-400">
+                  مرحباً بك، {user.name}
+                </span>
+            </div>
           </div>
 
-          <div className="flex flex-wrap justify-center gap-4 text-sm font-bold items-center">
-            <Link href="/admin" className="hover:text-yellow-400 transition-colors">
-              🏠 الرئيسية
+          <div className="flex flex-wrap justify-center gap-2 text-sm font-bold items-center bg-slate-800/50 p-1.5 rounded-2xl">
+            <Link href="/admin" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
+              <span>🏠</span> <span className="hidden lg:inline">الرئيسية</span>
             </Link>
             
-            <Link href="/admin/users" className="hover:text-yellow-400 transition-colors">
-              👥 الموظفين
+            <Link href="/admin/users" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
+              <span>👥</span> <span className="hidden lg:inline">الموظفين</span>
             </Link>
             
-            <Link href="/admin/customers" className="hover:text-yellow-400 transition-colors">
-              🤝 العملاء
+            <Link href="/admin/customers" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
+              <span>🤝</span> <span className="hidden lg:inline">العملاء</span>
             </Link>
             
-            <Link href="/admin/products" className="hover:text-yellow-400 transition-colors">
-              📦 الأصناف
+            <Link href="/admin/products" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
+              <span>📦</span> <span className="hidden lg:inline">الأصناف</span>
             </Link>
             
-            <Link href="/admin/reports" className="hover:text-yellow-400 transition-colors">
-              📊 التقارير
+            <Link href="/admin/reports" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
+              <span>📊</span> <span className="hidden lg:inline">التقارير</span>
             </Link>
 
-            {/* 👇 أيقونة الإشعارات الذكية */}
-            <NotificationBell />
+            {/* فاصل */}
+            <div className="w-px h-6 bg-slate-700 mx-1"></div>
 
-            <div className="hidden md:block w-px h-6 bg-gray-600 mx-2"></div>
+            {/* 👇 أيقونة الإشعارات الذكية (الوضع الداكن) */}
+            <NotificationBell isDark={true} />
 
-            <Link href="/" className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded transition-colors flex items-center gap-1">
-              🛒 تطبيق البيع
+            <Link href="/" className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-blue-900/20 active:scale-95">
+              <span>🛒</span>
+              <span>تطبيق البيع</span>
             </Link>
           </div>
         </div>
       </nav>
       
-      <main className="container mx-auto p-4 pb-20">
+      <main className="container mx-auto p-4 pb-20 animate-in fade-in duration-500">
         {children}
       </main>
     </div>

@@ -351,7 +351,7 @@ export async function getAdminCustomers() {
 
 export async function getLowStockClosedCount() {
     try {
-        // حساب عدد الأصناف المغلقة التي رصيدها 4 أو أقل
+        // حساب عدد الأصناف المغلقة التي رصيدها 4 أو أقل (الدالة القديمة)
         const count = await prisma.product.count({
             where: {
                 status: 'CLOSED',
@@ -366,7 +366,7 @@ export async function getLowStockClosedCount() {
 
 export async function getLowStockClosedItems() {
     try {
-        // جلب تفاصيل الأصناف المغلقة المنتهية
+        // جلب تفاصيل الأصناف المغلقة المنتهية (الدالة القديمة)
         const items = await prisma.product.findMany({
             where: {
                 status: 'CLOSED',
@@ -380,4 +380,20 @@ export async function getLowStockClosedItems() {
     } catch (e) {
         return [];
     }
+}
+
+// 👇👇 الدالة الجديدة المطلوبة لجرس الإشعارات (تتجاهل الأصناف المغلقة) 👇👇
+export async function getActiveLowStockCount() {
+  try {
+    const count = await prisma.product.count({
+      where: {
+        currentStock: { lte: 3 }, // حد النواقص للأصناف النشطة
+        status: "OPEN", // 👈 شرط أساسي: أن يكون الصنف مفتوحاً
+      },
+    });
+    return count;
+  } catch (error) {
+    console.error("Error fetching active low stock count:", error);
+    return 0;
+  }
 }
