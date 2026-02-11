@@ -8,21 +8,20 @@ export default function NotificationBell({ isDark = true }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioEnabledRef = useRef(false);
-  const lastTotalRef = useRef(0); // ✅ useRef بدل useState
-  const lastSeenRef = useRef(0);   // ✅ آخر رقم شاهده المستخدم
+  const lastTotalRef = useRef(0);
+  const lastClickedRef = useRef(0); // ✅ آخر مرة ضغط فيها المستخدم على الجرس
 
   // ============ ١. تهيئة الصوت ============
   useEffect(() => {
     audioRef.current = new Audio('/notification.mp3');
     audioRef.current.volume = 0.8;
     
-    // اقرأ آخر رقم شاهده المستخدم
-    const saved = localStorage.getItem('lastSeenNotification');
-    lastSeenRef.current = saved ? parseInt(saved) : 0;
+    // اقرأ آخر مرة ضغط فيها المستخدم على الجرس
+    const saved = localStorage.getItem('lastBellClick');
+    lastClickedRef.current = saved ? parseInt(saved) : 0;
     
-    console.log('✅ Audio initialized, last seen:', lastSeenRef.current);
+    console.log('✅ Audio initialized, last click:', lastClickedRef.current);
 
-    // تفعيل الصوت عند أول تفاعل
     const enableAudio = () => {
       if (audioRef.current && !audioEnabledRef.current) {
         audioRef.current.play()
@@ -59,14 +58,12 @@ export default function NotificationBell({ isDark = true }) {
     try {
       const total = await getActiveLowStockCount();
       
-      // عدد الإشعارات الجديدة = total - آخر رقم شاهده المستخدم
-      const newUnread = Math.max(0, total - lastSeenRef.current);
+      // ✅ العدد الجديد = إجمالي المنتجات - آخر مرة ضغط فيها المستخدم
+      const newUnread = Math.max(0, total - lastClickedRef.current);
       setUnreadCount(newUnread);
       
-      // تشغيل الصوت فقط إذا:
-      // 1. فيه إشعارات جديدة (newUnread > 0)
-      // 2. العدد الكلي زاد عن المرة السابقة
-      if (newUnread > 0 && total > lastTotalRef.current) {
+      // ✅ الصوت: يشغل فقط إذا زاد العدد عن آخر مرة شيكنا
+      if (total > lastTotalRef.current && newUnread > 0) {
         console.log(`🔔 New notification! Total: ${total}, New: ${newUnread}`);
         playSound();
       }
@@ -81,10 +78,7 @@ export default function NotificationBell({ isDark = true }) {
 
   // ============ ٤. Polling كل ٣ ثواني ============
   useEffect(() => {
-    // جلب أول مرة
     checkNotifications();
-    
-    // Polling كل ٣ ثواني
     const interval = setInterval(checkNotifications, 3000);
     console.log('⏰ Polling started every 3 seconds');
     
@@ -92,15 +86,16 @@ export default function NotificationBell({ isDark = true }) {
       clearInterval(interval);
       console.log('⏰ Polling stopped');
     };
-  }, []); // ✅ Dependency array فاضي - يعمل مرة واحدة فقط
+  }, []);
 
   // ============ ٥. عند الضغط على الجرس ============
   const handleClick = () => {
-    // سجل أن المستخدم شاهد كل الإشعارات
-    lastSeenRef.current = lastTotalRef.current;
-    localStorage.setItem('lastSeenNotification', lastTotalRef.current.toString());
+    // ✅ نسجل الوقت الحالي فقط، ولا نغير القيمة السابقة
+    const now = Date.now();
+    lastClickedRef.current = lastTotalRef.current; // نسجل العدد الحالي
+    localStorage.setItem('lastBellClick', lastTotalRef.current.toString());
     setUnreadCount(0);
-    console.log('✅ Notifications marked as seen:', lastTotalRef.current);
+    console.log('🔔 Bell clicked, marking as seen:', lastTotalRef.current);
   };
 
   return (
@@ -117,15 +112,12 @@ export default function NotificationBell({ isDark = true }) {
         🔔
       </span>
       
-      {/* العداد - يظهر فقط الإشعارات الجديدة */}
+      {/* ✅ العداد: يظهر فقط الإشعارات الجديدة بعد آخر ضغطة */}
       {unreadCount > 0 && (
         <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold min-w-[20px] h-5 px-1 flex items-center justify-center rounded-full animate-pulse shadow-md border-2 border-white">
           {unreadCount > 99 ? '99+' : unreadCount}
         </span>
       )}
-      
-      {/* مؤشر أن النظام شغال */}
-      <span className="absolute -bottom-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
       
       <span className="sr-only">الإشعارات</span>
     </Link>
