@@ -9,7 +9,7 @@ export default function NotificationBell({ isDark = true }) {
   const [lastTotal, setLastTotal] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioEnabledRef = useRef(false);
-  const intervalRef = useRef<NodeJS.Timeout>();
+  const intervalRef = useRef<NodeJS.Timeout | undefined>(undefined); // ✅ التصحيح هنا
 
   // ============ ١. تهيئة الصوت ============
   useEffect(() => {
@@ -93,7 +93,7 @@ export default function NotificationBell({ isDark = true }) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [lastTotal]); // إضافة lastTotal كـ dependency
+  }, [lastTotal]);
 
   // ============ ٥. عند الضغط ============
   const handleClick = () => {
