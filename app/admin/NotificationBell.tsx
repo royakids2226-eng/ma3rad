@@ -2,102 +2,96 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { getActiveLowStockCount } from '@/app/admin-actions'; 
+import { getActiveLowStockCount } from '@/app/admin-actions';
 
 interface NotificationBellProps {
     isDark?: boolean;
 }
 
 export default function NotificationBell({ isDark = true }: NotificationBellProps) {
-    const [displayCount, setDisplayCount] = useState(0);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [lastTotalCount, setLastTotalCount] = useState(0);
     const audioRef = useRef<HTMLAudioElement | null>(null);
-    const previousCountRef = useRef(0);
-    const hasInteractedRef = useRef(false);
+    const prevTotalRef = useRef(0);
 
-    // ============ ١. تهيئة الصوت مرة واحدة فقط ============
+    // ============ ١. تهيئة الصوت ============
     useEffect(() => {
-        // تأكد من وجود ملف الصوت في المسار الصحيح
         audioRef.current = new Audio('/notification.mp3');
         audioRef.current.volume = 0.8;
-        audioRef.current.preload = 'auto';
-        
-        // اختبر إذا الصوت يشتغل
-        console.log('✅ Audio initialized');
-        
-        return () => {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current = null;
-            }
-        };
     }, []);
 
-    // ============ ٢. تشغيل الصوت بشكل مضمون ============
-    const playSound = async () => {
-        try {
-            if (audioRef.current) {
-                audioRef.current.currentTime = 0;
-                await audioRef.current.play();
-                console.log('🔔 Sound played successfully');
-            }
-        } catch (error) {
-            console.log('❌ Autoplay prevented - waiting for user interaction');
-            
-            // إذا منع المتصفح التشغيل التلقائي، نشغله عند أول نقرة
-            const playOnClick = () => {
-                if (audioRef.current && !hasInteractedRef.current) {
-                    audioRef.current.play().catch(console.warn);
-                    hasInteractedRef.current = true;
-                    document.removeEventListener('click', playOnClick);
-                }
-            };
-            document.addEventListener('click', playOnClick, { once: true });
+    // ============ ٢. تشغيل الصوت ============
+    const playNotificationSound = () => {
+        if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+            audioRef.current.play().catch(e => console.log('Audio play failed:', e));
         }
     };
 
-    // ============ ٣. فحص الإشعارات - مبسطة ومضمونة ============
+    // ============ ٣. نظام الإشعارات الحقيقي ============
     useEffect(() => {
-        let mounted = true;
+        // دالة لجلب العدد الذي شاهده المستخدم آخر مرة
+        const getLastSeenCount = () => {
+            const stored = localStorage.getItem('ma3rad_last_seen_notification_count');
+            return stored ? parseInt(stored) : 0;
+        };
 
-        const checkNotifications = async () => {
+        // دالة لحفظ العدد الذي شاهده المستخدم
+        const setLastSeenCount = (count: number) => {
+            localStorage.setItem('ma3rad_last_seen_notification_count', count.toString());
+        };
+
+        const checkNewNotifications = async () => {
             try {
-                const currentCount = await getActiveLowStockCount();
-                console.log('📊 Current low stock count:', currentCount);
+                // ١. جلب العدد الكلي من السيرفر
+                const currentTotal = await getActiveLowStockCount();
+                console.log('📊 Total low stock:', currentTotal);
                 
-                // العداد: دائماً نعرض العدد الحالي (للتأكد من ظهوره)
-                setDisplayCount(currentCount);
+                // ٢. جلب آخر عدد شاهده المستخدم
+                const lastSeen = getLastSeenCount();
                 
-                // الصوت: يشغل فقط إذا زاد العدد عن المرة السابقة
-                if (currentCount > previousCountRef.current) {
-                    console.log('🔼 Count increased from', previousCountRef.current, 'to', currentCount);
-                    playSound();
+                // ٣. حساب الجديد فقط (الفرق)
+                const newUnread = Math.max(0, currentTotal - lastSeen);
+                
+                // ٤. تحديث العداد
+                setUnreadCount(newUnread);
+                console.log('🆕 New unread notifications:', newUnread);
+                
+                // ٥. تشغيل الصوت فقط إذا:
+                //    - فيه إشعارات جديدة (newUnread > 0)
+                //    - وإما أن العدد الكلي زاد عن المرة السابقة
+                //    - أو أن هذه أول مرة نفحص فيها (prevTotalRef.current === 0)
+                if (newUnread > 0) {
+                    if (currentTotal > prevTotalRef.current || prevTotalRef.current === 0) {
+                        console.log('🔔 New notification arrived! Playing sound...');
+                        playNotificationSound();
+                    }
                 }
                 
-                // تحديث القيمة السابقة
-                previousCountRef.current = currentCount;
+                // ٦. حفظ العدد الكلي للمقارنة القادمة
+                prevTotalRef.current = currentTotal;
+                setLastTotalCount(currentTotal);
                 
             } catch (error) {
-                console.error('❌ Error checking notifications:', error);
+                console.error('Error checking notifications:', error);
             }
         };
 
         // فحص فوري
-        checkNotifications();
+        checkNewNotifications();
         
         // فحص كل ٣ ثواني
-        const interval = setInterval(checkNotifications, 3000);
+        const interval = setInterval(checkNewNotifications, 3000);
         
-        return () => {
-            mounted = false;
-            clearInterval(interval);
-        };
+        return () => clearInterval(interval);
     }, []);
 
     // ============ ٤. عند الضغط على الجرس ============
     const handleBellClick = () => {
-        // فقط نصفر العداد مؤقتاً
-        setDisplayCount(0);
-        // لا نغير القيمة المرجعية حتى يستمر الصوت بالعمل
+        // سجل أن المستخدم شاهد كل الإشعارات
+        localStorage.setItem('ma3rad_last_seen_notification_count', lastTotalCount.toString());
+        setUnreadCount(0);
+        console.log('✅ All notifications marked as seen');
     };
 
     return (
@@ -114,15 +108,12 @@ export default function NotificationBell({ isDark = true }: NotificationBellProp
                 🔔
             </span>
             
-            {/* العداد - يظهر دائماً إذا كان العدد أكبر من صفر */}
-            {displayCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full animate-pulse shadow-md border-2 border-white">
-                    {displayCount > 9 ? '9+' : displayCount}
+            {/* العداد: يظهر فقط الجديد غير المقروء */}
+            {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold min-w-[20px] h-5 px-1 flex items-center justify-center rounded-full animate-pulse shadow-md border-2 border-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
                 </span>
             )}
-            
-            {/* مؤشر للتأكد أن الفحص شغال */}
-            <span className="absolute -bottom-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse opacity-50"></span>
             
             <span className="sr-only">الإشعارات</span>
         </Link>
