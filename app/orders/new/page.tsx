@@ -1,22 +1,24 @@
 'use client'
 import { useState, useEffect, useRef } from 'react';
-import { getCustomers, searchProducts, createOrder, getSafes, searchCustomers } from '@/app/actions';
+import { getCustomers, searchProducts, createOrder, getSafes, searchCustomers, checkCustomerPhone } from '@/app/actions';
 import { addCustomer } from '@/app/admin-actions'; 
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Scanner } from '@yudiel/react-qr-scanner';
 
+// عدد القطع في الوحدة (دزينة مثلاً أو طقم)
 const PIECES_PER_UNIT = 4;
 
 export default function NewOrderPage() {
   const { data: session } = useSession();
   const router = useRouter();
   
+  // States for Order Steps
   const [step, setStep] = useState(1);
   const [safes, setSafes] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   
-  // Customer Search
+  // Customer Search States
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const [customerResults, setCustomerResults] = useState<any[]>([]);
   const [showCustomerList, setShowCustomerList] = useState(false);
@@ -28,13 +30,13 @@ export default function NewOrderPage() {
   const [newCust, setNewCust] = useState({ name: '', phone: '', phone2: '', code: '', address: '' });
   const [isSavingCust, setIsSavingCust] = useState(false);
 
-  // Product Search
+  // Product Search & Scanner States
   const [searchTerm, setSearchTerm] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectionMap, setSelectionMap] = useState<{[key: string]: number}>({});
 
-  // Cart & Discount Logic
+  // Cart & Financial States
   const [cart, setCart] = useState<any[]>([]);
   const [cartSearchTerm, setCartSearchTerm] = useState('');
   const [deposit, setDeposit] = useState<string>('');
@@ -45,6 +47,7 @@ export default function NewOrderPage() {
   // Order Saving State
   const [isSavingOrder, setIsSavingOrder] = useState(false);
 
+  // Initial Data Fetching
   useEffect(() => {
     getCustomers().then(setCustomerResults);
     getSafes().then(data => {
@@ -52,6 +55,7 @@ export default function NewOrderPage() {
       if (data.length > 0) setSelectedSafeId(data[0].id);
     });
 
+    // Handle clicking outside customer list to close it
     const handleClickOutside = (event: MouseEvent) => {
       if (customerListRef.current && !customerListRef.current.contains(event.target as Node)) {
         setShowCustomerList(false);
@@ -61,6 +65,7 @@ export default function NewOrderPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Debounced Customer Search
   useEffect(() => {
       const delayDebounceFn = setTimeout(async () => {
         if (customerSearchTerm.length > 0) {
@@ -75,6 +80,7 @@ export default function NewOrderPage() {
       return () => clearTimeout(delayDebounceFn);
   }, [customerSearchTerm]);
 
+  // Debounced Product Search
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (searchTerm.length >= 2) {
@@ -103,9 +109,7 @@ export default function NewOrderPage() {
   const handleSelectAll = () => {
     const newMap: {[key: string]: number} = {};
     searchResults.forEach(p => { 
-        // 👈 منطق تحديد الكل: نستبعد فقط الأصناف المغلقة المنتهية الكمية
-        // إذا كان مفتوح (حتى لو رصيد صفر) -> يضاف
-        // إذا كان مغلق ورصيد > 0 -> يضاف
+        // منطق تحديد الكل: استبعاد الأصناف المغلقة المنتهية الكمية
         const isSoldOut = p.status !== 'OPEN' && p.currentStock <= 0;
         if (!isSoldOut) {
             newMap[p.id] = 1; 
@@ -262,15 +266,32 @@ export default function NewOrderPage() {
     }
   };
 
+  // 🆕 تم تعديل هذه الدالة لإضافة التحقق من الهاتف
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
       e.preventDefault();
       if(!newCust.name) return alert('الاسم مطلوب');
       
       setIsSavingCust(true);
+
+      // 1. التحقق من الهاتف قبل الإرسال
+      if (newCust.phone || newCust.phone2) {
+          const checkRes = await checkCustomerPhone(newCust.phone || newCust.phone2);
+          if (checkRes.exists) {
+              // إظهار رسالة التحذير مع اسم العميل الموجود
+              const confirmMsg = `⚠️ تنبيه: رقم الهاتف هذا مسجل مسبقاً للعميل:\n\n👤 ${checkRes.name}\n\nهل تريد الاستمرار وإضافة هذا العميل الجديد بنفس الرقم؟`;
+              if (!window.confirm(confirmMsg)) {
+                  setIsSavingCust(false);
+                  return; // إلغاء العملية
+              }
+          }
+      }
+
+      // 2. محاولة الإضافة (مع معالجة حالة التكرار من السيرفر أيضاً كخط دفاع ثانٍ)
       const res = await addCustomer({ ...newCust, source: 'QUICK' });
       
       if (res.warning) {
           setIsSavingCust(false);
+          // رسالة احتياطية لو السيرفر رجع تحذير آخر
           if (confirm(`رقم الهاتف هذا مسجل مسبقاً باسم العميل: (${res.existingName}).\nهل تريد الاستمرار في الإضافة على أي حال؟`)) {
               setIsSavingCust(true);
               const resForce = await addCustomer({ ...newCust, source: 'QUICK', force: true });
@@ -374,8 +395,6 @@ export default function NewOrderPage() {
                     </div>
                     <div className="divide-y divide-gray-100">
                       {searchResults.map(prod => {
-                        // 👈 هنا التعديل الجوهري للمنطق
-                        // الصنف يعتبر "غير متاح" فقط إذا لم يكن مفتوحاً + رصيده صفر أو أقل
                         const isSoldOut = prod.status !== 'OPEN' && prod.currentStock <= 0;
                         const isSelected = !!selectionMap[prod.id];
                         const qty = selectionMap[prod.id] || 1;
@@ -387,10 +406,10 @@ export default function NewOrderPage() {
                                 type="checkbox" 
                                 checked={isSelected} 
                                 onChange={(e) => toggleSelection(prod.id, e.target.checked)} 
-                                disabled={isSoldOut} // 👈 تعطيل فقط إذا كان مغلق وانتهت الكمية
+                                disabled={isSoldOut}
                                 className="w-6 h-6" 
                               />
-                              <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> {/* 👈 شطب فقط إذا كان مغلق وانتهت الكمية */}
+                              <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
                                   <div className="font-bold">{prod.color}</div>
                                   <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.currentStock}</div>
                                   {prod.discount > 0 && <div className="text-[10px] text-red-600 font-bold">خصم صنف: {prod.discount}%</div>}
