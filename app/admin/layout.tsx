@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 import { authOptions } from "@/auth";
-import NotificationBell from "./NotificationBell"; // 👈 استدعاء المكون الجديد
+import NotificationBell from "./NotificationBell"; // 👈 استدعاء مكون الجرس
 
 const prisma = new PrismaClient();
 
@@ -22,7 +22,8 @@ export default async function AdminLayout({
     where: { id: session.user.image as string },
   });
 
-  // التحقق من الصلاحية (أدمن أو مالك فقط)
+  // التحقق من الصلاحية (أدمن أو مالك)
+  // ملاحظة: إذا كان المحاسب لديه دور مختلف عن ADMIN يرجى إضافته هنا
   if (!user || (user.role !== "ADMIN" && user.role !== "OWNER")) {
     redirect("/");
   }
@@ -56,12 +57,11 @@ export default async function AdminLayout({
               📦 الأصناف
             </Link>
             
-            {/* 👇 رابط التقارير (محافظ عليه كما هو) */}
-            <Link href="/admin/reports" className="text-yellow-300 hover:text-yellow-100 border-b-2 border-yellow-500 pb-1 transition-colors">
+            <Link href="/admin/reports" className="hover:text-yellow-400 transition-colors">
               📊 التقارير
             </Link>
 
-            {/* 👇 أيقونة الإشعارات الجديدة */}
+            {/* 👇 أيقونة الإشعارات الذكية */}
             <NotificationBell />
 
             <div className="hidden md:block w-px h-6 bg-gray-600 mx-2"></div>

@@ -9,7 +9,7 @@ export default function ReportsPage() {
     <div className="min-h-screen bg-gray-50 p-4 md:p-6" dir="rtl">
       {/* ========================================================================
           HEADER SECTION - الجزء العلوي للتحكم والطباعة
-          ======================================================================== */}
+          ======================================================================= */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         <div className="flex items-center gap-4">
           <div className="bg-blue-600 p-4 rounded-2xl shadow-lg shadow-blue-200 text-white">
@@ -34,7 +34,7 @@ export default function ReportsPage() {
 
       {/* ========================================================================
           TABS NAVIGATION - أزرار التنقل الرئيسية
-          ======================================================================== */}
+          ======================================================================= */}
       <div className="flex gap-2 mb-8 border-b border-gray-200 print:hidden overflow-x-auto pb-2 scrollbar-hide">
         <button 
             onClick={() => setActiveTab('INVENTORY')}
@@ -61,7 +61,7 @@ export default function ReportsPage() {
 
       {/* ========================================================================
           MAIN CONTENT AREA - المحتوى المتغير حسب التبويب
-          ======================================================================== */}
+          ======================================================================= */}
       <div className="bg-white p-4 md:p-10 rounded-[2.5rem] shadow-sm min-h-[600px] border border-gray-50">
           {activeTab === 'INVENTORY' && <InventoryReportView />}
           {activeTab === 'SAFE' && <SafeLedgerView />}
