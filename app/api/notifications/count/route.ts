@@ -1,11 +1,11 @@
-// app/api/notifications/count/route.ts
 import { PrismaClient } from '@prisma/client';
 import { NextResponse } from 'next/server';
 
 const prisma = new PrismaClient();
 
-// إجبار نكست على عدم حفظ هذه الدالة (No Cache)
+// منع الكاش نهائياً في نكست
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function GET() {
   try {
