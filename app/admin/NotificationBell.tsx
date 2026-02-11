@@ -8,30 +8,21 @@ export default function NotificationBell({ isDark = true }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioEnabledRef = useRef(false);
-  const lastTotalRef = useRef(0);
-  const lastSeenRef = useRef(0); // ✅ اسم واضح: آخر رقم شاهده المستخدم
+  const previousTotalRef = useRef(0); // للمقارنة فقط (تشغيل الصوت)
+  const lastSeenRef = useRef(0); // آخر رقم شاهده المستخدم (من localStorage)
 
   // ============ ١. تهيئة الصوت وقراءة localStorage ============
   useEffect(() => {
-    // 📌 قراءة آخر رقم شاهده المستخدم من localStorage
-    const saved = localStorage.getItem('ma3rad_last_seen');
-    if (saved) {
-      lastSeenRef.current = parseInt(saved);
-      console.log('📖 Loaded last seen from localStorage:', lastSeenRef.current);
-    } else {
-      // أول مرة: سجل 0
-      localStorage.setItem('ma3rad_last_seen', '0');
-      lastSeenRef.current = 0;
-      console.log('📖 First time, set last seen to 0');
-    }
+    // 📌 قراءة آخر رقم شاهده المستخدم
+    const saved = localStorage.getItem('ma3rad_notification_last_seen');
+    lastSeenRef.current = saved ? parseInt(saved) : 0;
+    console.log('📖 Last seen loaded:', lastSeenRef.current);
 
     // 🔊 تهيئة الصوت
     audioRef.current = new Audio('/notification.mp3');
     audioRef.current.volume = 0.8;
-    audioRef.current.preload = 'auto';
-    console.log('✅ Audio initialized');
 
-    // 🖱️ تفعيل الصوت عند أول تفاعل
+    // 🖱️ تفعيل الصوت
     const enableAudio = () => {
       if (audioRef.current && !audioEnabledRef.current) {
         audioRef.current.play()
@@ -39,83 +30,70 @@ export default function NotificationBell({ isDark = true }) {
             audioRef.current?.pause();
             audioRef.current!.currentTime = 0;
             audioEnabledRef.current = true;
-            console.log('🔊 Audio enabled by user');
+            console.log('🔊 Audio enabled');
           })
           .catch(() => {});
       }
     };
 
     window.addEventListener('click', enableAudio, { once: true });
-    window.addEventListener('keydown', enableAudio, { once: true });
-
-    return () => {
-      window.removeEventListener('click', enableAudio);
-      window.removeEventListener('keydown', enableAudio);
-    };
+    return () => window.removeEventListener('click', enableAudio);
   }, []);
 
   // ============ ٢. تشغيل الصوت ============
   const playSound = () => {
     if (audioRef.current && audioEnabledRef.current) {
       audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(e => console.log('Audio play error:', e));
-      console.log('🔔🔔🔔 PLAYING SOUND!');
+      audioRef.current.play().catch(() => {});
+      console.log('🔔🔔🔔 SOUND PLAYED!');
     }
   };
 
   // ============ ٣. جلب الإشعارات ============
   const checkNotifications = async () => {
     try {
-      // 📊 جلب العدد الكلي من السيرفر
+      // جلب العدد الكلي من السيرفر
       const total = await getActiveLowStockCount();
-      console.log('📊 Server total low stock:', total);
+      console.log('📊 Total from server:', total);
       console.log('📊 Last seen:', lastSeenRef.current);
       
-      // ✅ العداد = العدد الكلي - آخر رقم شاهده المستخدم
+      // ✅ العدد الجديد = total - آخر رقم شاهده المستخدم
       const newUnread = Math.max(0, total - lastSeenRef.current);
       setUnreadCount(newUnread);
       console.log('📊 Unread count:', newUnread);
       
-      // 🔔 تشغيل الصوت فقط إذا:
+      // ✅ تشغيل الصوت فقط إذا:
       // 1. فيه إشعارات جديدة (newUnread > 0)
-      // 2. والعدد الكلي زاد عن المرة السابقة
-      if (newUnread > 0 && total > lastTotalRef.current) {
-        console.log('🔔🔔🔔 NEW NOTIFICATION DETECTED!');
-        console.log(`🔔 From ${lastTotalRef.current} to ${total}`);
+      // 2. والعدد الكلي زاد عن المرة السابقة (لتجنب التكرار)
+      if (newUnread > 0 && total > previousTotalRef.current) {
+        console.log('🔔 NEW NOTIFICATION! Playing sound...');
         playSound();
       }
       
-      // تحديث آخر عدد كلي
-      lastTotalRef.current = total;
+      // تحديث العدد السابق للمقارنة فقط
+      previousTotalRef.current = total;
       
     } catch (error) {
-      console.error('❌ Error checking notifications:', error);
+      console.error('❌ Error:', error);
     }
   };
 
   // ============ ٤. Polling كل ٣ ثواني ============
   useEffect(() => {
-    console.log('⏰ Starting notification polling...');
-    
-    // جلب أول مرة
+    console.log('⏰ Polling started');
     checkNotifications();
-    
-    // Polling كل ٣ ثواني
     const interval = setInterval(checkNotifications, 3000);
-    
-    return () => {
-      console.log('⏰ Stopping notification polling');
-      clearInterval(interval);
-    };
-  }, []); // ✅ مرة واحدة فقط
+    return () => clearInterval(interval);
+  }, []);
 
   // ============ ٥. عند الضغط على الجرس ============
   const handleClick = () => {
-    // ✅ تحديث آخر رقم شاهده المستخدم
-    lastSeenRef.current = lastTotalRef.current;
-    localStorage.setItem('ma3rad_last_seen', lastTotalRef.current.toString());
+    // ✅ المهم جداً: نحدث lastSeen ليكون مساوياً CURRENT total
+    // هذا يخلي العدد الجديد يظهر بشكل صحيح في المستقبل
+    lastSeenRef.current = previousTotalRef.current;
+    localStorage.setItem('ma3rad_notification_last_seen', previousTotalRef.current.toString());
     setUnreadCount(0);
-    console.log('✅ Updated last seen to:', lastTotalRef.current);
+    console.log('✅ Last seen updated to:', previousTotalRef.current);
   };
 
   return (
@@ -132,15 +110,11 @@ export default function NotificationBell({ isDark = true }) {
         🔔
       </span>
       
-      {/* 🟢 العداد - يظهر فقط الإشعارات الجديدة */}
       {unreadCount > 0 && (
         <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold min-w-[20px] h-5 px-1 flex items-center justify-center rounded-full animate-pulse shadow-md border-2 border-white">
           {unreadCount > 99 ? '99+' : unreadCount}
         </span>
       )}
-      
-      {/* 🟢 مؤشر أن النظام شغال (يظهر دائمًا) */}
-      <span className="absolute -bottom-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
       
       <span className="sr-only">الإشعارات</span>
     </Link>
