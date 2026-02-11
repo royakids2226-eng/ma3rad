@@ -344,3 +344,40 @@ export async function getAdminCustomers() {
     const custs = await prisma.customer.findMany({ orderBy: { id: 'desc' }, take: 2000 });
     return JSON.parse(JSON.stringify(custs));
 }
+
+// ==========================================
+// 4. نظام الإشعارات (Notifications)
+// ==========================================
+
+export async function getLowStockClosedCount() {
+    try {
+        // حساب عدد الأصناف المغلقة التي رصيدها 4 أو أقل
+        const count = await prisma.product.count({
+            where: {
+                status: 'CLOSED',
+                currentStock: { lte: 4 }
+            }
+        });
+        return count;
+    } catch (e) {
+        return 0;
+    }
+}
+
+export async function getLowStockClosedItems() {
+    try {
+        // جلب تفاصيل الأصناف المغلقة المنتهية
+        const items = await prisma.product.findMany({
+            where: {
+                status: 'CLOSED',
+                currentStock: { lte: 4 }
+            },
+            orderBy: {
+                currentStock: 'asc'
+            }
+        });
+        return JSON.parse(JSON.stringify(items));
+    } catch (e) {
+        return [];
+    }
+}

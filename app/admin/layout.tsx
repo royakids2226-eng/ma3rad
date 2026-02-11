@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 import { authOptions } from "@/auth";
+import { getLowStockClosedCount } from "../admin-actions";
 
 const prisma = new PrismaClient();
 
@@ -25,6 +26,9 @@ export default async function AdminLayout({
   if (!user || (user.role !== "ADMIN" && user.role !== "OWNER")) {
     redirect("/");
   }
+
+  // جلب عدد الإشعارات (أصناف مغلقة رصيدها <= 4)
+  const notificationCount = await getLowStockClosedCount();
 
   return (
     <div className="min-h-screen bg-gray-100 font-sans" dir="rtl">
@@ -55,9 +59,19 @@ export default async function AdminLayout({
               📦 الأصناف
             </Link>
             
-            {/* 👇 رابط التقارير الجديد */}
-            <Link href="/admin/reports" className="text-yellow-300 hover:text-yellow-100 border-b-2 border-yellow-500 pb-1 transition-colors">
+            <Link href="/admin/reports" className="hover:text-yellow-400 transition-colors">
               📊 التقارير
+            </Link>
+
+            {/* 👇 أيقونة الإشعارات الجديدة */}
+            <Link href="/admin/notifications" className="relative group p-2">
+                <span className="text-xl group-hover:text-yellow-400 transition-colors">🔔</span>
+                {notificationCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full animate-pulse shadow-lg border-2 border-slate-900">
+                    {notificationCount}
+                  </span>
+                )}
+                <span className="sr-only">الإشعارات</span>
             </Link>
 
             <div className="hidden md:block w-px h-6 bg-gray-600 mx-2"></div>
