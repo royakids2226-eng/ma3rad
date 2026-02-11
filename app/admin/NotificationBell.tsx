@@ -10,141 +10,94 @@ interface NotificationBellProps {
 
 export default function NotificationBell({ isDark = true }: NotificationBellProps) {
     const [displayCount, setDisplayCount] = useState(0);
-    const [lastServerTotal, setLastServerTotal] = useState(0);
-    const [audioReady, setAudioReady] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
-    const isFirstLoad = useRef(true);
-    const prevTotalRef = useRef(0);
+    const previousCountRef = useRef(0);
+    const hasInteractedRef = useRef(false);
 
-    // تهيئة الصوت بشكل أفضل
+    // ============ ١. تهيئة الصوت مرة واحدة فقط ============
     useEffect(() => {
-        // محاولة تحميل الصوت من مصادر متعددة
-        const audio = new Audio();
+        // تأكد من وجود ملف الصوت في المسار الصحيح
+        audioRef.current = new Audio('/notification.mp3');
+        audioRef.current.volume = 0.8;
+        audioRef.current.preload = 'auto';
         
-        // قائمة المسارات المحتملة للصوت
-        const audioPaths = [
-            '/notification.mp3',
-            '/sounds/notification.mp3',
-            '/audio/notification.mp3',
-            '/notifications/notification.mp3'
-        ];
-        
-        let currentPathIndex = 0;
-        
-        const tryLoadAudio = () => {
-            if (currentPathIndex >= audioPaths.length) {
-                console.warn('No audio file found in any path');
-                return;
-            }
-            
-            audio.src = audioPaths[currentPathIndex];
-            audio.load();
-        };
-        
-        audio.addEventListener('canplaythrough', () => {
-            audioRef.current = audio;
-            setAudioReady(true);
-            console.log(`✅ Audio loaded successfully from: ${audio.src}`);
-        });
-        
-        audio.addEventListener('error', () => {
-            currentPathIndex++;
-            tryLoadAudio();
-        });
-        
-        tryLoadAudio();
-        
-        audio.volume = 0.7;
+        // اختبر إذا الصوت يشتغل
+        console.log('✅ Audio initialized');
         
         return () => {
-            audio.pause();
-            audio.src = '';
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current = null;
+            }
         };
     }, []);
 
-    // دالة تشغيل الصوت المحسنة
-    const playNotificationSound = () => {
-        if (!audioReady || !audioRef.current) {
-            console.warn('Audio not ready yet');
-            return;
-        }
-        
+    // ============ ٢. تشغيل الصوت بشكل مضمون ============
+    const playSound = async () => {
         try {
-            audioRef.current.currentTime = 0;
-            
-            // محاولة تشغيل الصوت مع معالجة autoplay policy
-            const playPromise = audioRef.current.play();
-            
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.warn('Browser autoplay policy prevented sound:', error);
-                    
-                    // محاولة بديلة: تشغيل الصوت بعد تفاعل المستخدم
-                    const playOnInteraction = () => {
-                        audioRef.current?.play().catch(console.warn);
-                        document.removeEventListener('click', playOnInteraction);
-                        document.removeEventListener('keydown', playOnInteraction);
-                    };
-                    
-                    document.addEventListener('click', playOnInteraction, { once: true });
-                    document.addEventListener('keydown', playOnInteraction, { once: true });
-                });
+            if (audioRef.current) {
+                audioRef.current.currentTime = 0;
+                await audioRef.current.play();
+                console.log('🔔 Sound played successfully');
             }
         } catch (error) {
-            console.error('Error playing sound:', error);
+            console.log('❌ Autoplay prevented - waiting for user interaction');
+            
+            // إذا منع المتصفح التشغيل التلقائي، نشغله عند أول نقرة
+            const playOnClick = () => {
+                if (audioRef.current && !hasInteractedRef.current) {
+                    audioRef.current.play().catch(console.warn);
+                    hasInteractedRef.current = true;
+                    document.removeEventListener('click', playOnClick);
+                }
+            };
+            document.addEventListener('click', playOnClick, { once: true });
         }
     };
 
+    // ============ ٣. فحص الإشعارات - مبسطة ومضمونة ============
     useEffect(() => {
-        // قراءة العدد الذي شاهده المستخدم سابقاً
-        const storedSeen = localStorage.getItem('seenNotificationsCount');
-        const seenCount = storedSeen ? parseInt(storedSeen) : 0;
+        let mounted = true;
 
         const checkNotifications = async () => {
             try {
-                const currentTotal = await getActiveLowStockCount();
+                const currentCount = await getActiveLowStockCount();
+                console.log('📊 Current low stock count:', currentCount);
                 
-                // ✅ المنطق المحسن لتشغيل الصوت
-                if (!isFirstLoad.current) {
-                    // الحالة 1: زيادة في العدد
-                    if (currentTotal > prevTotalRef.current) {
-                        console.log(`🔔 New notification! Stock low count: ${currentTotal}`);
-                        playNotificationSound();
-                    }
-                    // الحالة 2: عودة نفس العدد بعد أن كان صفر (مهم)
-                    else if (currentTotal > 0 && prevTotalRef.current === 0) {
-                        console.log(`🔔 Notifications reappeared: ${currentTotal}`);
-                        playNotificationSound();
-                    }
-                } else {
-                    isFirstLoad.current = false;
+                // العداد: دائماً نعرض العدد الحالي (للتأكد من ظهوره)
+                setDisplayCount(currentCount);
+                
+                // الصوت: يشغل فقط إذا زاد العدد عن المرة السابقة
+                if (currentCount > previousCountRef.current) {
+                    console.log('🔼 Count increased from', previousCountRef.current, 'to', currentCount);
+                    playSound();
                 }
                 
-                prevTotalRef.current = currentTotal;
-                setLastServerTotal(currentTotal);
-
-                // حساب وعرض عدد الإشعارات غير المقروءة
-                const diff = Math.max(0, currentTotal - seenCount);
+                // تحديث القيمة السابقة
+                previousCountRef.current = currentCount;
                 
-                // ✅ تحديث العداد حتى لو كان صفر (لإخفاء الرقم)
-                setDisplayCount(diff);
-
             } catch (error) {
-                console.error("❌ Notification check failed", error);
+                console.error('❌ Error checking notifications:', error);
             }
         };
 
-        // فوري ثم كل 3 ثواني
+        // فحص فوري
         checkNotifications();
+        
+        // فحص كل ٣ ثواني
         const interval = setInterval(checkNotifications, 3000);
-
-        return () => clearInterval(interval);
+        
+        return () => {
+            mounted = false;
+            clearInterval(interval);
+        };
     }, []);
 
+    // ============ ٤. عند الضغط على الجرس ============
     const handleBellClick = () => {
-        // تحديث localStorage بالقيمة الحالية
-        localStorage.setItem('seenNotificationsCount', lastServerTotal.toString());
+        // فقط نصفر العداد مؤقتاً
         setDisplayCount(0);
+        // لا نغير القيمة المرجعية حتى يستمر الصوت بالعمل
     };
 
     return (
@@ -157,22 +110,19 @@ export default function NotificationBell({ isDark = true }: NotificationBellProp
                     : 'hover:bg-gray-100 text-gray-600 hover:text-blue-600 border border-transparent hover:border-gray-200'
                 }`}
         >
-            <span className={`text-2xl transition-transform duration-300 ${displayCount > 0 ? 'group-hover:rotate-12' : ''}`}>
+            <span className="text-2xl">
                 🔔
             </span>
             
+            {/* العداد - يظهر دائماً إذا كان العدد أكبر من صفر */}
             {displayCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full animate-pulse shadow-md border-2 border-white z-10">
+                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full animate-pulse shadow-md border-2 border-white">
                     {displayCount > 9 ? '9+' : displayCount}
                 </span>
             )}
             
-            {/* أيقونة الصوت الصغيرة لتعرف أن النظام يعمل */}
-            {audioReady && (
-                <span className="absolute -bottom-1 -right-1 text-[8px] opacity-50">
-                  🔊
-                </span>
-            )}
+            {/* مؤشر للتأكد أن الفحص شغال */}
+            <span className="absolute -bottom-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse opacity-50"></span>
             
             <span className="sr-only">الإشعارات</span>
         </Link>
