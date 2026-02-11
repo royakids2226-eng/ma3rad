@@ -2,66 +2,73 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-// استدعاء الدالة الجديدة التي تتجاهل الأصناف المغلقة
 import { getActiveLowStockCount } from '@/app/admin-actions'; 
 
 interface NotificationBellProps {
-    isDark?: boolean; // خاصية لتحديد لون الأيقونة حسب الخلفية
+    isDark?: boolean;
 }
 
 export default function NotificationBell({ isDark = true }: NotificationBellProps) {
-    const [newCount, setNewCount] = useState(0);
-    const [serverTotal, setServerTotal] = useState(0);
+    const [displayCount, setDisplayCount] = useState(0); // الرقم الذي يظهر بالأحمر (الجديد)
+    const [lastServerTotal, setLastServerTotal] = useState(0); // آخر إجمالي جاء من السيرفر
+    
+    // استخدام Ref للصوت لضمان عدم إعادة إنشاء الكائن مع كل ريندر
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
+    // دالة تشغيل الصوت
+    const playNotificationSound = () => {
+        if (audioRef.current) {
+            audioRef.current.currentTime = 0; // إعادة الصوت للبداية
+            audioRef.current.play().catch(error => {
+                console.warn("Autoplay blocked by browser. User needs to interact with page first.", error);
+            });
+        }
+    };
+
     useEffect(() => {
-        // تهيئة ملف الصوت - تأكد من وجود الملف في مجلد public
+        // 1. تهيئة ملف الصوت (تأكد أن الملف موجود في public/notification.mp3)
         audioRef.current = new Audio('/notification.mp3');
+
+        // قراءة العدد الذي شاهده المستخدم سابقاً
+        const storedSeen = localStorage.getItem('seenNotificationsCount');
+        const seenCount = storedSeen ? parseInt(storedSeen) : 0;
 
         const checkNotifications = async () => {
             try {
-                // 1. جلب العدد الكلي (للأصناف المفتوحة فقط)
-                const total = await getActiveLowStockCount();
+                // جلب العدد الحالي من السيرفر
+                const currentTotal = await getActiveLowStockCount();
                 
-                // حفظ الرقم القديم للمقارنة من أجل الصوت
-                setServerTotal(prev => {
-                    // إذا زاد الرقم عن المرة السابقة، نشغل الصوت
-                    if (total > prev && prev !== 0) {
-                        audioRef.current?.play().catch(e => console.log("Audio play prevented:", e));
+                setLastServerTotal(prevTotal => {
+                    // ⚠️ المنطق الهام: إذا كان العدد الحالي أكبر من السابق، والعدد السابق لم يكن صفراً (لتجنب الصوت عند فتح الصفحة)
+                    // أو إذا كان هناك زيادة فعلية في النواقص
+                    if (currentTotal > prevTotal && prevTotal !== 0) {
+                        playNotificationSound();
                     }
-                    return total;
+                    return currentTotal;
                 });
 
-                // 2. قراءة آخر عدد تم مشاهدته من ذاكرة المتصفح
-                const storedSeen = localStorage.getItem('seenNotificationsCount');
-                const seenCount = storedSeen ? parseInt(storedSeen) : 0;
-
-                // 3. عرض الفرق فقط (الجديد)
-                const diff = Math.max(0, total - seenCount);
-                setNewCount(diff);
-
-                // تشغيل الصوت عند تحميل الصفحة إذا كان هناك جديد
-                if (diff > 0 && typeof window !== 'undefined' && !sessionStorage.getItem('soundPlayed')) {
-                    audioRef.current?.play().catch(() => {});
-                    sessionStorage.setItem('soundPlayed', 'true');
-                }
+                // حساب وعرض عدد الإشعارات غير المقروءة
+                const diff = Math.max(0, currentTotal - seenCount);
+                setDisplayCount(diff);
 
             } catch (error) {
-                console.error("Error checking notifications", error);
+                console.error("Notification check failed", error);
             }
         };
 
+        // الفحص الأول عند التحميل
         checkNotifications();
         
-        // تحديث الرقم كل دقيقة
-        const interval = setInterval(checkNotifications, 60000);
+        // 🔥 الفحص المتكرر كل 3 ثوانٍ (لإعطاء شعور التحديث اللحظي)
+        const interval = setInterval(checkNotifications, 3000);
+
         return () => clearInterval(interval);
-    }, []);
+    }, []); // Array فارغة ليعمل عند بدء التحميل فقط
 
     const handleBellClick = () => {
-        // عند الضغط، نعتبر أن المستخدم شاهد كل الإشعارات الحالية
-        localStorage.setItem('seenNotificationsCount', serverTotal.toString());
-        setNewCount(0);
+        // عند الضغط، تصفير العداد وتحديث الذاكرة
+        localStorage.setItem('seenNotificationsCount', lastServerTotal.toString());
+        setDisplayCount(0);
     };
 
     return (
@@ -74,12 +81,14 @@ export default function NotificationBell({ isDark = true }: NotificationBellProp
                     : 'hover:bg-gray-100 text-gray-600 hover:text-blue-600 border border-transparent hover:border-gray-200'
                 }`}
         >
-            <span className="text-2xl">🔔</span>
+            <span className={`text-2xl transition-transform duration-300 ${displayCount > 0 ? 'group-hover:rotate-12' : ''}`}>
+                🔔
+            </span>
             
             {/* يظهر الرقم فقط إذا كان أكبر من صفر */}
-            {newCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full animate-pulse shadow-md border-2 border-white">
-                    {newCount}
+            {displayCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full animate-pulse shadow-md border-2 border-white z-10">
+                    {displayCount}
                 </span>
             )}
             <span className="sr-only">الإشعارات</span>
