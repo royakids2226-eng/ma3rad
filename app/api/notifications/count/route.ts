@@ -3,20 +3,26 @@ import { NextResponse } from 'next/server';
 
 const prisma = new PrismaClient();
 
-// منع الكاش نهائياً في نكست
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
 
 export async function GET() {
   try {
-    const count = await prisma.product.count({
+    // جلب الأصناف الـ CLOSED التي رصيدها 4 أو أقل
+    const lowStockItems = await prisma.product.findMany({
       where: {
+        status: "CLOSED",
         currentStock: { lte: 4 },
-        status: "OPEN",
       },
+      select: {
+        id: true 
+      }
     });
-    return NextResponse.json({ count });
+
+    return NextResponse.json({ 
+      count: lowStockItems.length,
+      ids: lowStockItems.map(item => item.id) 
+    });
   } catch (error) {
-    return NextResponse.json({ count: 0 }, { status: 500 });
+    return NextResponse.json({ count: 0, ids: [] }, { status: 500 });
   }
 }

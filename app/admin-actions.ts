@@ -64,7 +64,7 @@ export async function addProduct(data: any) {
         });
     }
     revalidatePath('/admin/products');
-    revalidatePath('/admin/notifications'); // تحديث الإشعارات
+    revalidatePath('/admin/notifications');
     return { success: true };
   } catch (e) {
     return { success: false, error: 'حدث خطأ، ربما البيانات مكررة' };
@@ -89,7 +89,7 @@ export async function updateProduct(id: string, data: any) {
             }
         });
         revalidatePath('/admin/products');
-        revalidatePath('/admin/notifications'); // تحديث الإشعارات
+        revalidatePath('/admin/notifications');
         return { success: true };
     } catch (e) {
         return { success: false, error: 'فشل التعديل' };
@@ -134,7 +134,7 @@ export async function addBulkProducts(products: any[]) {
             }
         }
         revalidatePath('/admin/products');
-        revalidatePath('/admin/notifications'); // تحديث الإشعارات
+        revalidatePath('/admin/notifications');
         return { success: true, count };
     } catch (e) {
         console.error(e);
@@ -146,7 +146,7 @@ export async function deleteProduct(id: string) {
   try {
     await prisma.product.delete({ where: { id } });
     revalidatePath('/admin/products');
-    revalidatePath('/admin/notifications'); // تحديث الإشعارات
+    revalidatePath('/admin/notifications');
     return { success: true };
   } catch (e) { 
       return { success: false, error: 'لا يمكن حذف الصنف لأنه موجود في طلبات سابقة' }; 
@@ -162,7 +162,7 @@ export async function deleteBulkProducts(ids: string[]) {
             }
         });
         revalidatePath('/admin/products');
-        revalidatePath('/admin/notifications'); // تحديث الإشعارات
+        revalidatePath('/admin/notifications');
         return { success: true, deleted: res.count, failed: ids.length - res.count };
     } catch (e) {
         return { success: false, error: 'حدث خطأ أثناء الحذف' };
@@ -178,7 +178,7 @@ export async function deleteAllProducts() {
         });
         const remaining = await prisma.product.count();
         revalidatePath('/admin/products');
-        revalidatePath('/admin/notifications'); // تحديث الإشعارات
+        revalidatePath('/admin/notifications');
         return { success: true, deleted: res.count, failed: remaining };
     } catch (e) { return { success: false, error: 'حدث خطأ غير متوقع' }; }
 }
@@ -357,7 +357,7 @@ export async function getAdminCustomers() {
 
 export async function getLowStockClosedCount() {
     try {
-        // حساب عدد الأصناف المغلقة التي رصيدها 4 أو أقل (الدالة القديمة)
+        // حساب عدد الأصناف المغلقة التي رصيدها 4 أو أقل
         const count = await prisma.product.count({
             where: {
                 status: 'CLOSED',
@@ -372,7 +372,7 @@ export async function getLowStockClosedCount() {
 
 export async function getLowStockClosedItems() {
     try {
-        // جلب تفاصيل الأصناف المغلقة المنتهية (الدالة القديمة)
+        // جلب تفاصيل الأصناف المغلقة المنتهية
         const items = await prisma.product.findMany({
             where: {
                 status: 'CLOSED',
@@ -388,13 +388,12 @@ export async function getLowStockClosedItems() {
     }
 }
 
-// 👇👇 الدالة الجديدة المطلوبة لجرس الإشعارات 👇👇
 export async function getActiveLowStockCount() {
   try {
     const count = await prisma.product.count({
       where: {
-        currentStock: { lte: 4 }, // ✅ تم التعديل ليكون 4 قطع أو أقل كما طلبت
-        status: "OPEN", 
+        currentStock: { lte: 4 }, // حد النواقص للأصناف النشطة
+        status: "CLOSED", // 👈 تم التعديل بناءً على طلبك ليكون CLOSED
       },
     });
     return count;
