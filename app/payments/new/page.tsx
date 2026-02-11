@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react';
-import { getCustomers, getSafes, createPayment, searchCustomers } from '@/app/actions';
+import { getCustomers, getSafes, createPayment, searchCustomers, checkCustomerPhone } from '@/app/actions';
 import { addCustomer } from '@/app/admin-actions'; // استيراد وظيفة الإضافة
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -72,6 +72,20 @@ export default function CashManagementPage() {
       if(!newCust.name) return alert('الاسم مطلوب');
       
       setIsSavingCust(true);
+
+      // 🔴 التحقق من الهاتف قبل الإرسال
+      if (newCust.phone || newCust.phone2) {
+          const checkRes = await checkCustomerPhone(newCust.phone || newCust.phone2);
+          if (checkRes.exists) {
+              const confirmMsg = `⚠️ تنبيه: رقم الهاتف هذا مسجل مسبقاً للعميل:\n\n👤 ${checkRes.name}\n\nهل تريد الاستمرار وإضافة هذا العميل الجديد بنفس الرقم؟`;
+              if (!window.confirm(confirmMsg)) {
+                  setIsSavingCust(false);
+                  return; // إلغاء العملية
+              }
+          }
+      }
+      // 🔴 نهاية التحقق
+
       const res = await addCustomer({ ...newCust, source: 'QUICK' });
       
       if (res.warning) {
