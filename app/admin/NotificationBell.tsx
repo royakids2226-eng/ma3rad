@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { getActiveLowStockCount } from '@/app/admin-actions';
+import { sseManager } from '@/lib/sse';
 
 interface NotificationBellProps {
     isDark?: boolean;
@@ -14,13 +15,12 @@ export default function NotificationBell({ isDark = true }: NotificationBellProp
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const prevTotalRef = useRef(0);
 
-    // ============ ١. تهيئة الصوت ============
+    // تهيئة الصوت
     useEffect(() => {
         audioRef.current = new Audio('/notification.mp3');
         audioRef.current.volume = 0.8;
     }, []);
 
-    // ============ ٢. تشغيل الصوت ============
     const playNotificationSound = () => {
         if (audioRef.current) {
             audioRef.current.currentTime = 0;
@@ -28,70 +28,63 @@ export default function NotificationBell({ isDark = true }: NotificationBellProp
         }
     };
 
-    // ============ ٣. نظام الإشعارات الحقيقي ============
-    useEffect(() => {
-        // دالة لجلب العدد الذي شاهده المستخدم آخر مرة
-        const getLastSeenCount = () => {
-            const stored = localStorage.getItem('ma3rad_last_seen_notification_count');
-            return stored ? parseInt(stored) : 0;
-        };
-
-        // دالة لحفظ العدد الذي شاهده المستخدم
-        const setLastSeenCount = (count: number) => {
-            localStorage.setItem('ma3rad_last_seen_notification_count', count.toString());
-        };
-
-        const checkNewNotifications = async () => {
-            try {
-                // ١. جلب العدد الكلي من السيرفر
-                const currentTotal = await getActiveLowStockCount();
-                console.log('📊 Total low stock:', currentTotal);
-                
-                // ٢. جلب آخر عدد شاهده المستخدم
-                const lastSeen = getLastSeenCount();
-                
-                // ٣. حساب الجديد فقط (الفرق)
-                const newUnread = Math.max(0, currentTotal - lastSeen);
-                
-                // ٤. تحديث العداد
-                setUnreadCount(newUnread);
-                console.log('🆕 New unread notifications:', newUnread);
-                
-                // ٥. تشغيل الصوت فقط إذا:
-                //    - فيه إشعارات جديدة (newUnread > 0)
-                //    - وإما أن العدد الكلي زاد عن المرة السابقة
-                //    - أو أن هذه أول مرة نفحص فيها (prevTotalRef.current === 0)
-                if (newUnread > 0) {
-                    if (currentTotal > prevTotalRef.current || prevTotalRef.current === 0) {
-                        console.log('🔔 New notification arrived! Playing sound...');
-                        playNotificationSound();
-                    }
-                }
-                
-                // ٦. حفظ العدد الكلي للمقارنة القادمة
-                prevTotalRef.current = currentTotal;
-                setLastTotalCount(currentTotal);
-                
-            } catch (error) {
-                console.error('Error checking notifications:', error);
+    // دالة لجلب الإشعارات من السيرفر
+    const fetchNotifications = async (isInitialLoad = false) => {
+        try {
+            const currentTotal = await getActiveLowStockCount();
+            console.log('📊 Total low stock:', currentTotal);
+            
+            const lastSeen = parseInt(localStorage.getItem('ma3rad_last_seen') || '0');
+            const newUnread = Math.max(0, currentTotal - lastSeen);
+            
+            setUnreadCount(newUnread);
+            setLastTotalCount(currentTotal);
+            
+            // تشغيل الصوت للإشعارات الجديدة
+            if (newUnread > 0 && currentTotal > prevTotalRef.current && !isInitialLoad) {
+                playNotificationSound();
             }
-        };
+            
+            prevTotalRef.current = currentTotal;
+            
+        } catch (error) {
+            console.error('Error fetching notifications:', error);
+        }
+    };
 
-        // فحص فوري
-        checkNewNotifications();
-        
-        // فحص كل ٣ ثواني
-        const interval = setInterval(checkNewNotifications, 3000);
-        
-        return () => clearInterval(interval);
+    // ١. اتصال SSE للريال تايم
+    useEffect(() => {
+        // الاتصال بـ SSE
+        sseManager.connect();
+
+        // استماع للإشعارات الجديدة
+        sseManager.on('notification', (data) => {
+            console.log('⚡ Real-time notification received:', data);
+            
+            // جلب آخر التحديثات فوراً
+            fetchNotifications(false);
+            
+            // تشغيل صوت خاص للإشعارات الآنية
+            if (data.type === 'low_stock' || data.type === 'order_created') {
+                playNotificationSound();
+            }
+        });
+
+        // جلب البيانات الأولية
+        fetchNotifications(true);
+
+        // الفحص الدوري كـ fallback (كل ١٠ ثواني بدل ٣)
+        const interval = setInterval(() => fetchNotifications(false), 10000);
+
+        return () => {
+            sseManager.disconnect();
+            clearInterval(interval);
+        };
     }, []);
 
-    // ============ ٤. عند الضغط على الجرس ============
     const handleBellClick = () => {
-        // سجل أن المستخدم شاهد كل الإشعارات
-        localStorage.setItem('ma3rad_last_seen_notification_count', lastTotalCount.toString());
+        localStorage.setItem('ma3rad_last_seen', lastTotalCount.toString());
         setUnreadCount(0);
-        console.log('✅ All notifications marked as seen');
     };
 
     return (
@@ -108,12 +101,14 @@ export default function NotificationBell({ isDark = true }: NotificationBellProp
                 🔔
             </span>
             
-            {/* العداد: يظهر فقط الجديد غير المقروء */}
             {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold min-w-[20px] h-5 px-1 flex items-center justify-center rounded-full animate-pulse shadow-md border-2 border-white">
                     {unreadCount > 99 ? '99+' : unreadCount}
                 </span>
             )}
+            
+            {/* مؤشر الاتصال المباشر */}
+            <span className="absolute -bottom-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
             
             <span className="sr-only">الإشعارات</span>
         </Link>
