@@ -1,48 +1,38 @@
-// lib/sse.ts
-type SSEEventCallback = (data: any) => void;
+'use client'
 
-class SSEManager {
+// SSE Manager مبسط جداً
+class SimpleSSE {
   private eventSource: EventSource | null = null;
-  private listeners: Map<string, Set<SSEEventCallback>> = new Map();
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
-  private reconnectTimeout = 3000;
+  private callbacks: ((data: any) => void)[] = [];
 
   connect() {
     if (this.eventSource?.readyState === EventSource.OPEN) return;
 
+    console.log('🔄 Connecting to SSE...');
     this.eventSource = new EventSource('/api/notifications/sse');
 
     this.eventSource.onopen = () => {
-      console.log('✅ SSE Connected');
-      this.reconnectAttempts = 0;
+      console.log('✅ SSE Connected successfully');
     };
 
-    this.eventSource.onerror = (error) => {
-      console.error('❌ SSE Error:', error);
-      this.eventSource?.close();
-      
-      // محاولة إعادة الاتصال
-      if (this.reconnectAttempts < this.maxReconnectAttempts) {
-        this.reconnectAttempts++;
-        console.log(`🔄 Reconnecting... Attempt ${this.reconnectAttempts}`);
-        setTimeout(() => this.connect(), this.reconnectTimeout);
-      }
+    this.eventSource.onerror = (e) => {
+      console.error('❌ SSE Error:', e);
+      // حاول إعادة الاتصال بعد 3 ثواني
+      setTimeout(() => {
+        this.disconnect();
+        this.connect();
+      }, 3000);
     };
 
     // استماع للإشعارات
-    this.eventSource.addEventListener('notification', (event: MessageEvent) => {
+    this.eventSource.addEventListener('notification', (e: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data);
-        console.log('📨 SSE Notification received:', data);
-        this.emit('notification', data);
+        const data = JSON.parse(e.data);
+        console.log('📨 New notification:', data);
+        this.callbacks.forEach(cb => cb(data));
       } catch (error) {
         console.error('Error parsing SSE data:', error);
       }
-    });
-
-    this.eventSource.addEventListener('connected', (event: MessageEvent) => {
-      console.log('🔌 SSE Connected:', event.data);
     });
   }
 
@@ -54,20 +44,9 @@ class SSEManager {
     }
   }
 
-  on(event: string, callback: SSEEventCallback) {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, new Set());
-    }
-    this.listeners.get(event)?.add(callback);
-  }
-
-  off(event: string, callback: SSEEventCallback) {
-    this.listeners.get(event)?.delete(callback);
-  }
-
-  private emit(event: string, data: any) {
-    this.listeners.get(event)?.forEach(callback => callback(data));
+  onNotification(callback: (data: any) => void) {
+    this.callbacks.push(callback);
   }
 }
 
-export const sseManager = new SSEManager();
+export const sse = new SimpleSSE();
