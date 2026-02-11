@@ -43,16 +43,14 @@ export async function searchCustomers(term: string) {
 }
 
 // 🆕 دالة جديدة للتحقق من وجود رقم الهاتف مسبقاً
-// تستخدم في شاشات إضافة عميل جديد (سواء من الأوردر أو النقدية)
 export async function checkCustomerPhone(phone: string) {
   if (!phone || phone.length < 5) return { exists: false };
   
   try {
-    // البحث في الهاتف الأول أو الثاني
     const existingCustomer = await prisma.customer.findFirst({
       where: {
         OR: [
-          { phone: { contains: phone } }, // استخدام contains لضمان العثور حتى لو في مسافات
+          { phone: { contains: phone } }, 
           { phone2: { contains: phone } }
         ]
       },
@@ -97,14 +95,13 @@ export async function searchProducts(term: string) {
 }
 
 // 🆕 دالة لجلب تنبيهات المخزون للأدمن
-// الشرط: الحالة مغلق (CLOSED) + الرصيد الحالي <= 4
 export async function getAdminStockAlerts() {
   try {
     const lowStockItems = await prisma.product.findMany({
       where: {
-        status: 'CLOSED', // افترضنا أن الحالة المغلقة تسمى CLOSED حسب السكيما
+        status: 'CLOSED',
         currentStock: {
-          lte: 4 // أقل من أو يساوي 4
+          lte: 4 
         }
       },
       select: {
@@ -115,7 +112,7 @@ export async function getAdminStockAlerts() {
         description: true
       },
       orderBy: {
-        currentStock: 'asc' // الترتيب من الأقل رصيداً
+        currentStock: 'asc' 
       }
     });
 
@@ -139,7 +136,6 @@ export async function createOrder(data: any, userId: string) {
   try {
     const result = await prisma.$transaction(async (tx) => {
       
-      // أولاً: خصم الكميات والتحقق
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
           const requestedPieces = variant.quantity * PIECES_PER_UNIT;
@@ -147,24 +143,17 @@ export async function createOrder(data: any, userId: string) {
           const product = await tx.product.findUnique({ where: { id: variant.productId } });
           if (!product) throw new Error(`الصنف غير موجود`);
 
-          // التحقق من الرصيد (للأصناف غير المفتوحة)
-          // إذا كان الصنف ليس OPEN (أي CLOSED أو غيره) والرصيد لا يكفي
           if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
              throw new Error(`عذراً، الكمية نفذت للصنف: ${product.modelNo} - لون: ${product.color} (المتاح حالياً: ${product.currentStock} قطعة فقط)`);
           }
 
-          // تنفيذ الخصم من الرصيد الحالي
           const updatedProduct = await tx.product.update({
             where: { id: variant.productId },
             data: { currentStock: { decrement: requestedPieces } }
           });
-          
-          // هنا يمكننا إضافة منطق إضافي لو أردنا إرسال إشعار فوري، 
-          // لكن الدالة getAdminStockAlerts ستتكفل بعرضها في لوحة التحكم
         }
       }
 
-      // ثانياً: إنشاء الأوردر الأساسي
       const order = await tx.order.create({
         data: {
           userId, 
@@ -176,7 +165,6 @@ export async function createOrder(data: any, userId: string) {
         }
       });
 
-      // ثالثاً: إضافة تفاصيل الأصناف (Order Items)
       for (const cartItem of items) {
         for (const variant of cartItem.variants) {
           await tx.orderItem.create({
@@ -193,9 +181,9 @@ export async function createOrder(data: any, userId: string) {
       return order;
     });
     
-    // تحديث البيانات في الواجهات
     revalidatePath('/');
     revalidatePath('/admin/products'); 
+    revalidatePath('/admin/notifications'); // ✅ إضافة تحديث الإشعارات
     
     return { success: true, data: JSON.parse(JSON.stringify(result)) };
   } catch (error: any) {
@@ -226,7 +214,6 @@ export async function getOrderById(orderId: string) {
 export async function deleteOrder(orderId: string) {
   try {
     await prisma.$transaction(async (tx) => {
-        // استرجاع الكميات للمخزون قبل الحذف
         const orderItems = await tx.orderItem.findMany({ where: { orderId } });
         for (const item of orderItems) {
            const piecesToReturn = item.quantity * PIECES_PER_UNIT;
@@ -236,11 +223,11 @@ export async function deleteOrder(orderId: string) {
            });
         }
         
-        // حذف العناصر ثم الأوردر
         await tx.orderItem.deleteMany({ where: { orderId } });
         await tx.order.delete({ where: { id: orderId } });
     });
     revalidatePath('/orders/list');
+    revalidatePath('/admin/notifications'); // ✅ تحديث الإشعارات عند الحذف
     return { success: true };
   } catch (error) { return { success: false }; }
 }
@@ -249,7 +236,6 @@ export async function updateOrder(orderId: string, data: any) {
     const { items, total, deposit, safeId, currency } = data;
     try {
         await prisma.$transaction(async (tx) => {
-            // 1. استرجاع الكميات القديمة للمخزون
             const oldItems = await tx.orderItem.findMany({ where: { orderId } });
             for (const item of oldItems) {
                const piecesToReturn = item.quantity * PIECES_PER_UNIT;
@@ -258,17 +244,14 @@ export async function updateOrder(orderId: string, data: any) {
                   data: { currentStock: { increment: piecesToReturn } }
                });
             }
-            // حذف العناصر القديمة
             await tx.orderItem.deleteMany({ where: { orderId } });
 
-            // 2. خصم الكميات الجديدة مع التحقق
             for (const cartItem of items) {
                 for (const variant of cartItem.variants) {
                     const requestedPieces = variant.quantity * PIECES_PER_UNIT;
                     
                     const product = await tx.product.findUnique({ where: { id: variant.productId } });
                     
-                    // التحقق من الرصيد مرة أخرى
                     if (product && product.status !== 'OPEN' && product.currentStock < requestedPieces) {
                          throw new Error(`عذراً، الكمية نفذت للصنف: ${product.modelNo} - لون: ${product.color} (المتاح: ${product.currentStock})`);
                     }
@@ -290,7 +273,6 @@ export async function updateOrder(orderId: string, data: any) {
                 }
             }
 
-            // 3. تحديث بيانات الأوردر المالية
             await tx.order.update({
                 where: { id: orderId },
                 data: {
@@ -302,6 +284,7 @@ export async function updateOrder(orderId: string, data: any) {
             });
         });
         revalidatePath('/orders/list');
+        revalidatePath('/admin/notifications'); // ✅ تحديث الإشعارات عند التعديل
         return { success: true };
     } catch (error: any) { return { success: false, error: error.message }; }
 }
@@ -310,7 +293,6 @@ export async function getUserOrders(userId: string) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     let whereCondition = {};
-    // الموظف العادي يرى أوردراته فقط، الأدمن والمالك يرون الكل
     if (user?.role !== 'ADMIN' && user?.role !== 'OWNER') {
       whereCondition = { userId: userId };
     }
