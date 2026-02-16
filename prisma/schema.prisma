@@ -32,17 +32,21 @@ model Customer {
 }
 
 model Product {
-  id           String      @id @default(cuid())
-  modelNo      String
-  description  String?
-  material     String?
-  color        String
-  stockQty     Int         @default(0)
-  currentStock Int         @default(0)
-  price        Float
-  discount     Float       @default(0.0)
-  status       String      @default("OPEN") 
-  orderItems   OrderItem[]
+  id               String      @id @default(cuid())
+  modelNo          String
+  description      String?
+  material         String?
+  color            String
+  stockQty         Int         @default(0)
+  currentStock     Int         @default(0)
+  price            Float
+  discount         Float       @default(0.0)
+  status           String      @default("OPEN") 
+  
+  // 👈👈👈 هذا هو العمود الجديد المسؤول عن حفظ حالة الشطب لكل الناس
+  isStockAlertRead Boolean     @default(false)
+
+  orderItems       OrderItem[]
 
   @@unique([modelNo, color])
 }
@@ -86,17 +90,15 @@ model OrderItem {
   price           Float
   discountPercent Int     @default(0)
   
-  // العلاقة الجديدة لسجل الصرف
   logs            FulfillmentLog[]
 }
 
-// 👈 هذا هو الجدول الجديد
 model FulfillmentLog {
   id          String   @id @default(cuid())
   orderItemId String
   orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
-  quantity    Int       // الكمية المصروفة في هذه الحركة
-  batchId     String    // كود موحد لكل الأصناف التي صرفت في نفس اللحظة
+  quantity    Int       
+  batchId     String    
   createdAt   DateTime  @default(now())
 }
 

@@ -7,12 +7,13 @@ export default function NotificationBell({ isDark = true }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioEnabledRef = useRef(false);
-  const knownIdsRef = useRef<string[]>([]); // لتتبع الأصناف التي عرفناها مسبقاً لمنع تكرار الصوت
+  const knownIdsRef = useRef<string[]>([]);
 
-  // ============ ١. تهيئة الصوت ============
   useEffect(() => {
-    audioRef.current = new Audio('/notification.mp3');
-    audioRef.current.volume = 0.8;
+    if (typeof window !== 'undefined') {
+        audioRef.current = new Audio('/notification.mp3');
+        audioRef.current.volume = 0.8;
+    }
 
     const enableAudio = () => {
       if (audioRef.current && !audioEnabledRef.current) {
@@ -37,10 +38,9 @@ export default function NotificationBell({ isDark = true }) {
     }
   };
 
-  // ============ ٢. جلب الإشعارات (الريال تايم الفعلي) ============
   const checkNotifications = async () => {
     try {
-      // ⚠️ نستخدم API Route لضمان عدم وجود Cache وللحصول على IDs الأصناف
+      // الـ API الآن يعيد فقط العناصر التي isStockAlertRead = false
       const res = await fetch(`/api/notifications/count?t=${Date.now()}`, {
         cache: 'no-store'
       });
@@ -48,26 +48,24 @@ export default function NotificationBell({ isDark = true }) {
       if (!res.ok) return;
       const data = await res.json();
       
-      const currentIds = data.ids || [];
+      const serverIds: string[] = data.ids || [];
       const totalCount = data.count || 0;
 
-      // ✅ تشغيل الصوت فقط إذا ظهر ID جديد لم يكن موجوداً في المرة السابقة
-      const hasNewItem = currentIds.some((id: string) => !knownIdsRef.current.includes(id));
+      // تشغيل الصوت فقط إذا ظهر ID جديد لم نكن نعرفه من قبل
+      const hasNewItem = serverIds.some(id => !knownIdsRef.current.includes(id));
       
       if (hasNewItem && knownIdsRef.current.length > 0) {
         playSound();
       }
 
-      // ✅ تحديث الحالة (سيبقى الرقم ظاهراً طالما الصنف رصيده <= 4)
       setUnreadCount(totalCount);
-      knownIdsRef.current = currentIds;
+      knownIdsRef.current = serverIds;
       
     } catch (error) {
       console.error('❌ Error fetching notifications:', error);
     }
   };
 
-  // ============ ٣. Polling كل ٣ ثواني ============
   useEffect(() => {
     checkNotifications();
     const interval = setInterval(checkNotifications, 3000);
