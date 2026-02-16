@@ -370,35 +370,31 @@ export async function getLowStockClosedCount() {
     }
 }
 
-export async function getLowStockClosedItems() {
-    try {
-        // جلب تفاصيل الأصناف المغلقة المنتهية
-        const items = await prisma.product.findMany({
-            where: {
-                status: 'CLOSED',
-                currentStock: { lte: 4 }
-            },
-            orderBy: {
-                currentStock: 'asc'
-            }
-        });
-        return JSON.parse(JSON.stringify(items));
-    } catch (e) {
-        return [];
-    }
-}
+// داخل ملف app/admin-actions.ts
 
-export async function getActiveLowStockCount() {
+export async function getLowStockClosedItems() {
   try {
-    const count = await prisma.product.count({
+    const items = await prisma.product.findMany({
       where: {
-        currentStock: { lte: 4 }, // حد النواقص للأصناف النشطة
-        status: "CLOSED", // 👈 تم التعديل بناءً على طلبك ليكون CLOSED
+        status: "CLOSED",
+        currentStock: { lte: 4 },
       },
+      select: {
+        id: true,
+        modelNo: true,
+        color: true,
+        currentStock: true,
+        price: true,
+        // 👇👇 تأكد من إضافة هذا السطر
+        isStockAlertRead: true, 
+      },
+      orderBy: {
+        currentStock: 'asc',
+      }
     });
-    return count;
+    return items;
   } catch (error) {
-    console.error("Error fetching active low stock count:", error);
-    return 0;
+    console.error(error);
+    return [];
   }
 }
