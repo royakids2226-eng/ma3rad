@@ -284,33 +284,32 @@ export default function OrdersListPage() {
          <div id="hidden-invoice-content" ref={hiddenInvoiceRef} className="bg-white p-10 text-right" style={{ width: '210mm', minHeight: '297mm', direction: 'rtl', visibility: 'visible' }}>
             {pdfOrder && (
                 <>
-                    <header className="border-b-4 border-black pb-6 mb-6 flex justify-between items-start">
-                        <div>
-                            <h1 className="text-4xl font-extrabold mb-2 text-black">مصنع الملابس الجاهزة</h1>
-                            <p className="text-gray-600 text-lg">إدارة المبيعات</p>
-                        </div>
+                    <header className="border-b-4 border-black pb-4 mb-6 grid grid-cols-3 items-start">
                         <div className="text-left">
-                            <div className="text-2xl font-bold bg-black text-white px-4 py-1 mb-2 inline-block rounded">فاتورة مبيعات</div>
-                            <div className="text-lg font-bold text-black">رقم: #{pdfOrder.orderNo}</div>
+                            <div className="text-md font-bold text-black">رقم: #{pdfOrder.orderNo}</div>
                             <div className="text-sm text-gray-500">{new Date(pdfOrder.createdAt).toLocaleDateString('ar-EG')}</div>
+                        </div>
+                        <div className="text-center">
+                            <div className="text-lg md:text-xl font-bold bg-black text-white px-4 py-1 inline-block rounded">فاتورة مبيعات</div>
+                        </div>
+                        <div className="text-right">
+                            <h1 className="text-xl md:text-2xl font-bold text-black">مصنع رؤية لملابس الاطفال</h1>
                         </div>
                     </header>
 
-                    <div className="bg-gray-50 border-2 border-gray-200 rounded-lg p-4 mb-8">
-                        <table className="w-full text-base">
+                    <div className="bg-gray-50 border-2 border-gray-200 rounded-lg p-4 mb-8 print:border-gray-300">
+                        <table className="w-full text-base text-black">
                             <tbody>
                                 <tr>
-                                    <td className="font-bold w-24 py-2 text-black">العميل:</td>
-                                    <td className="text-xl text-black">{pdfOrder.customer.name}</td>
-                                    <td className="font-bold w-24 pl-4 text-black">الهاتف:</td>
-                                    <td className="text-black">
-                                        <div>{pdfOrder.customer.phone || '-'}</div>
-                                        {pdfOrder.customer.phone2 && <div>{pdfOrder.customer.phone2}</div>}
+                                    <td className="font-bold whitespace-nowrap">العميل:</td>
+                                    <td className="px-2">{pdfOrder.customer.name}</td>
+                                    <td className="font-bold whitespace-nowrap">الهاتف:</td>
+                                    <td className="px-2 font-mono">
+                                        {pdfOrder.customer.phone || '-'}
+                                        {pdfOrder.customer.phone2 && ` / ${pdfOrder.customer.phone2}`}
                                     </td>
-                                </tr>
-                                <tr>
-                                    <td className="font-bold py-2 text-black">العنوان:</td>
-                                    <td colSpan={3} className="text-black">{pdfOrder.customer.address || '-'}</td>
+                                    <td className="font-bold whitespace-nowrap">العنوان:</td>
+                                    <td className="px-2">{pdfOrder.customer.address || '-'}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -332,8 +331,7 @@ export default function OrdersListPage() {
                                 <tr key={idx} className="text-sm border-b border-black">
                                     <td className="p-3 border-x border-black text-center font-bold text-lg text-black">{item.modelNo}</td>
                                     <td className="p-3 border-x border-black">
-                                        <div className="font-bold mb-1 text-black">{item.desc}</div>
-                                        <div className="text-xs text-gray-600">{item.details.join(' + ')}</div>
+                                        <div className="font-bold text-black">{item.desc} <span className="text-xs text-gray-600">({item.details.join(' + ')})</span></div>
                                     </td>
                                     <td className="p-3 border-x border-black text-center text-lg font-bold text-black">{item.totalQty * 4}</td>
                                     
