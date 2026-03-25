@@ -14,6 +14,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
   
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [safes, setSafes] = useState<any[]>([]);
   const [order, setOrder] = useState<any>(null);
   
@@ -192,12 +193,18 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
   };
 
   const handleUpdateOrder = async () => {
+    setIsSaving(true);
     const cleanCart = getProcessedCart();
     const total = cleanCart.reduce((acc, item) => acc + item.totalLinePrice, 0);
     const res = await updateOrder(id, {
       items: cleanCart, total, deposit: parseFloat(deposit) || 0, safeId: selectedSafeId, currency: order.currency
     });
-    if (res.success) router.push(`/orders/${id}/print`);
+    if (res.success) {
+        router.push(`/orders/${id}/print`);
+    } else {
+        alert(`فشل الحفظ: ${res.error}`);
+        setIsSaving(false);
+    }
   };
 
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
@@ -369,7 +376,13 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                )}
                <div className="flex justify-between text-xl font-bold pt-4 border-t border-slate-700 text-red-400"><span>المتبقي الجديد:</span><span>{(currentTotal - parseFloat(deposit || '0')).toFixed(2)}</span></div>
             </div>
-            <button onClick={handleUpdateOrder} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xl shadow-xl active:scale-95 transition-all">تأكيد الحفظ ✅</button>
+            <button 
+                onClick={handleUpdateOrder} 
+                disabled={isSaving}
+                className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xl shadow-xl active:scale-95 transition-all disabled:bg-gray-400 disabled:animate-pulse"
+            >
+                {isSaving ? 'جاري الحفظ...' : 'تأكيد الحفظ ✅'}
+            </button>
             <button onClick={() => setStep(1)} className="w-full mt-4 text-gray-500 font-bold py-2">العودة للتعديل</button>
           </div>
         )}

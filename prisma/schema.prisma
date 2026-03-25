@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -42,7 +43,7 @@ model Product {
   price            Float
   discount         Float       @default(0.0)
   status           String      @default("OPEN") 
-  
+
   // 👈👈👈 هذا هو العمود الجديد المسؤول عن حفظ حالة الشطب لكل الناس
   isStockAlertRead Boolean     @default(false)
 
@@ -64,7 +65,7 @@ model Order {
   id          String      @id @default(cuid())
   orderNo     Int         @default(autoincrement())
   createdAt   DateTime    @default(now())
-  
+
   deposit     Float       @default(0.0)
   currency    String      @default("EGP")
   discount    Float       @default(0.0) 
@@ -89,7 +90,7 @@ model OrderItem {
   fulfilledQty    Int     @default(0) 
   price           Float
   discountPercent Int     @default(0)
-  
+
   logs            FulfillmentLog[]
 }
 
@@ -108,16 +109,16 @@ model Payment {
   createdAt    DateTime @default(now())
   amount       Float
   currency     String   @default("EGP") 
-  
+
   type         String   @default("IN") 
   description  String?  
-  
+
   customerId   String?  
   customer     Customer? @relation(fields: [customerId], references: [id])
-  
+
   userId       String
   user         User     @relation(fields: [userId], references: [id])
-  
+
   safeId       String   
   safe         Safe     @relation("SourceSafe", fields: [safeId], references: [id])
 

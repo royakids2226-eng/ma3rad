@@ -3,40 +3,35 @@ import { useState, useEffect, useRef } from 'react';
 import { getCustomers, searchProducts, createOrder, getSafes, searchCustomers, checkCustomerPhone } from '@/app/actions';
 import { addCustomer } from '@/app/admin-actions'; 
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { Scanner } from '@yudiel/react-qr-scanner';
 
-// عدد القطع في الوحدة (دزينة مثلاً أو طقم)
 const PIECES_PER_UNIT = 4;
 
 export default function NewOrderPage() {
   const { data: session } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
   
-  // States for Order Steps
   const [step, setStep] = useState(1);
   const [safes, setSafes] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   
-  // Customer Search States
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const [customerResults, setCustomerResults] = useState<any[]>([]);
   const [showCustomerList, setShowCustomerList] = useState(false);
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
   const customerListRef = useRef<HTMLDivElement>(null);
 
-  // Quick Add Customer States
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [newCust, setNewCust] = useState({ name: '', phone: '', phone2: '', code: '', address: '' });
   const [isSavingCust, setIsSavingCust] = useState(false);
 
-  // Product Search & Scanner States
   const [searchTerm, setSearchTerm] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectionMap, setSelectionMap] = useState<{[key: string]: number}>({});
 
-  // Cart & Financial States
   const [cart, setCart] = useState<any[]>([]);
   const [cartSearchTerm, setCartSearchTerm] = useState('');
   const [deposit, setDeposit] = useState<string>('');
@@ -44,8 +39,41 @@ export default function NewOrderPage() {
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
   const [showDiscountOptions, setShowDiscountOptions] = useState(false);
 
-  // Order Saving State
   const [isSavingOrder, setIsSavingOrder] = useState(false);
+
+  // --- FINAL UNSAVED CHANGES WARNING --- 
+  useEffect(() => {
+    const isDirty = cart.length > 0 && !isSavingOrder;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = 'لديك تغييرات غير محفوظة. هل أنت متأكد أنك تريد المغادرة؟';
+    };
+
+    const handlePopState = () => {
+        if (window.confirm("لديك أصناف في السلة لم يتم حفظها. هل تريد الخروج وتجاهل التغييرات؟")) {
+            // User confirmed they want to leave. Disable the check and go back.
+            window.removeEventListener('popstate', handlePopState);
+            router.back();
+        } else {
+            // User wants to stay. Push the trap state again.
+            history.pushState(null, '', pathname);
+        }
+    };
+
+    if (isDirty) {
+      // Set up the trap and listeners only when the cart is dirty
+      history.pushState(null, '', pathname);
+      window.addEventListener('popstate', handlePopState);
+      window.addEventListener('beforeunload', handleBeforeUnload);
+    }
+
+    // The cleanup function will run when the dependencies change or on unmount
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [cart.length, isSavingOrder, pathname, router]);
 
   // Initial Data Fetching
   useEffect(() => {
@@ -55,7 +83,6 @@ export default function NewOrderPage() {
       if (data.length > 0) setSelectedSafeId(data[0].id);
     });
 
-    // Handle clicking outside customer list to close it
     const handleClickOutside = (event: MouseEvent) => {
       if (customerListRef.current && !customerListRef.current.contains(event.target as Node)) {
         setShowCustomerList(false);
@@ -109,7 +136,6 @@ export default function NewOrderPage() {
   const handleSelectAll = () => {
     const newMap: {[key: string]: number} = {};
     searchResults.forEach(p => { 
-        // منطق تحديد الكل: استبعاد الأصناف المغلقة المنتهية الكمية
         const isSoldOut = p.status !== 'OPEN' && p.currentStock <= 0;
         if (!isSoldOut) {
             newMap[p.id] = 1; 
@@ -257,41 +283,36 @@ export default function NewOrderPage() {
             router.push(`/orders/${result.data.id}/print`);
         } else {
             alert(result.error || "حدث خطأ أثناء حفظ الأوردر.");
+            setIsSavingOrder(false); // Re-enable button on failure
         }
     } catch (error) {
         console.error(error);
         alert("حدث خطأ غير متوقع أثناء الاتصال بالسيرفر.");
-    } finally {
-        setIsSavingOrder(false);
+        setIsSavingOrder(false); // Re-enable button on failure
     }
   };
 
-  // 🆕 تم تعديل هذه الدالة لإضافة التحقق من الهاتف
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
       e.preventDefault();
       if(!newCust.name) return alert('الاسم مطلوب');
       
       setIsSavingCust(true);
 
-      // 1. التحقق من الهاتف قبل الإرسال
       if (newCust.phone || newCust.phone2) {
           const checkRes = await checkCustomerPhone(newCust.phone || newCust.phone2);
           if (checkRes.exists) {
-              // إظهار رسالة التحذير مع اسم العميل الموجود
               const confirmMsg = `⚠️ تنبيه: رقم الهاتف هذا مسجل مسبقاً للعميل:\n\n👤 ${checkRes.name}\n\nهل تريد الاستمرار وإضافة هذا العميل الجديد بنفس الرقم؟`;
               if (!window.confirm(confirmMsg)) {
                   setIsSavingCust(false);
-                  return; // إلغاء العملية
+                  return;
               }
           }
       }
 
-      // 2. محاولة الإضافة (مع معالجة حالة التكرار من السيرفر أيضاً كخط دفاع ثانٍ)
       const res = await addCustomer({ ...newCust, source: 'QUICK' });
       
       if (res.warning) {
           setIsSavingCust(false);
-          // رسالة احتياطية لو السيرفر رجع تحذير آخر
           if (confirm(`رقم الهاتف هذا مسجل مسبقاً باسم العميل: (${res.existingName}).\nهل تريد الاستمرار في الإضافة على أي حال؟`)) {
               setIsSavingCust(true);
               const resForce = await addCustomer({ ...newCust, source: 'QUICK', force: true });
@@ -303,8 +324,8 @@ export default function NewOrderPage() {
               } else {
                   alert("خطأ: " + resForce.error);
               }
+              setIsSavingCust(false);
           }
-          setIsSavingCust(false);
           return;
       }
 

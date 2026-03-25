@@ -7,13 +7,11 @@ const PIECES_PER_UNIT = 4;
 function groupOrderItems(items: any[]) {
     const grouped: any = {};
     items.forEach(item => {
-        // نجمع حسب الموديل + نسبة الخصم لضمان ظهور كل فئة سعرية في سطر
         const key = `${item.product.modelNo}_${item.discountPercent}`;
         
         if (!grouped[key]) {
             const finalPrice = item.price;
             const discountPct = item.discountPercent || 0;
-            // استرجاع السعر الأصلي رياضياً: السعر الأصلي = السعر النهائي / (1 - نسبة الخصم)
             const originalPrice = discountPct > 0 
                 ? finalPrice / (1 - (discountPct / 100)) 
                 : finalPrice;
@@ -49,15 +47,12 @@ export default async function PrintOrderPage(props: Props) {
     const groupedItems = groupOrderItems(order.items);
     const totalPieces = order.items.reduce((acc: number, item: any) => acc + (item.quantity * PIECES_PER_UNIT), 0);
 
-    // الحسابات المالية (فصل العملات)
     const orderDepositEGP = (order.currency === 'EGP' || !order.currency) ? (order.deposit || 0) : 0;
     
-    // جلب سندات القبض بالجنيه فقط للخصم الحسابي
     const collectionPaymentsEGP = order.customer.payments
         ?.filter((p: any) => p.type === 'IN' && (p.currency === 'EGP' || !p.currency))
         .reduce((acc: number, p: any) => acc + p.amount, 0) || 0;
 
-    // تجميع سندات القبض بالعملات الأخرى للعرض فقط
     const foreignPayments = order.customer.payments
         ?.filter((p: any) => p.type === 'IN' && p.currency !== 'EGP' && p.currency) || [];
 
@@ -84,15 +79,16 @@ export default async function PrintOrderPage(props: Props) {
             </div>
 
             <div id="invoice-content" className="max-w-[210mm] mx-auto bg-white p-6 md:p-10 shadow-2xl print:shadow-none print:w-full print:max-w-none" dir="rtl">
-                <header className="border-b-4 border-black pb-6 mb-6 flex flex-col md:flex-row justify-between items-start gap-4">
-                    <div>
-                        <h1 className="text-3xl md:text-4xl font-extrabold mb-2 text-black">مصنع الملابس الجاهزة</h1>
-                        <p className="text-gray-600 text-lg">إدارة المبيعات والتوزيع</p>
-                    </div>
-                    <div className="text-right md:text-left w-full md:w-auto">
-                        <div className="text-xl md:text-2xl font-bold bg-black text-white px-4 py-1 mb-2 inline-block rounded">فاتورة مبيعات</div>
-                        <div className="text-lg font-bold text-black">رقم: #{order.orderNo}</div>
+                <header className="border-b-4 border-black pb-4 mb-6 grid grid-cols-3 items-start">
+                    <div className="text-left">
+                        <div className="text-md font-bold text-black">رقم: #{order.orderNo}</div>
                         <div className="text-sm text-gray-500">{new Date(order.createdAt).toLocaleDateString('ar-EG')}</div>
+                    </div>
+                    <div className="text-center">
+                        <div className="text-lg md:text-xl font-bold bg-black text-white px-4 py-1 inline-block rounded">فاتورة مبيعات</div>
+                    </div>
+                    <div className="text-right">
+                        <h1 className="text-xl md:text-2xl font-bold text-black">مصنع رؤية لملابس الاطفال</h1>
                     </div>
                 </header>
 
@@ -100,17 +96,15 @@ export default async function PrintOrderPage(props: Props) {
                     <table className="w-full text-base text-black">
                         <tbody>
                             <tr>
-                                <td className="font-bold w-20 md:w-24 py-2 align-top">العميل:</td>
-                                <td className="text-lg md:text-xl align-top">{order.customer.name}</td>
-                                <td className="font-bold w-20 md:w-24 text-left pl-4 align-top">الهاتف:</td>
-                                <td className="align-top font-mono">
-                                    <div>{order.customer.phone || '-'}</div>
-                                    {order.customer.phone2 && <div>{order.customer.phone2}</div>}
+                                <td className="font-bold whitespace-nowrap">العميل:</td>
+                                <td className="px-2">{order.customer.name}</td>
+                                <td className="font-bold whitespace-nowrap">الهاتف:</td>
+                                <td className="px-2 font-mono">
+                                    {order.customer.phone || '-'}
+                                    {order.customer.phone2 && ` / ${order.customer.phone2}`}
                                 </td>
-                            </tr>
-                            <tr>
-                                <td className="font-bold py-2 align-top">العنوان:</td>
-                                <td colSpan={3} className="text-gray-700 align-top">{order.customer.address || '-'}</td>
+                                <td className="font-bold whitespace-nowrap">العنوان:</td>
+                                <td className="px-2">{order.customer.address || '-'}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -133,8 +127,7 @@ export default async function PrintOrderPage(props: Props) {
                                 <tr key={idx} className="text-sm border-b border-black text-black">
                                     <td className="p-3 border-x border-black text-center font-bold text-lg">{item.modelNo}</td>
                                     <td className="p-3 border-x border-black">
-                                        <div className="font-bold mb-1">{item.desc}</div>
-                                        <div className="text-xs text-gray-600 leading-relaxed">{item.details.join(' + ')}</div>
+                                        <div className="font-bold">{item.desc} <span className="text-xs text-gray-600">({item.details.join(' + ')})</span></div>
                                     </td>
                                     <td className="p-3 border-x border-black text-center text-lg font-bold">{item.totalQty * 4}</td>
                                     <td className="p-3 border-x border-black text-center">
@@ -158,7 +151,6 @@ export default async function PrintOrderPage(props: Props) {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
-                    {/* سجل العملات الأخرى */}
                     <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 h-fit">
                         <h3 className="font-bold text-sm mb-3 text-blue-800 border-b pb-1">سجل تحصيلات العملات (إحاطة):</h3>
                         {foreignPayments.length > 0 ? (
@@ -176,7 +168,6 @@ export default async function PrintOrderPage(props: Props) {
                         )}
                     </div>
 
-                    {/* الحساب النهائي بالجنيه */}
                     <div className="border-2 border-black rounded-lg overflow-hidden h-fit">
                         <div className="flex justify-between p-3 border-b border-black bg-gray-50 text-black">
                             <span className="font-bold">إجمالي القطع:</span>

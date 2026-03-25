@@ -234,45 +234,120 @@ export async function deleteOrder(orderId: string) {
 
 export async function updateOrder(orderId: string, data: any) {
     const { items, total, deposit, safeId, currency } = data;
+
     try {
         await prisma.$transaction(async (tx) => {
-            const oldItems = await tx.orderItem.findMany({ where: { orderId } });
-            for (const item of oldItems) {
-               const piecesToReturn = item.quantity * PIECES_PER_UNIT;
-               await tx.product.update({
-                  where: { id: item.productId },
-                  data: { currentStock: { increment: piecesToReturn } }
-               });
-            }
-            await tx.orderItem.deleteMany({ where: { orderId } });
+            // 1. Fetch old items (including product details for error messages)
+            const oldItems = await tx.orderItem.findMany({
+                where: { orderId },
+                include: { product: true } // Include product for error messages and logic
+            });
 
+            // 2. Prepare a map of new items for easy lookup
+            const newItemsMap = new Map<string, { quantity: number; price: number; discountPercent: number; productId: string }>();
             for (const cartItem of items) {
                 for (const variant of cartItem.variants) {
-                    const requestedPieces = variant.quantity * PIECES_PER_UNIT;
-                    
-                    const product = await tx.product.findUnique({ where: { id: variant.productId } });
-                    
-                    if (product && product.status !== 'OPEN' && product.currentStock < requestedPieces) {
-                         throw new Error(`عذراً، الكمية نفذت للصنف: ${product.modelNo} - لون: ${product.color} (المتاح: ${product.currentStock})`);
-                    }
-
-                    await tx.product.update({
-                        where: { id: variant.productId },
-                        data: { currentStock: { decrement: requestedPieces } }
-                    });
-
-                    await tx.orderItem.create({
-                        data: {
-                            orderId: orderId,
+                    const key = variant.productId;
+                    if (newItemsMap.has(key)) {
+                        const existing = newItemsMap.get(key)!;
+                        existing.quantity += variant.quantity;
+                    } else {
+                        newItemsMap.set(key, {
                             productId: variant.productId,
                             quantity: variant.quantity,
                             price: variant.price,
-                            discountPercent: variant.discountPercent || 0
-                        }
-                    });
+                            discountPercent: variant.discountPercent || 0,
+                        });
+                    }
                 }
             }
 
+            const oldItemsMap = new Map(oldItems.map(item => [item.productId, item]));
+
+            // 3. Determine items to delete, add, or update
+            const itemsToDelete = oldItems.filter(oldItem => !newItemsMap.has(oldItem.productId));
+            const itemsToAdd: any[] = [];
+            const itemsToUpdate: any[] = [];
+
+            for (const [productId, newItem] of newItemsMap.entries()) {
+                if (oldItemsMap.has(productId)) {
+                    const oldItem = oldItemsMap.get(productId)!;
+                    if (oldItem.quantity !== newItem.quantity || oldItem.price !== newItem.price || oldItem.discountPercent !== newItem.discountPercent) {
+                        itemsToUpdate.push({ oldItem, newItem });
+                    }
+                } else {
+                    itemsToAdd.push(newItem);
+                }
+            }
+
+            // 4. Process deletions
+            for (const itemToDelete of itemsToDelete) {
+                if (itemToDelete.fulfilledQty > 0) {
+                    throw new Error(`لا يمكن حذف الصنف ${itemToDelete.product.modelNo} لأنه تم صرف كميات منه بالفعل.`);
+                }
+                const piecesToReturn = itemToDelete.quantity * PIECES_PER_UNIT;
+                await tx.product.update({
+                    where: { id: itemToDelete.productId },
+                    data: { currentStock: { increment: piecesToReturn } }
+                });
+                await tx.orderItem.delete({ where: { id: itemToDelete.id } });
+            }
+
+            // 5. Process additions
+            for (const itemToAdd of itemsToAdd) {
+                const requestedPieces = itemToAdd.quantity * PIECES_PER_UNIT;
+                const product = await tx.product.findUnique({ where: { id: itemToAdd.productId } });
+                if (!product) throw new Error (`الصنف ${itemToAdd.productId} غير موجود`);
+                if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
+                    throw new Error(`عذراً، الكمية نفذت للصنف: ${product.modelNo} - لون: ${product.color}`);
+                }
+                await tx.product.update({
+                    where: { id: itemToAdd.productId },
+                    data: { currentStock: { decrement: requestedPieces } }
+                });
+                await tx.orderItem.create({
+                    data: {
+                        orderId: orderId,
+                        productId: itemToAdd.productId,
+                        quantity: itemToAdd.quantity,
+                        price: itemToAdd.price,
+                        discountPercent: itemToAdd.discountPercent
+                    }
+                });
+            }
+
+            // 6. Process updates
+            for (const { oldItem, newItem } of itemsToUpdate) {
+                if (newItem.quantity < oldItem.fulfilledQty) {
+                    throw new Error(`لا يمكن تخفيض كمية الصنف ${oldItem.product.modelNo} لأقل من الكمية التي تم صرفها (${oldItem.fulfilledQty}).`);
+                }
+                const quantityDifference = newItem.quantity - oldItem.quantity;
+                const stockDifference = quantityDifference * PIECES_PER_UNIT;
+
+                if (stockDifference > 0) {
+                    const product = await tx.product.findUnique({ where: { id: newItem.productId } });
+                    if (!product) throw new Error (`الصنف ${newItem.productId} غير موجود`);
+                    if (product.status !== 'OPEN' && product.currentStock < stockDifference) {
+                        throw new Error(`عذراً، الكمية الإضافية للصنف ${product.modelNo} غير متاحة.`);
+                    }
+                }
+
+                await tx.product.update({
+                    where: { id: newItem.productId },
+                    data: { currentStock: { decrement: stockDifference } }
+                });
+
+                await tx.orderItem.update({
+                    where: { id: oldItem.id },
+                    data: {
+                        quantity: newItem.quantity,
+                        price: newItem.price,
+                        discountPercent: newItem.discountPercent
+                    }
+                });
+            }
+
+            // 7. Update the order itself
             await tx.order.update({
                 where: { id: orderId },
                 data: {
@@ -282,11 +357,20 @@ export async function updateOrder(orderId: string, data: any) {
                     safeId: deposit > 0 ? safeId : null
                 }
             });
+        }, {
+            maxWait: 10000,
+            timeout: 20000,
         });
-        revalidatePath('/orders/list');
-        revalidatePath('/admin/notifications'); // ✅ تحديث الإشعارات عند التعديل
+
+        revalidatePath(`/orders/list`);
+        revalidatePath(`/orders/${orderId}/edit`);
+        revalidatePath('/admin/notifications');
         return { success: true };
-    } catch (error: any) { return { success: false, error: error.message }; }
+
+    } catch (error: any) {
+        console.error("Error updating order:", error);
+        return { success: false, error: error.message };
+    }
 }
 
 export async function getUserOrders(userId: string) {
