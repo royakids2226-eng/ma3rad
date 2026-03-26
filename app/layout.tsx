@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { NextAuthProvider } from "./providers"; // تأكد أن المسار صحيح
+import ExitConfirmation from "@/components/ExitConfirmation"; // استيراد المكون الجديد
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,6 +21,7 @@ export default function RootLayout({
     <html lang="ar" dir="rtl">
       <body className={inter.className}>
         <NextAuthProvider>
+          <ExitConfirmation /> {/* إضافة المكون هنا */}
           {children}
         </NextAuthProvider>
       </body>
