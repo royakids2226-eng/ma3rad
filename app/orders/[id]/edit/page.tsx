@@ -103,6 +103,20 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
 
   const updateQuantity = (productId: string, newQty: number) => {
     if (newQty < 1) return;
+    const product = searchResults.find(p => p.id === productId);
+    if (!product) return;
+
+    if (product.status === 'CLOSED') {
+        const availableStock = Math.floor(product.currentStock / PIECES_PER_UNIT);
+        if (newQty > availableStock) {
+          alert(`الكمية المتاحة من هذا الصنف المغلق هي ${availableStock} سرية فقط. لا يمكن بيع كمية أكبر.`);
+          return;
+        }
+        if (newQty === availableStock) {
+          alert("🛎️ تنبيه: تم بيع آخر كمية متاحة. من فضلك، شيل شماعة الموديل.");
+        }
+    }
+    
     setSelectionMap(prev => ({ ...prev, [productId]: newQty }));
   };
 
@@ -296,7 +310,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                           />
                           <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
                               <div className="font-bold">{prod.color}</div>
-                              <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.currentStock}</div>
+                              <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {Math.floor(prod.currentStock / PIECES_PER_UNIT)} سرية</div>
                               {isSoldOut && <span className="text-[10px] text-red-600 font-bold block">نفذت الكمية</span>}
                           </div>
                         </div>
@@ -356,7 +370,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                                 ))}
                             </div>
                             <div className="flex justify-between items-center pt-2 border-t">
-                                <span className="text-xs font-bold text-gray-500">الإجمالي: {item.totalQty} درزن</span>
+                                <span className="text-xs font-bold text-gray-500">الإجمالي: {item.totalQty} سرية</span>
                                 <div className="flex gap-2">
                                     <button onClick={() => handleEditCartItem(item)} className="text-xs bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded font-bold">تعديل ✏️</button>
                                     <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded font-bold">حذف 🗑️</button>
