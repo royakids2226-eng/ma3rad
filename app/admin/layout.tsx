@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 import { authOptions } from "@/auth";
-import NotificationBell from "./NotificationBell"; // 👈 استدعاء مكون الجرس
+import NotificationBell from "./NotificationBell";
 
 const prisma = new PrismaClient();
 
@@ -22,8 +22,12 @@ export default async function AdminLayout({
     where: { id: session.user.image as string },
   });
 
-  // التحقق من الصلاحية (أدمن أو مالك)
-  if (!user || (user.role !== "ADMIN" && user.role !== "OWNER")) {
+  if (!user) {
+    redirect("/");
+  }
+
+  const allowedRoles = ["ADMIN", "OWNER", "ACCOUNTANT"];
+  if (!allowedRoles.includes(user.role)) {
     redirect("/");
   }
 
@@ -37,7 +41,7 @@ export default async function AdminLayout({
             <div>
                 <span className="block leading-none">لوحة التحكم</span>
                 <span className="text-[10px] font-normal text-slate-400">
-                  مرحباً بك، {user.name}
+                  مرحباً بك، {user.name} | صلاحيتك: {user.role}
                 </span>
             </div>
           </div>
@@ -63,10 +67,8 @@ export default async function AdminLayout({
               <span>📊</span> <span className="hidden lg:inline">التقارير</span>
             </Link>
 
-            {/* فاصل */}
             <div className="w-px h-6 bg-slate-700 mx-1"></div>
 
-            {/* 👇 أيقونة الإشعارات الذكية (الوضع الداكن) */}
             <NotificationBell isDark={true} />
 
             <Link href="/" className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-blue-900/20 active:scale-95">

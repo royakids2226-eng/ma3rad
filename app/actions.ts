@@ -377,7 +377,7 @@ export async function getUserOrders(userId: string) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     let whereCondition = {};
-    if (user?.role !== 'ADMIN' && user?.role !== 'OWNER') {
+    if (user?.role !== 'ADMIN' && user?.role !== 'OWNER' && user?.role !== 'ACCOUNTANT') {
       whereCondition = { userId: userId };
     }
     const orders = await prisma.order.findMany({

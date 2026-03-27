@@ -18,7 +18,7 @@ export default async function Home() {
      redirect("/api/auth/signout");
   }
 
-  const isAdminOrOwner = user?.role === 'ADMIN' || user?.role === 'OWNER';
+  const isAllowedInAdmin = user?.role === 'ADMIN' || user?.role === 'OWNER' || user?.role === 'ACCOUNTANT';
 
   return (
     <div className="min-h-screen bg-gray-50 p-4" dir="rtl">
@@ -35,10 +35,9 @@ export default async function Home() {
         </div>
         
         <div className="flex items-center gap-3">
-            {/* 👇 إضافة جرس الإشعارات هنا (الوضع الفاتح) */}
-            {isAdminOrOwner && <NotificationBell isDark={false} />}
+            {isAllowedInAdmin && <NotificationBell isDark={false} />}
 
-            {isAdminOrOwner && (
+            {isAllowedInAdmin && (
                 <Link href="/admin" className="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-black transition-all shadow-lg shadow-slate-200 flex items-center gap-2">
                     <span>لوحة التحكم</span>
                     <span>🛡️</span>

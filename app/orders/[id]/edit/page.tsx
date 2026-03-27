@@ -108,7 +108,12 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
 
   const handleSelectAll = () => {
     const newMap: {[key: string]: number} = {};
-    searchResults.forEach(p => { if (!(p.status === 'CLOSED' && p.stockQty <= 0)) newMap[p.id] = 1; });
+    searchResults.forEach(p => { 
+        const isSoldOut = p.status !== 'OPEN' && p.currentStock <= 0;
+        if (!isSoldOut) {
+            newMap[p.id] = 1; 
+        }
+    });
     setSelectionMap(newMap);
   };
 
@@ -154,7 +159,6 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 👇 الدوال التي كانت مفقودة وتسببت في الخطأ 👇
   const handleAddDiscount = (percent: number) => {
     setCart([{ type: 'discount', percent: percent, id: Date.now(), isAuto: false }, ...cart]);
     setShowDiscountOptions(false);
@@ -269,30 +273,46 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
             )}
 
             {searchResults.length > 0 && (
-                <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6 animate-in slide-in-from-top duration-300">
-                    <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
-                      <span className="font-bold text-gray-700">الموديل: {searchResults[0]?.modelNo}</span>
-                      <button onClick={handleSelectAll} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold">تحديد الكل</button>
-                    </div>
-                    <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
-                      {searchResults.map(prod => (
-                        <div key={prod.id} className={`p-4 flex items-center justify-between ${!!selectionMap[prod.id] ? 'bg-blue-50' : ''}`}>
-                            <label className="flex items-center gap-3 flex-1 cursor-pointer">
-                              <input type="checkbox" checked={!!selectionMap[prod.id]} onChange={(e) => toggleSelection(prod.id, e.target.checked)} className="w-6 h-6" />
-                              <div><div className="font-bold">{prod.color}</div><div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.stockQty}</div></div>
-                            </label>
-                            {selectionMap[prod.id] && (
-                              <div className="flex items-center gap-2 bg-white rounded-lg border px-2 py-1 shadow-sm">
-                                <button onClick={() => updateQuantity(prod.id, selectionMap[prod.id] + 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">+</button>
-                                <input type="number" value={selectionMap[prod.id]} onChange={(e) => updateQuantity(prod.id, parseInt(e.target.value) || 1)} className="w-10 text-center font-bold outline-none" />
-                                <button onClick={() => updateQuantity(prod.id, selectionMap[prod.id] - 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">-</button>
-                              </div>
-                            )}
-                        </div>
-                      ))}
-                    </div>
-                    <button onClick={handleAddToCart} className="w-full bg-black text-white py-4 font-bold text-lg">تحديث السلة 📥</button>
+              <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6 animate-in slide-in-from-top duration-300">
+                 <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
+                  <span className="font-bold text-gray-700">الموديل: {searchResults[0]?.modelNo}</span>
+                  <button onClick={handleSelectAll} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold">تحديد الكل</button>
                 </div>
+                <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                  {searchResults.map(prod => {
+                    const isSoldOut = prod.status !== 'OPEN' && prod.currentStock <= 0;
+                    const isSelected = !!selectionMap[prod.id];
+                    const qty = selectionMap[prod.id] || 1;
+
+                    return (
+                      <div key={prod.id} className={`p-4 flex items-center justify-between transition-colors ${isSoldOut ? 'bg-gray-100 opacity-60' : (isSelected ? 'bg-blue-50' : 'bg-white')}`}>
+                        <div className="flex items-center gap-3 flex-1">
+                          <input 
+                            type="checkbox" 
+                            checked={isSelected} 
+                            onChange={(e) => toggleSelection(prod.id, e.target.checked)} 
+                            disabled={isSoldOut}
+                            className="w-6 h-6" 
+                          />
+                          <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
+                              <div className="font-bold">{prod.color}</div>
+                              <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.currentStock}</div>
+                              {isSoldOut && <span className="text-[10px] text-red-600 font-bold block">نفذت الكمية</span>}
+                          </div>
+                        </div>
+                        {isSelected && !isSoldOut && (
+                          <div className="flex items-center gap-2 bg-white rounded-lg border px-2 py-1 shadow-sm">
+                            <button onClick={() => updateQuantity(prod.id, qty + 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">+</button>
+                            <input type="number" value={qty} onChange={(e) => updateQuantity(prod.id, parseInt(e.target.value) || 1)} className="w-10 text-center font-bold outline-none" />
+                            <button onClick={() => updateQuantity(prod.id, qty - 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">-</button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <button onClick={handleAddToCart} className="w-full bg-black text-white py-4 font-bold text-lg">تحديث السلة 📥</button>
+              </div>
             )}
 
             {cart.length > 0 && (

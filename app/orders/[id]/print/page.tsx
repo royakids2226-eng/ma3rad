@@ -1,6 +1,7 @@
 import { getOrderById } from "@/app/actions";
 import PrintButton from "./PrintButton";
-import SharePdfButton from "./SharePdfButton";
+import NewOrderButton from "./NewOrderButton";
+import HomeButton from "./HomeButton";
 
 const PIECES_PER_UNIT = 4;
 
@@ -70,11 +71,8 @@ export default async function PrintOrderPage(props: Props) {
         <div className="min-h-screen bg-gray-100 p-4 md:p-8 font-sans print:bg-white print:p-0">
             <div className="max-w-[210mm] mx-auto mb-6 flex flex-wrap gap-4 print:hidden" dir="rtl">
                 <PrintButton />
-                <SharePdfButton 
-                    customerName={order.customer.name} 
-                    orderNo={order.orderNo} 
-                    phone={order.customer.phone} 
-                />
+                <NewOrderButton />
+                <HomeButton />
             </div>
 
             <div id="invoice-content" className="max-w-[210mm] mx-auto bg-white shadow-2xl print:shadow-none print:w-full print:max-w-none px-6 pt-[4.5cm] md:px-10" dir="rtl">
@@ -130,7 +128,8 @@ export default async function PrintOrderPage(props: Props) {
                                         )}
                                     </td>
                                     <td className="p-3 border-x border-black text-center font-bold">
-                                        {item.discountPercent > 0 ? <span className="bg-black text-white px-2 py-1 rounded text-xs">{item.discountPercent}%</span> : '-'}</td>
+                                        {item.discountPercent > 0 ? <span className="bg-black text-white px-2 py-1 rounded text-xs">{item.discountPercent}%</span> : '-'}
+                                    </td>
                                     <td className="p-3 border-x border-black text-center font-bold">{item.totalPrice.toFixed(0)}</td>
                                 </tr>
                             ))}
