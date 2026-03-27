@@ -4,6 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 import { authOptions } from "@/auth";
 import NotificationBell from "./NotificationBell";
+import { HomeIcon, UsersIcon, UserGroupIcon, ArchiveBoxIcon, ChartBarIcon, ShoppingCartIcon } from '@heroicons/react/24/outline';
 
 const prisma = new PrismaClient();
 
@@ -48,23 +49,23 @@ export default async function AdminLayout({
 
           <div className="flex flex-wrap justify-center gap-2 text-sm font-bold items-center bg-slate-800/50 p-1.5 rounded-2xl">
             <Link href="/admin" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
-              <span>🏠</span> <span className="hidden lg:inline">الرئيسية</span>
+              <HomeIcon className="w-5 h-5" /> <span className="hidden lg:inline">الرئيسية</span>
             </Link>
             
             <Link href="/admin/users" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
-              <span>👥</span> <span className="hidden lg:inline">الموظفين</span>
+              <UsersIcon className="w-5 h-5" /> <span className="hidden lg:inline">الموظفين</span>
             </Link>
             
             <Link href="/admin/customers" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
-              <span>🤝</span> <span className="hidden lg:inline">العملاء</span>
+              <UserGroupIcon className="w-5 h-5" /> <span className="hidden lg:inline">العملاء</span>
             </Link>
             
             <Link href="/admin/products" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
-              <span>📦</span> <span className="hidden lg:inline">الأصناف</span>
+              <ArchiveBoxIcon className="w-5 h-5" /> <span className="hidden lg:inline">الأصناف</span>
             </Link>
             
             <Link href="/admin/reports" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
-              <span>📊</span> <span className="hidden lg:inline">التقارير</span>
+              <ChartBarIcon className="w-5 h-5" /> <span className="hidden lg:inline">التقارير</span>
             </Link>
 
             <div className="w-px h-6 bg-slate-700 mx-1"></div>
@@ -72,7 +73,7 @@ export default async function AdminLayout({
             <NotificationBell isDark={true} />
 
             <Link href="/" className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-blue-900/20 active:scale-95">
-              <span>🛒</span>
+              <ShoppingCartIcon className="w-5 h-5" />
               <span>تطبيق البيع</span>
             </Link>
           </div>
