@@ -415,7 +415,23 @@ export default function NewOrderPage() {
 
             {selectedCustomer && (
               <div className="animate-fade-in">
-                {showScanner && <div className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center p-4"><div className="w-full max-w-sm bg-white rounded-xl overflow-hidden relative"><button onClick={() => setShowScanner(false)} className="absolute top-2 right-2 bg-red-600 text-white w-8 h-8 rounded-full font-bold">X</button><Scanner onScan={(result) => { if(result && result.length > 0) handleScan(result[0].rawValue); }} /></div></div>}
+                 {showScanner && (
+                    <div className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center p-4">
+                        <div className="w-full max-w-sm bg-white rounded-xl overflow-hidden relative">
+                            <button onClick={() => setShowScanner(false)} className="absolute top-2 right-2 bg-red-600 text-white w-8 h-8 rounded-full font-bold z-10">X</button>
+                            
+                            <Scanner onScan={(result) => { if(result && result.length > 0) handleScan(result[0].rawValue); }} />
+                            
+                            {/* --- Viewfinder Overlay --- */}
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className="w-60 h-60 border-4 border-dashed border-white rounded-xl"></div>
+                            </div>
+                            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white text-center text-xs w-full px-4">
+                                ضع الكود داخل الإطار لتركيز أفضل
+                            </div>
+                        </div>
+                    </div>
+                )}
                 
                 <div className="relative mb-4 flex gap-2">
                   <input type="text" placeholder="🔍 ابحث برقم الموديل..." className="flex-1 p-4 pl-12 border rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoFocus />
