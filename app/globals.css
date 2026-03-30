@@ -67,7 +67,7 @@ body {
     أنماط خاصة بالطباعة للورق المطبوع مسبقًا
    ========================================================================== */
 @media print {
-    /* نخفي كل شيء في الصفحة باستثناء منطقة الطباعة المخصصة */
+    /* إخفاء كل شيء خارج منطقة الطباعة */
     body * {
         visibility: hidden;
     }
@@ -81,42 +81,26 @@ body {
         width: 100%;
     }
 
-    /* إعدادات الصفحة */
+    /* إعدادات الصفحة مع الهوامش المطلوبة */
     @page {
       size: A4;
-      margin: 0;
+      margin-top: 4.5cm;
+      margin-bottom: 3cm;
+      margin-left: 1cm; /* يمكنك تعديل الهوامش الجانبية حسب الحاجة */
+      margin-right: 1cm;
     }
 
-    /* الهيدر الفارغ (لترك مساحة) */
-    #page-header {
-        position: fixed;
-        top: 0;
-        width: 100%;
-        height: 4.5cm; /* ارتفاع ثابت للهيدر المطبوع مسبقًا */
-        background-color: transparent !important; /* تأكيد أنه شفاف */
+    /* إخفاء حاويات الهيدر والفوتر الفارغة تمامًا */
+    #page-header, #page-footer {
+        display: none;
     }
 
-    /* الفوتر الفارغ (لترك مساحة) */
-    #page-footer {
-        position: fixed;
-        bottom: 0;
-        width: 100%;
-        height: 3cm; /* ارتفاع ثابت للفوتر المطبوع مسبقًا */
-        background-color: transparent !important; /* تأكيد أنه شفاف */
-    }
-
-    /* المحتوى الرئيسي مع ترك هوامش دقيقة للهيدر والفوتر */
-    #page-content {
-        padding-top: 4.5cm; 
-        padding-bottom: 3cm;
-        page-break-before: always; /* يبدأ دائمًا المحتوى من صفحة جديدة لضمان الهوامش */
-    }
-
-    /* جدول لمنع انقسام الصفوف بين الصفحات (قدر الإمكان) */
+    /* ضمان تكرار رأس الجدول في كل صفحة */
     thead { 
-      display: table-header-group; /* يضمن تكرار رأس الجدول */
+      display: table-header-group;
     }
-    tbody, tr, td {
+    /* منع انقسام الصفوف والجداول بين الصفحات */
+    table, tbody, tr, td {
       page-break-inside: avoid;
     }
 }
