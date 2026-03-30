@@ -5,6 +5,7 @@ import { addCustomer } from '@/app/admin-actions';
 import { useSession } from 'next-auth/react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Scanner } from '@yudiel/react-qr-scanner';
+import Link from 'next/link';
 
 const PIECES_PER_UNIT = 4;
 
@@ -208,8 +209,7 @@ export default function NewOrderPage() {
     setSelectionMap({});
     setSearchTerm('');
     setSearchResults([]);
-    setShowScanner(false);
-    productSearchInputRef.current?.focus();
+    setShowScanner(true); 
   };
 
   const handleAddDiscount = (percent: number) => {
@@ -369,6 +369,10 @@ export default function NewOrderPage() {
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans text-gray-800" dir="rtl">
       <div className="bg-white p-4 shadow mb-4 sticky top-0 z-20 flex justify-between items-center">
+      <Link href="/" className="text-sm text-blue-600 font-bold flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" /></svg>
+        الرئيسية
+      </Link>
         <h2 className="font-bold text-lg">{step === 1 ? '🛒 أوردر جديد' : '💰 الدفع والحفظ'}</h2>
         {step === 2 && <button onClick={() => setStep(1)} className="text-sm text-blue-600 font-bold">تعديل الأصناف</button>}
       </div>
@@ -483,7 +487,7 @@ export default function NewOrderPage() {
                       })}
                     </div>
                     <div className="p-3 bg-gray-50 border-t text-center">
-                      <button onClick={handleAddToCart} disabled={Object.keys(selectionMap).length === 0} className="w-full bg-black text-white py-3 rounded-lg font-bold disabled:opacity-50">إضافة للسلة</button>
+                      <button onClick={handleAddToCart} disabled={Object.keys(selectionMap).length === 0} className="w-full bg-black text-white py-3 rounded-lg font-bold disabled:opacity-50">إضافة للسلة وفتح السكانر</button>
                     </div>
                   </div>
                 )}
