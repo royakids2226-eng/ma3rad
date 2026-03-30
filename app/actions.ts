@@ -455,23 +455,16 @@ export async function getUserOrders(userId: string) {
     if (user?.role !== 'ADMIN' && user?.role !== 'OWNER' && user?.role !== 'ACCOUNTANT') {
       whereCondition = { userId: userId };
     }
+    // Using `include` is the correct and robust way to get all scalar fields (like orderNo) 
+    // and the specified relations.
     const orders = await prisma.order.findMany({
       where: whereCondition,
-      // The fix is to use `select` to explicitly get all required fields
-      select: {
-          id: true,
-          orderNo: true, // This was the missing field
-          createdAt: true,
-          totalAmount: true,
-          deposit: true,
-          customer: true,
-          user: true,
+      include: { 
+          customer: true, 
+          user: true, 
           items: { 
-              select: { 
-                  product: true, 
-                  quantity: true, 
-                  price: true, 
-                  discountPercent: true 
+              include: { 
+                  product: true 
               }
           }
       },
@@ -479,7 +472,10 @@ export async function getUserOrders(userId: string) {
       take: 100
     });
     return { orders: JSON.parse(JSON.stringify(orders)), userRole: user?.role };
-  } catch (error) { return { orders: [], userRole: 'EMPLOYEE' }; }
+  } catch (error) { 
+      console.error("Error in getUserOrders:", error);
+      return { orders: [], userRole: 'EMPLOYEE' }; 
+  }
 }
 
 // ==========================================
