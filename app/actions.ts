@@ -131,64 +131,89 @@ export async function getAdminStockAlerts() {
 // ==========================================
 
 export async function createOrder(data: any, userId: string) {
-  const { customerId, items, total, deposit, safeId, currency, notes } = data; // Added notes
-  
+  const { customerId, items, total, deposit, safeId, currency, notes } = data;
+
+  // 1. Aggregate all product variants to get total quantities needed
+  const productQuantities = new Map<string, number>();
+  const allVariants: any[] = [];
+
+  for (const cartItem of items) {
+    for (const variant of cartItem.variants) {
+      const requestedPieces = variant.quantity * PIECES_PER_UNIT;
+      productQuantities.set(variant.productId, (productQuantities.get(variant.productId) || 0) + requestedPieces);
+      allVariants.push(variant);
+    }
+  }
+
+  const productIds = Array.from(productQuantities.keys());
+
   try {
     const result = await prisma.$transaction(async (tx) => {
-      
-      for (const cartItem of items) {
-        for (const variant of cartItem.variants) {
-          const requestedPieces = variant.quantity * PIECES_PER_UNIT;
+      // 2. Fetch all products in a single query
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds } },
+      });
 
-          const product = await tx.product.findUnique({ where: { id: variant.productId } });
-          if (!product) throw new Error(`الصنف غير موجود`);
+      const productMap = new Map(products.map(p => [p.id, p]));
 
-          if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
-             throw new Error(`عذراً، الكمية نفذت للصنف: ${product.modelNo} - لون: ${product.color} (المتاح حالياً: ${product.currentStock} قطعة فقط)`);
-          }
+      // 3. Validate stock for all items
+      for (const productId of productIds) {
+        const product = productMap.get(productId);
+        const requestedPieces = productQuantities.get(productId)!;
 
-          const updatedProduct = await tx.product.update({
-            where: { id: variant.productId },
-            data: { currentStock: { decrement: requestedPieces } }
-          });
+        if (!product) {
+          throw new Error(`الصنف بالمعرف ${productId} غير موجود.`);
+        }
+        if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
+          throw new Error(`عذراً، الكمية نفذت للصنف: ${product.modelNo} - لون: ${product.color} (المتاح: ${product.currentStock} قطعة)`);
         }
       }
 
+      // 4. Create the order
       const order = await tx.order.create({
         data: {
-          userId, 
-          customerId, 
-          totalAmount: total, 
+          userId,
+          customerId,
+          totalAmount: total,
           deposit: deposit || 0,
           currency: currency || 'EGP',
           safeId: deposit > 0 ? safeId : null,
-          notes: notes // Added notes
-        }
+          notes: notes,
+        },
       });
 
-      for (const cartItem of items) {
-        for (const variant of cartItem.variants) {
-          await tx.orderItem.create({
-            data: {
-              orderId: order.id,
-              productId: variant.productId,
-              quantity: variant.quantity,
-              price: variant.price,
-              discountPercent: variant.discountPercent || 0
-            }
-          });
-        }
-      }
+      // 5. Prepare data for OrderItem creation
+      const orderItemsData = allVariants.map(variant => ({
+        orderId: order.id,
+        productId: variant.productId,
+        quantity: variant.quantity,
+        price: variant.price,
+        discountPercent: variant.discountPercent || 0,
+      }));
+
+      // 6. Create all order items in a single batch query
+      await tx.orderItem.createMany({ data: orderItemsData });
+
+      // 7. Update stock for all products
+      const stockUpdatePromises = productIds.map(productId =>
+        tx.product.update({
+          where: { id: productId },
+          data: { currentStock: { decrement: productQuantities.get(productId) } },
+        })
+      );
+
+      await Promise.all(stockUpdatePromises);
+
       return order;
     }, {
-      maxWait: 10000, // default is 2000
-      timeout: 20000, // default is 5000
+      maxWait: 20000, // Increased wait time
+      timeout: 40000, // Increased timeout
     });
-    
+
     revalidatePath('/');
-    revalidatePath('/admin/products'); 
-    revalidatePath('/admin/notifications'); // ✅ إضافة تحديث الإشعارات
-    
+    revalidatePath('/admin/products');
+    revalidatePath('/admin/notifications');
+
     return { success: true, data: JSON.parse(JSON.stringify(result)) };
   } catch (error: any) {
     console.error("Error creating order:", error);
