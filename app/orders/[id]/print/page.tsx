@@ -3,8 +3,9 @@ import { notFound } from "next/navigation";
 import { getSettings } from "@/app/admin-actions";
 
 export default async function OrderPrintPage({ params }: { params: { id: string } }) {
+  const resolvedParams = await Promise.resolve(params);
   const order = await prisma.order.findUnique({
-    where: { id: params.id },
+    where: { id: resolvedParams.id },
     include: {
       customer: true,
       orderItems: { include: { product: true } },
