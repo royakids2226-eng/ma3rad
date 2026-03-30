@@ -94,3 +94,66 @@ body {
 .bg-green-600 { background-color: #16a34a !important; }
 .bg-blue-600 { background-color: #2563eb !important; }
 .bg-red-600 { background-color: #dc2626 !important; }
+
+/* ==========================================================================
+    أنماط خاصة بالطباعة لتكرار الهيدر والفوتر
+   ========================================================================== */
+@media print {
+    /* نخفي كل شيء في الصفحة باستثناء منطقة الطباعة المخصصة */
+    body * {
+        visibility: hidden;
+    }
+    #printable-area, #printable-area * {
+        visibility: visible;
+    }
+    #printable-area {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+    }
+
+    /* إعدادات الصفحة */
+    @page {
+      size: A4;
+      margin: 0;
+    }
+
+    /* الهيدر الثابت */
+    #page-header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        /* لا نحدد ارتفاعاً ثابتاً، بل نتركه يتمدد حسب المحتوى */
+        /* padding-bottom: 10px; */
+    }
+
+    /* الفوتر الثابت */
+    #page-footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        height: 3cm; /* تحديد ارتفاع الفوتر بـ 3 سم */
+        /* padding-top: 10px; */
+    }
+
+    /* المحتوى الرئيسي مع ترك هوامش للهيدر والفوتر */
+    #page-content {
+        /* المساحة العلوية المتروكة تعتمد على ارتفاع الهيدر الفعلي */
+        /* سأقوم بتعيينها 4.5 سم مبدئياً ويمكنك تعديلها */
+        padding-top: 4.5cm; 
+        padding-bottom: 3.5cm; /* (3 سم للفوتر + 0.5 سم هامش) */
+    }
+
+    /* جدول لمنع انقسام الصفوف بين الصفحات (قدر الإمكان) */
+    thead { 
+      display: table-header-group; /* يضمن تكرار رأس الجدول */
+    }
+    tbody, tr, td {
+      page-break-inside: avoid;
+    }
+}
