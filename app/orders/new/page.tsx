@@ -41,6 +41,7 @@ export default function NewOrderPage() {
   const [notes, setNotes] = useState('');
 
   const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const productSearchInputRef = useRef<HTMLInputElement>(null);
 
   // --- FINAL UNSAVED CHANGES WARNING --- 
   useEffect(() => {
@@ -208,6 +209,7 @@ export default function NewOrderPage() {
     setSearchTerm('');
     setSearchResults([]);
     setShowScanner(false);
+    productSearchInputRef.current?.focus();
   };
 
   const handleAddDiscount = (percent: number) => {
@@ -436,7 +438,7 @@ export default function NewOrderPage() {
                 )}
                 
                 <div className="relative mb-4 flex gap-2">
-                  <input type="text" placeholder="🔍 ابحث برقم الموديل..." className="flex-1 p-4 pl-12 border rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoFocus />
+                  <input ref={productSearchInputRef} type="text" placeholder="🔍 ابحث برقم الموديل..." className="flex-1 p-4 pl-12 border rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoFocus />
                   <button onClick={() => setShowScanner(true)} className="bg-black text-white p-4 rounded-xl shadow-sm">📷</button>
                 </div>
 
