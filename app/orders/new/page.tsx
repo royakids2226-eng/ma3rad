@@ -40,6 +40,11 @@ export default function NewOrderPage() {
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
   const [showDiscountOptions, setShowDiscountOptions] = useState(false);
   const [notes, setNotes] = useState('');
+  
+  // State for stock validation issues
+  const [failedItems, setFailedItems] = useState<any[]>([]);
+  const [showOnlyFailed, setShowOnlyFailed] = useState(false);
+
 
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const productSearchInputRef = useRef<HTMLInputElement>(null);
@@ -55,23 +60,19 @@ export default function NewOrderPage() {
 
     const handlePopState = () => {
         if (window.confirm("لديك أصناف في السلة لم يتم حفظها. هل تريد الخروج وتجاهل التغييرات؟")) {
-            // User confirmed they want to leave. Disable the check and go back.
             window.removeEventListener('popstate', handlePopState);
             router.back();
         } else {
-            // User wants to stay. Push the trap state again.
             history.pushState(null, '', pathname);
         }
     };
 
     if (isDirty) {
-      // Set up the trap and listeners only when the cart is dirty
       history.pushState(null, '', pathname);
       window.addEventListener('popstate', handlePopState);
       window.addEventListener('beforeunload', handleBeforeUnload);
     }
 
-    // The cleanup function will run when the dependencies change or on unmount
     return () => {
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -210,6 +211,9 @@ export default function NewOrderPage() {
     setSearchTerm('');
     setSearchResults([]);
     setShowScanner(true); 
+    // Clear failed items when cart is modified
+    if (failedItems.length > 0) setFailedItems([]);
+    setShowOnlyFailed(false);
   };
 
   const handleAddDiscount = (percent: number) => {
@@ -285,6 +289,8 @@ export default function NewOrderPage() {
     if (depositVal > 0 && !selectedSafeId) { alert("⚠️ يجب اختيار الخزنة!"); return; }
     
     setIsSavingOrder(true); 
+    setFailedItems([]); // Clear previous errors
+    setShowOnlyFailed(false);
 
     try {
         const result = await createOrder({
@@ -300,13 +306,20 @@ export default function NewOrderPage() {
         if (result.success && result.data?.id) {
             router.push(`/orders/${result.data.id}/print`);
         } else {
-            alert(result.error || "حدث خطأ أثناء حفظ الأوردر.");
-            setIsSavingOrder(false); // Re-enable button on failure
+             if (result.insufficientStockItems) {
+                setFailedItems(result.insufficientStockItems);
+                setStep(1); // Go back to cart view
+                setShowOnlyFailed(true); // Automatically filter
+                alert('🚨 توجد أصناف غير متاحة! يرجى مراجعة السلة وتعديلها.');
+            } else {
+                alert(result.error || "حدث خطأ أثناء حفظ الأوردر.");
+            }
+            setIsSavingOrder(false); 
         }
     } catch (error) {
         console.error(error);
         alert("حدث خطأ غير متوقع أثناء الاتصال بالسيرفر.");
-        setIsSavingOrder(false); // Re-enable button on failure
+        setIsSavingOrder(false);
     }
   };
 
@@ -361,8 +374,18 @@ export default function NewOrderPage() {
   const processedDisplayCart = getProcessedCart(); 
   const currentTotal = processedDisplayCart.reduce((acc, i) => acc + i.totalLinePrice, 0);
   const depositVal = parseFloat(deposit) || 0;
+  
+  const failedProductIds = new Set(failedItems.map(f => f.productId));
+  
   const filteredDisplayList = cart.filter(item => {
-      if (item.type === 'discount') return true;
+      if (item.type === 'discount') return !showOnlyFailed; // Hide discounts when filtering
+      
+      const hasFailedVariant = item.variants.some((v: any) => failedProductIds.has(v.productId));
+      if (showOnlyFailed) {
+          return hasFailedVariant;
+      }
+      
+      // Standard search filter
       return item.modelNo.toLowerCase().includes(cartSearchTerm.toLowerCase());
   });
 
@@ -498,8 +521,15 @@ export default function NewOrderPage() {
               <div className="mt-8 animate-fade-in">
                 <div className="flex justify-between items-center mb-3">
                     <h3 className="font-bold text-gray-700 text-lg">محتويات السلة</h3>
-                    <div className="relative flex gap-2">
-                        <button onClick={handleApplyAutoProductDiscounts} className="bg-red-600 text-white px-3 py-1 rounded-lg text-[10px] md:text-sm font-bold shadow hover:bg-red-700 animate-pulse">🏷️ خصم الموديلات</button>
+                     <div className="relative flex gap-2">
+                        {failedItems.length > 0 && (
+                            <button 
+                                onClick={() => setShowOnlyFailed(!showOnlyFailed)}
+                                className={`px-3 py-1 rounded-lg text-xs font-bold shadow animate-pulse ${showOnlyFailed ? 'bg-yellow-500 text-white' : 'bg-red-600 text-white'}`}>
+                                {showOnlyFailed ? 'عرض كل السلة' : `🚨 عرض الأصناف المتعذرة (${failedItems.length})`}
+                            </button>
+                        )}
+                        <button onClick={handleApplyAutoProductDiscounts} className="bg-red-600 text-white px-3 py-1 rounded-lg text-[10px] md:text-sm font-bold shadow hover:bg-red-700">🏷️ خصم الموديلات</button>
                         <button onClick={() => setShowDiscountOptions(!showDiscountOptions)} className="bg-yellow-500 text-white px-3 py-1 rounded-lg text-[10px] md:text-sm font-bold shadow hover:bg-yellow-600">+ خصم مخصص</button>
                         {showDiscountOptions && (
                             <div className="absolute top-full left-0 bg-white border rounded-lg shadow-xl z-20 w-48 mt-1 p-2 grid grid-cols-3 gap-2">
@@ -510,7 +540,7 @@ export default function NewOrderPage() {
                         )}
                     </div>
                 </div>
-                <div className="mb-4"><input type="text" placeholder="🔎 بحث سريع داخل محتويات السلة..." value={cartSearchTerm} onChange={(e) => setCartSearchTerm(e.target.value)} className="w-full p-2 border rounded-lg bg-white shadow-sm" /></div>
+                {!showOnlyFailed && <div className="mb-4"><input type="text" placeholder="🔎 بحث سريع داخل محتويات السلة..." value={cartSearchTerm} onChange={(e) => setCartSearchTerm(e.target.value)} className="w-full p-2 border rounded-lg bg-white shadow-sm" /></div>}
                 
                 <div className="space-y-3">
                   {filteredDisplayList.map((item, index) => {
@@ -522,9 +552,15 @@ export default function NewOrderPage() {
                             </div>
                         );
                     }
+                    
+                    const hasFailedVariantInItem = item.variants.some((v:any) => failedProductIds.has(v.productId));
+                    const itemContainerClass = showOnlyFailed && hasFailedVariantInItem 
+                        ? 'border-red-500 border-2 bg-red-50' 
+                        : 'border-gray-100 bg-white';
+
                     const processedItem = processedDisplayCart.find((p:any) => p.id === item.id) || item;
                     return (
-                        <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative overflow-hidden transition-all hover:border-blue-200">
+                        <div key={item.id} className={`p-4 rounded-xl shadow-sm border relative overflow-hidden transition-all hover:border-blue-200 ${itemContainerClass}`}>
                             {processedItem.appliedDiscount > 0 && <div className="absolute top-0 left-0 bg-red-500 text-white text-[10px] px-2 py-1 rounded-br font-bold">خصم {processedItem.appliedDiscount}%</div>}
                             <div className="flex justify-between mb-2">
                                 <div><span className="text-xl font-bold block">{item.modelNo}</span><span className="text-xs text-gray-500">{item.baseDescription}</span></div>
@@ -534,9 +570,15 @@ export default function NewOrderPage() {
                                 </div>
                             </div>
                             <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded mb-2 border border-gray-200">
-                                {item.variants.map((v:any, i:number) => (
-                                    <span key={i} className="inline-block bg-white px-2 py-1 rounded border mr-1 text-[10px]">{v.quantity} ({v.color})</span>
-                                ))}
+                                {item.variants.map((v:any, i:number) => {
+                                    const failedInfo = failedItems.find(f => f.productId === v.productId);
+                                    return (
+                                        <span key={i} className={`inline-block px-2 py-1 rounded border mr-1 text-[10px] ${failedInfo ? 'bg-red-200 border-red-400' : 'bg-white'}`}>
+                                            {v.quantity} ({v.color})
+                                            {failedInfo && <span className="font-bold text-red-800"> (متاح: {failedInfo.availableStock})</span>}
+                                        </span>
+                                    )
+                                })}
                             </div>
                             <div className="flex justify-between items-center pt-2 border-t">
                                 <span className="text-xs font-bold text-gray-500">الكمية: {item.totalQty} سرية</span>

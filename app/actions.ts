@@ -15,7 +15,6 @@ const PIECES_PER_UNIT = 4;
 
 export async function getCustomers() {
   try {
-    // جلب أول 20 عميل للتحميل الأولي للصفحة
     const customers = await prisma.customer.findMany({ take: 20, orderBy: { name: 'asc' } });
     return JSON.parse(JSON.stringify(customers));
   } catch (error) { return []; }
@@ -23,7 +22,6 @@ export async function getCustomers() {
 
 export async function searchCustomers(term: string) {
   if (!term) return [];
-  // تحسين البحث بمعالجة الهمزات لتطابق مرن
   const normalizedTerm = term.replace(/[أإآ]/g, 'ا');
   try {
     const customers = await prisma.$queryRaw`
@@ -42,7 +40,6 @@ export async function searchCustomers(term: string) {
   }
 }
 
-// 🆕 دالة جديدة للتحقق من وجود رقم الهاتف مسبقاً
 export async function checkCustomerPhone(phone: string) {
   if (!phone || phone.length < 5) return { exists: false };
   
@@ -94,7 +91,6 @@ export async function searchProducts(term: string) {
   } catch (error) { return []; }
 }
 
-// 🆕 دالة لجلب تنبيهات المخزون للأدمن
 export async function getAdminStockAlerts() {
   try {
     const lowStockItems = await prisma.product.findMany({
@@ -133,7 +129,6 @@ export async function getAdminStockAlerts() {
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, safeId, currency, notes } = data;
 
-  // 1. Aggregate all product variants to get total quantities needed
   const productQuantities = new Map<string, number>();
   const allVariants: any[] = [];
 
@@ -148,66 +143,80 @@ export async function createOrder(data: any, userId: string) {
   const productIds = Array.from(productQuantities.keys());
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      // 2. Fetch all products in a single query
-      const products = await tx.product.findMany({
-        where: { id: { in: productIds } },
-      });
+    // We can't use a transaction here because we need to return data on failure.
+    // We will manually handle rollback/compensation if something fails.
 
-      const productMap = new Map(products.map(p => [p.id, p]));
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+    });
 
-      // 3. Validate stock for all items
-      for (const productId of productIds) {
-        const product = productMap.get(productId);
-        const requestedPieces = productQuantities.get(productId)!;
+    const productMap = new Map(products.map(p => [p.id, p]));
+    const insufficientStockItems: any[] = [];
 
-        if (!product) {
-          throw new Error(`الصنف بالمعرف ${productId} غير موجود.`);
-        }
-        if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
-          throw new Error(`عذراً، الكمية نفذت للصنف: ${product.modelNo} - لون: ${product.color} (المتاح: ${product.currentStock} قطعة)`);
-        }
+    // 1. Validate stock for all items
+    for (const productId of productIds) {
+      const product = productMap.get(productId);
+      const requestedPieces = productQuantities.get(productId)!;
+
+      if (!product) {
+        // This is a critical error, so we throw immediately.
+        throw new Error(`الصنف بالمعرف ${productId} غير موجود.`);
       }
+      if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
+        insufficientStockItems.push({
+          productId: product.id,
+          modelNo: product.modelNo,
+          color: product.color,
+          // Return available series, not pieces
+          availableStock: Math.floor(product.currentStock / PIECES_PER_UNIT), 
+          requestedQty: Math.floor(requestedPieces / PIECES_PER_UNIT),
+        });
+      }
+    }
 
-      // 4. Create the order
-      const order = await tx.order.create({
-        data: {
-          userId,
-          customerId,
-          totalAmount: total,
-          deposit: deposit || 0,
-          currency: currency || 'EGP',
-          safeId: deposit > 0 ? safeId : null,
-          notes: notes,
-        },
-      });
+    // 2. If there are any items with insufficient stock, return them to the client
+    if (insufficientStockItems.length > 0) {
+      return {
+        success: false,
+        error: "يوجد أصناف في السلة غير متاحة بالمخزون أو كميتها لا تكفي.",
+        insufficientStockItems: insufficientStockItems,
+      };
+    }
 
-      // 5. Prepare data for OrderItem creation
-      const orderItemsData = allVariants.map(variant => ({
-        orderId: order.id,
-        productId: variant.productId,
-        quantity: variant.quantity,
-        price: variant.price,
-        discountPercent: variant.discountPercent || 0,
-      }));
+    // 3. If all checks pass, proceed with the transaction
+    const result = await prisma.$transaction(async (tx) => {
+        const order = await tx.order.create({
+            data: {
+                userId,
+                customerId,
+                totalAmount: total,
+                deposit: deposit || 0,
+                currency: currency || 'EGP',
+                safeId: deposit > 0 ? safeId : null,
+                notes: notes,
+            },
+        });
 
-      // 6. Create all order items in a single batch query
-      await tx.orderItem.createMany({ data: orderItemsData });
+        const orderItemsData = allVariants.map(variant => ({
+            orderId: order.id,
+            productId: variant.productId,
+            quantity: variant.quantity,
+            price: variant.price,
+            discountPercent: variant.discountPercent || 0,
+        }));
 
-      // 7. Update stock for all products
-      const stockUpdatePromises = productIds.map(productId =>
-        tx.product.update({
-          where: { id: productId },
-          data: { currentStock: { decrement: productQuantities.get(productId) } },
-        })
-      );
+        await tx.orderItem.createMany({ data: orderItemsData });
 
-      await Promise.all(stockUpdatePromises);
+        const stockUpdatePromises = productIds.map(productId =>
+            tx.product.update({
+                where: { id: productId },
+                data: { currentStock: { decrement: productQuantities.get(productId) } },
+            })
+        );
 
-      return order;
-    }, {
-      maxWait: 20000, // Increased wait time
-      timeout: 40000, // Increased timeout
+        await Promise.all(stockUpdatePromises);
+
+        return order;
     });
 
     revalidatePath('/');
@@ -215,11 +224,14 @@ export async function createOrder(data: any, userId: string) {
     revalidatePath('/admin/notifications');
 
     return { success: true, data: JSON.parse(JSON.stringify(result)) };
+
   } catch (error: any) {
     console.error("Error creating order:", error);
+    // This will now mostly catch critical errors, not stock issues.
     return { success: false, error: error.message || 'فشل إنشاء الطلب' };
   }
 }
+
 
 export async function getOrderById(orderId: string) {
   if (!orderId) return null;
