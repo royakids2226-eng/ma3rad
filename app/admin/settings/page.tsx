@@ -1,4 +1,4 @@
-import { getSettings, updateSettings } from "@/app/admin-actions";
+import { getSettings, updateSettings } from "@/app/actions";
 import { redirect } from 'next/navigation';
 
 export default async function SettingsPage({

@@ -256,7 +256,7 @@ function InventoryReportView() {
                             <th className="p-6 border-b border-slate-800 bg-blue-900/20 text-blue-400">الرصيد الأولي (قطعة)</th>
                             <th className="p-6 border-b border-slate-800 bg-yellow-900/20 text-yellow-400">المباع (قطعة)</th>
                             <th className="p-6 border-b border-slate-800 bg-green-900/20 text-green-400">الرصيد الحالي (قطعة)</th>
-                            <th className="p-6 border-b border-slate-800 cursor-pointer hover:bg-slate-800 transition-colors select-none" onClick={() => handleSort('salesPercentage')">
+                            <th className="p-6 border-b border-slate-800 cursor-pointer hover:bg-slate-800 transition-colors select-none" onClick={() => handleSort('salesPercentage')}>
                                 نسبة المبيع {sortConfig?.key === 'salesPercentage' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                             </th>
                             <th className="p-6 border-b border-slate-800">الحالة</th>
@@ -269,7 +269,7 @@ function InventoryReportView() {
                                 <tr key={item.id} className="hover:bg-blue-50/50 transition-all group">
                                     <td className="p-6 font-black text-gray-900 text-xl group-hover:text-blue-600 transition-colors">{item.modelNo}</td>
                                     <td className="p-6 text-gray-500 font-medium italic">
-                                        {viewMode === 'COLOR' ? item.color : <span className="bg-gray-100 px-3 py-1 rounded-xl text-[10px] font-bold text-gray-400">{item.colors.join('، ')}</span>}
+                                        {viewMode === 'COLOR' ? item.color : <span className="bg-gray-100 px-3 py-1 rounded-xl text-[10px] font-bold text-gray-400">{item.colors.join(', ')}</span>}
                                     </td>
                                     <td className="p-6 font-bold text-blue-700 bg-blue-50/20">{item.initialStock}</td>
                                     <td className="p-6">
