@@ -7,46 +7,6 @@ import bcrypt from 'bcryptjs'
 const prisma = new PrismaClient()
 
 // ==========================================
-// 0. إدارة الإعدادات (Settings)
-// ==========================================
-
-export async function getSettings() {
-  let settings = await prisma.settings.findFirst();
-  if (!settings) {
-    settings = await prisma.settings.create({ data: {} });
-  }
-  return JSON.parse(JSON.stringify(settings));
-}
-
-export async function updateSettings(data: any) {
-  try {
-    const settings = await prisma.settings.findFirst();
-    const settingsId = settings ? settings.id : 'new';
-
-    await prisma.settings.upsert({
-      where: { id: settingsId },
-      update: {
-        invoiceNotes: data.invoiceNotes,
-        header: data.header,
-        footer: data.footer,
-      },
-      create: {
-        invoiceNotes: data.invoiceNotes,
-        header: data.header,
-        footer: data.footer,
-      },
-    });
-
-    revalidatePath('/admin/settings');
-    return { success: true };
-  } catch (e) {
-    console.error(e);
-    return { success: false, error: 'حدث خطأ أثناء تحديث الإعدادات' };
-  }
-}
-
-
-// ==========================================
 // 1. إدارة المستخدمين (Users)
 // ==========================================
 

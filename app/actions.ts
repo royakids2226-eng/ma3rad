@@ -9,6 +9,39 @@ const prisma = new PrismaClient()
 // معامل التحويل (عدد القطع في الدزينة أو الوحدة)
 const PIECES_PER_UNIT = 4; 
 
+
+// ==========================================
+// 0. إدارة الإعدادات (Settings) - تم النقل هنا
+// ==========================================
+
+export async function getSettings() {
+  let settings = await prisma.settings.findFirst();
+  if (!settings) {
+    settings = await prisma.settings.create({ data: {} });
+  }
+  return JSON.parse(JSON.stringify(settings));
+}
+
+export async function updateSettings(data: any) {
+  try {
+    const settings = await prisma.settings.findFirst();
+    const settingsId = settings ? settings.id : 'new';
+
+    await prisma.settings.upsert({
+      where: { id: settingsId },
+      update: data,
+      create: data,
+    });
+
+    revalidatePath('/admin/settings');
+    return { success: true };
+  } catch (e) {
+    console.error(e);
+    return { success: false, error: 'حدث خطأ أثناء تحديث الإعدادات' };
+  }
+}
+
+
 // ==========================================
 // 1. العملاء (جلب وبحث وتحقق)
 // ==========================================
