@@ -180,6 +180,9 @@ export async function createOrder(data: any, userId: string) {
         }
       }
       return order;
+    }, {
+      maxWait: 10000, // default is 2000
+      timeout: 20000, // default is 5000
     });
     
     revalidatePath('/');
