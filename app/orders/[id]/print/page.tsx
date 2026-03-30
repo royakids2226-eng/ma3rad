@@ -6,10 +6,10 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
   const resolvedParams = await Promise.resolve(params);
   const order = await prisma.order.findUnique({
     where: { id: resolvedParams.id },
+    // Corrected include statement
     include: {
       customer: true,
       items: { include: { product: true } },
-      payments: true,
     },
   });
 
@@ -19,7 +19,8 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
     notFound();
   }
 
-  const totalPaid = order.payments.reduce((acc, p) => acc + p.amount, 0);
+  // Corrected logic to use the order's deposit field
+  const totalPaid = order.deposit;
   const totalAmount = order.items.reduce((acc, item) => acc + item.price * item.quantity, 0);
   const remainingAmount = totalAmount - totalPaid;
 
