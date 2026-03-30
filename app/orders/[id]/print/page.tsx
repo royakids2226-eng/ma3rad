@@ -8,7 +8,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
     where: { id: resolvedParams.id },
     include: {
       customer: true,
-      orderItems: { include: { product: true } },
+      items: { include: { product: true } },
       payments: true,
     },
   });
@@ -20,7 +20,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
   }
 
   const totalPaid = order.payments.reduce((acc, p) => acc + p.amount, 0);
-  const totalAmount = order.orderItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const totalAmount = order.items.reduce((acc, item) => acc + item.price * item.quantity, 0);
   const remainingAmount = totalAmount - totalPaid;
 
   return (
@@ -62,7 +62,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
             </tr>
           </thead>
           <tbody>
-            {order.orderItems.map((item, index) => (
+            {order.items.map((item, index) => (
               <tr key={item.id} className="border-b border-gray-200">
                 <td className="p-2">{index + 1}</td>
                 <td className="p-2">
