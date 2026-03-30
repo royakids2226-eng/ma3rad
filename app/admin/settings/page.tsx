@@ -13,8 +13,9 @@ export default async function SettingsPage({
 
     const data = {
       invoiceNotes: formData.get("invoiceNotes") as string,
-      header: formData.get("header") as string,
-      footer: formData.get("footer") as string,
+      // Header and Footer are no longer managed from the UI
+      header: "", // or settings?.header || "" if you want to preserve old values
+      footer: "", // or settings?.footer || ""
     };
 
     const result = await updateSettings(data);
@@ -45,44 +46,6 @@ export default async function SettingsPage({
       
       <form action={handleSubmit} className="space-y-8">
         
-        <div>
-          <label
-            htmlFor="header"
-            className="block text-base font-semibold text-gray-800 mb-2"
-          >
-            الهيدر (رأس الصفحة)
-          </label>
-          <textarea
-            id="header"
-            name="header"
-            rows={6}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm font-mono"
-            defaultValue={settings?.header || ""}
-          />
-          <p className="mt-2 text-sm text-gray-500">
-            محتوى HTML يظهر في أعلى الفاتورة المطبوعة (المساحة المتروكة 4.5 سم). يمكنك استخدام الصور والجداول.
-          </p>
-        </div>
-
-        <div>
-          <label
-            htmlFor="footer"
-            className="block text-base font-semibold text-gray-800 mb-2"
-          >
-            الفوتر (تذييل الصفحة)
-          </label>
-          <textarea
-            id="footer"
-            name="footer"
-            rows={6}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm font-mono"
-            defaultValue={settings?.footer || ""}
-          />
-          <p className="mt-2 text-sm text-gray-500">
-            محتوى HTML يظهر في أسفل الفاتورة المطبوعة.
-          </p>
-        </div>
-
         <div>
           <label
             htmlFor="invoiceNotes"
