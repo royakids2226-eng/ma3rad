@@ -38,6 +38,7 @@ export default function NewOrderPage() {
   const [currency, setCurrency] = useState('EGP'); 
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
   const [showDiscountOptions, setShowDiscountOptions] = useState(false);
+  const [notes, setNotes] = useState('');
 
   const [isSavingOrder, setIsSavingOrder] = useState(false);
 
@@ -290,7 +291,8 @@ export default function NewOrderPage() {
           total, 
           deposit: depositVal, 
           safeId: selectedSafeId,
-          currency: currency 
+          currency: currency,
+          notes: notes
         }, userId);
 
         if (result.success && result.data?.id) {
@@ -601,6 +603,10 @@ export default function NewOrderPage() {
                      </select>
                   </div>
                )}
+                <div className="mb-4">
+                  <label className="block text-slate-400 text-sm mb-1 font-bold">ملحوظة الفاتورة</label>
+                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-3 rounded-xl bg-slate-800 text-white font-bold outline-none border border-slate-700" placeholder="اكتب هنا أي ملاحظات إضافية..."></textarea>
+               </div>
                <div className="flex justify-between text-xl font-bold pt-4 border-t border-slate-700 text-red-400"><span>المتبقي (آجل):</span><span>{(currentTotal - depositVal).toFixed(2)}</span></div>
             </div>
             

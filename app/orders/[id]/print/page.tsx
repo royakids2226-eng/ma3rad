@@ -2,6 +2,7 @@ import { getOrderById } from "@/app/actions";
 import PrintButton from "./PrintButton";
 import NewOrderButton from "./NewOrderButton";
 import HomeButton from "./HomeButton";
+import { prisma } from "@/lib/prisma";
 
 const PIECES_PER_UNIT = 4;
 
@@ -42,6 +43,7 @@ export default async function PrintOrderPage(props: Props) {
     const params = await props.params;
     const orderId = params.id;
     const order = await getOrderById(orderId);
+    const settings = await prisma.settings.findFirst();
 
     if (!order) return <div className="p-10 text-center font-bold text-red-600 text-xl">الأوردر غير موجود</div>;
 
@@ -190,6 +192,24 @@ export default async function PrintOrderPage(props: Props) {
                         </tfoot>
                     </table>
                 </div>
+
+                {/* Invoice Notes Section */}
+                {(settings?.invoiceNotes || order.notes) && (
+                    <div className="mt-8 border-t-2 border-dashed pt-4 break-inside-avoid">
+                        <h4 className="font-bold mb-2">ملحوظات:</h4>
+                        {settings?.invoiceNotes && (
+                            <p className="text-sm whitespace-pre-wrap mb-2 border-b border-gray-200 pb-2">
+                                {`البائع: ${order.user.name}. `}{settings.invoiceNotes}
+                            </p>
+                        )}
+                        {order.notes && (
+                            <div>
+                                <p className="text-xs text-gray-500">ملحوظة خاصة بالفاتورة:</p>
+                                <p className="text-sm whitespace-pre-wrap font-bold">{order.notes}</p>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );

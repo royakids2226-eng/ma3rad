@@ -1,3 +1,4 @@
+
 generator client {
   provider      = "prisma-client-js"
   binaryTargets = ["native", "linux-musl", "debian-openssl-3.0.x"]
@@ -78,6 +79,7 @@ model Order {
   safeId      String?
   safe        Safe?       @relation(fields: [safeId], references: [id])
   items       OrderItem[]
+  notes       String?
 }
 
 model OrderItem {
@@ -135,4 +137,9 @@ model WarehouseReceipt {
 
   @@index([modelNo])                
   @@index([date])                   
+}
+
+model Settings {
+  id           String @id @default(cuid())
+  invoiceNotes String?
 }

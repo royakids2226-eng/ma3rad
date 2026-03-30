@@ -131,7 +131,7 @@ export async function getAdminStockAlerts() {
 // ==========================================
 
 export async function createOrder(data: any, userId: string) {
-  const { customerId, items, total, deposit, safeId, currency } = data; 
+  const { customerId, items, total, deposit, safeId, currency, notes } = data; // Added notes
   
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -162,6 +162,7 @@ export async function createOrder(data: any, userId: string) {
           deposit: deposit || 0,
           currency: currency || 'EGP',
           safeId: deposit > 0 ? safeId : null,
+          notes: notes // Added notes
         }
       });
 
@@ -233,7 +234,7 @@ export async function deleteOrder(orderId: string) {
 }
 
 export async function updateOrder(orderId: string, data: any) {
-    const { items, total, deposit, safeId, currency } = data;
+    const { items, total, deposit, safeId, currency, notes } = data; // Added notes
 
     try {
         await prisma.$transaction(async (tx) => {
@@ -354,7 +355,8 @@ export async function updateOrder(orderId: string, data: any) {
                     totalAmount: total,
                     deposit: deposit || 0,
                     currency: currency || 'EGP',
-                    safeId: deposit > 0 ? safeId : null
+                    safeId: deposit > 0 ? safeId : null,
+                    notes: notes
                 }
             });
         }, {
