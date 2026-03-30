@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
-import PrintHeader from "@/components/PrintHeader";
 import { getSettings } from "@/app/admin-actions";
 
 export default async function OrderPrintPage({ params }: { params: { id: string } }) {
@@ -26,11 +25,9 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
   return (
     <div id="printable-area" className="bg-white text-black p-4 font-sans text-sm" dir="rtl">
       
-      {/* === الهيدر === */}
+      {/* === الهيدر: مساحة فارغة للورق المطبوع مسبقاً === */}
       <div id="page-header">
-        {settings?.header && (
-          <div dangerouslySetInnerHTML={{ __html: settings.header }}></div>
-        )}
+        {/* This is intentionally left empty to leave space for the pre-printed header */}
       </div>
 
       {/* === المحتوى الرئيسي === */}
@@ -44,7 +41,6 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
             </div>
             <div className="text-left">
               <h1 className="text-2xl font-bold">{settings?.siteName || 'Ma3rad'}</h1>
-              {/* يمكنك إضافة تفاصيل أخرى هنا */}
             </div>
           </div>
           <div className="mt-4 border-t border-gray-300 pt-2">
@@ -104,11 +100,9 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
         </div>
       </main>
 
-      {/* === الفوتر === */}
+      {/* === الفوتر: مساحة فارغة للورق المطبوع مسبقاً === */}
       <footer id="page-footer">
-        {settings?.footer && (
-          <div className="text-center text-xs p-4" dangerouslySetInnerHTML={{ __html: settings.footer }}></div>
-        )}
+        {/* This is intentionally left empty to leave space for the pre-printed footer */}
       </footer>
 
     </div>
