@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import PrintHeader from "@/components/PrintHeader";
-import { getSettings } from "@/app/actions";
+import { getSettings } from "@/app/admin-actions";
 
 export default async function OrderPrintPage({ params }: { params: { id: string } }) {
   const order = await prisma.order.findUnique({
