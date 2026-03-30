@@ -25,11 +25,7 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* 👇👇👇 الإضافة الهامة لحل مشكلة PDF 👇👇👇 */
-/* 
-   مكتبة html2canvas لا تفهم ألوان Tailwind v4 الحديثة (oklch/lab).
-   هنا نجبر الألوان المستخدمة في الفاتورة أن تكون (HEX) تقليدية لتعمل الطباعة.
-*/
+/* Force HEX colors for html2canvas compatibility */
 @layer utilities {
   /* الخلفيات */
   .bg-white { background-color: #ffffff !important; }
@@ -64,16 +60,25 @@ body {
 }
 
 /* ==========================================================================
-    أنماط خاصة بالطباعة للورق المطبوع مسبقًا
+    أنماط خاصة بالطباعة للورق المطبوع مسبقًا (الطريقة المضمونة)
    ========================================================================== */
 @media print {
-    /* إخفاء كل شيء خارج منطقة الطباعة */
+    /* Set page size and remove default browser margins */
+    @page {
+      size: A4;
+      margin: 0;
+    }
+
+    /* Hide everything on the page by default */
     body * {
         visibility: hidden;
     }
+
+    /* Make only the printable area and its children visible */
     #printable-area, #printable-area * {
         visibility: visible;
     }
+    
     #printable-area {
         position: absolute;
         left: 0;
@@ -81,26 +86,52 @@ body {
         width: 100%;
     }
 
-    /* إعدادات الصفحة مع الهوامش المطلوبة */
-    @page {
-      size: A4;
-      margin-top: 4.5cm;
-      margin-bottom: 3cm;
-      margin-left: 1cm; /* يمكنك تعديل الهوامش الجانبية حسب الحاجة */
-      margin-right: 1cm;
+    /*
+     * Header: A fixed-position block that acts as a spacer.
+     * It will repeat on every page.
+     */
+    #page-header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4.5cm;
+        background-color: transparent !important; /* Ensure it's just a spacer */
     }
 
-    /* إخفاء حاويات الهيدر والفوتر الفارغة تمامًا */
-    #page-header, #page-footer {
-        display: none;
+    /*
+     * Footer: A fixed-position block that acts as a spacer.
+     * It will repeat on every page.
+     */
+    #page-footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 3cm;
+        background-color: transparent !important; /* Ensure it's just a spacer */
     }
 
-    /* ضمان تكرار رأس الجدول في كل صفحة */
+    /*
+     * Content: This is the main part of the invoice.
+     * We add padding to it to prevent it from overlapping
+     * with the fixed header and footer spacers.
+     */
+    #page-content {
+        padding-top: 4.5cm;
+        padding-bottom: 3cm;
+        padding-left: 1.5cm; /* Optional side padding */
+        padding-right: 1.5cm; /* Optional side padding */
+        width: 100%;
+    }
+    
+    /* Ensure table headers repeat on new pages */
     thead { 
       display: table-header-group;
     }
-    /* منع انقسام الصفوف والجداول بين الصفحات */
-    table, tbody, tr, td {
+
+    /* Try to prevent rows from breaking across pages */
+    tbody, tr, td {
       page-break-inside: avoid;
     }
 }
