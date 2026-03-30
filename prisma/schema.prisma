@@ -140,6 +140,7 @@ model WarehouseReceipt {
 
 model Settings {
   id           String  @id @default(cuid())
+  siteName     String?
   invoiceNotes String?
   header       String?
   footer       String?

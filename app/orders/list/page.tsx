@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { getUserOrders, deleteOrder } from '@/app/actions';
+import { getUserOrders, deleteOrder, getSettings } from '@/app/actions';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 // مكتبات الطباعة
@@ -46,6 +46,7 @@ export default function OrdersListPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [newOrderAlert, setNewOrderAlert] = useState(false); // تنبيه الأوردر الجديد
+  const [settings, setSettings] = useState<any>(null);
 
   // حالات طباعة PDF
   const [pdfOrder, setPdfOrder] = useState<any>(null);
@@ -75,6 +76,7 @@ export default function OrdersListPage() {
   // التحميل الأول للملف
   useEffect(() => {
     fetchOrdersData();
+    getSettings().then(setSettings);
   }, [session, fetchOrdersData]);
 
   // --- إضافة التحديث التلقائي (كل 7 ثواني) ---
@@ -293,9 +295,14 @@ export default function OrdersListPage() {
                             <div className="text-lg md:text-xl font-bold bg-black text-white px-4 py-1 inline-block rounded">فاتورة مبيعات</div>
                         </div>
                         <div className="text-right">
-                            <h1 className="text-xl md:text-2xl font-bold text-black">مصنع رؤية لملابس الاطفال</h1>
+                            <h1 className="text-xl md:text-2xl font-bold text-black">{settings?.siteName || "اسم المعرض"}</h1>
                         </div>
                     </header>
+
+                    {/* Dynamic Header from Settings */}
+                    {settings?.header && (
+                        <div className="prose prose-sm max-w-none mb-4" dangerouslySetInnerHTML={{ __html: settings.header }}></div>
+                    )}
 
                     <div className="bg-gray-50 border-2 border-gray-200 rounded-lg p-4 mb-8 print:border-gray-300">
                         <table className="w-full text-base text-black">
@@ -389,6 +396,11 @@ export default function OrdersListPage() {
                             </div>
                         </div>
                     </div>
+
+                    {/* Dynamic Footer from Settings */}
+                    {settings?.footer && (
+                        <div className="prose prose-sm max-w-none mt-4 text-center" dangerouslySetInnerHTML={{ __html: settings.footer }}></div>
+                    )}
                 </>
             )}
          </div>

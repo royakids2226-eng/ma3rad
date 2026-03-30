@@ -10,7 +10,7 @@ export default function ReportsPage() {
       {/* ========================================================================
           HEADER SECTION - الجزء العلوي للتحكم والطباعة
           ======================================================================= */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 print:hidden">
         <div className="flex items-center gap-4">
           <div className="bg-blue-600 p-4 rounded-2xl shadow-lg shadow-blue-200 text-white">
             <span className="text-3xl">📊</span>
@@ -62,7 +62,7 @@ export default function ReportsPage() {
       {/* ========================================================================
           MAIN CONTENT AREA - المحتوى المتغير حسب التبويب
           ======================================================================= */}
-      <div className="bg-white p-4 md:p-10 rounded-[2.5rem] shadow-sm min-h-[600px] border border-gray-50">
+      <div id="printable-area" className="bg-white p-4 md:p-10 rounded-[2.5rem] shadow-sm min-h-[600px] border border-gray-50">
           {activeTab === 'INVENTORY' && <InventoryReportView />}
           {activeTab === 'SAFE' && <SafeLedgerView />}
           {activeTab === 'EMPLOYEES' && <EmployeePerformanceView />}
@@ -256,7 +256,7 @@ function InventoryReportView() {
                             <th className="p-6 border-b border-slate-800 bg-blue-900/20 text-blue-400">الرصيد الأولي (قطعة)</th>
                             <th className="p-6 border-b border-slate-800 bg-yellow-900/20 text-yellow-400">المباع (قطعة)</th>
                             <th className="p-6 border-b border-slate-800 bg-green-900/20 text-green-400">الرصيد الحالي (قطعة)</th>
-                            <th className="p-6 border-b border-slate-800 cursor-pointer hover:bg-slate-800 transition-colors select-none" onClick={() => handleSort('salesPercentage')}>
+                            <th className="p-6 border-b border-slate-800 cursor-pointer hover:bg-slate-800 transition-colors select-none" onClick={() => handleSort('salesPercentage')">
                                 نسبة المبيع {sortConfig?.key === 'salesPercentage' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                             </th>
                             <th className="p-6 border-b border-slate-800">الحالة</th>
