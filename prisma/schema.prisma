@@ -45,7 +45,6 @@ model Product {
   discount         Float       @default(0.0)
   status           String      @default("OPEN") 
 
-  // 👈👈👈 هذا هو العمود الجديد المسؤول عن حفظ حالة الشطب لكل الناس
   isStockAlertRead Boolean     @default(false)
 
   orderItems       OrderItem[]
@@ -140,6 +139,8 @@ model WarehouseReceipt {
 }
 
 model Settings {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   invoiceNotes String?
+  header       String?
+  footer       String?
 }
