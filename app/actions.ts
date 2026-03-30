@@ -457,10 +457,23 @@ export async function getUserOrders(userId: string) {
     }
     const orders = await prisma.order.findMany({
       where: whereCondition,
-      include: { 
-          customer: true, 
-          user: true, 
-          items: { include: { product: true } } 
+      // The fix is to use `select` to explicitly get all required fields
+      select: {
+          id: true,
+          orderNo: true, // This was the missing field
+          createdAt: true,
+          totalAmount: true,
+          deposit: true,
+          customer: true,
+          user: true,
+          items: { 
+              select: { 
+                  product: true, 
+                  quantity: true, 
+                  price: true, 
+                  discountPercent: true 
+              }
+          }
       },
       orderBy: { createdAt: 'desc' },
       take: 100
