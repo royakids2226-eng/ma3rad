@@ -82,7 +82,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
       </div>
 
       <div id="printable-area" className="bg-white text-black p-8 font-sans text-sm max-w-4xl mx-auto shadow-lg">
-        
+
         {/* --- Header --- */}
         <div className="border-b-4 border-black pb-4 mb-6">
           <div className="flex justify-between items-center">
