@@ -2,6 +2,8 @@
 
 const PrintStyles = ({ siteName, customerName }: { siteName: string, customerName: string }) => (
   <style jsx global>{`
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+
     @media print {
         @page {
             size: A4;
@@ -12,6 +14,7 @@ const PrintStyles = ({ siteName, customerName }: { siteName: string, customerNam
 
             @top-center {
                 content: '${siteName}';
+                font-family: 'Cairo', sans-serif;
                 font-size: 14px;
                 font-weight: bold;
                 color: #333;
@@ -19,12 +22,14 @@ const PrintStyles = ({ siteName, customerName }: { siteName: string, customerNam
 
             @top-right {
                 content: '${customerName}';
+                font-family: 'Cairo', sans-serif;
                 font-size: 12px;
                 color: #555;
             }
 
             @bottom-center {
                 content: "Page " counter(page);
+                font-family: 'Cairo', sans-serif;
                 font-size: 10px;
                 color: #888;
             }
@@ -35,8 +40,9 @@ const PrintStyles = ({ siteName, customerName }: { siteName: string, customerNam
             display: none !important;
         }
 
-        /* 2. Reset any screen-specific styles that could interfere. */
-        body, .bg-gray-100 {
+        /* 2. Reset any screen-specific styles and set the print font. */
+        body, .bg-gray-100, #printable-area {
+            font-family: 'Cairo', sans-serif !important;
             background: #ffffff !important;
             min-height: 0 !important;
             color: #000000 !important;
@@ -50,7 +56,15 @@ const PrintStyles = ({ siteName, customerName }: { siteName: string, customerNam
             max-width: 100% !important;
         }
 
-        /* 4. Basic print typography improvements. */
+        /* 4. Style the table headers with a border. */
+        thead th {
+            display: table-header-group; /* Repeats table headers on each page */
+            border: 1px solid #000;
+            padding: 8px; /* Adjust padding as needed */
+            font-weight: bold;
+        }
+
+        /* 5. Basic print typography improvements. */
         thead {
             display: table-header-group; /* Repeats table headers on each page */
         }
@@ -58,6 +72,10 @@ const PrintStyles = ({ siteName, customerName }: { siteName: string, customerNam
         /* RESTORING this rule to prevent the large gap */
         tr, td, th {
             page-break-inside: avoid;
+        }
+        
+        td {
+            padding: 4px 8px;
         }
     }
   `}</style>
