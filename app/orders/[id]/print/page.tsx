@@ -69,7 +69,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
 
   return (
     <div className="bg-gray-100 min-h-screen" dir="rtl">
-      <PrintStyles />
+      <PrintStyles siteName={settings?.siteName || 'Ma3rad'} customerName={order.customer.name} />
       <div className="no-print flex justify-center gap-4 p-4 bg-white shadow-md mb-8">
         <PrintButton />
         <HomeButton />
