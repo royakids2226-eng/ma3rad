@@ -5,7 +5,10 @@ const PrintStyles = () => (
     @media print {
         @page {
             size: A4;
-            margin: 1.5cm; /* A standard margin for printing */
+            margin-top: 4.5cm;
+            margin-bottom: 3cm;
+            margin-left: 1.5cm;
+            margin-right: 1.5cm;
         }
 
         /* 1. Hide the UI elements that are not part of the invoice. */
