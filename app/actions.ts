@@ -176,9 +176,6 @@ export async function createOrder(data: any, userId: string) {
   const productIds = Array.from(productQuantities.keys());
 
   try {
-    // We can't use a transaction here because we need to return data on failure.
-    // We will manually handle rollback/compensation if something fails.
-
     const products = await prisma.product.findMany({
       where: { id: { in: productIds } },
     });
@@ -186,13 +183,11 @@ export async function createOrder(data: any, userId: string) {
     const productMap = new Map(products.map(p => [p.id, p]));
     const insufficientStockItems: any[] = [];
 
-    // 1. Validate stock for all items
     for (const productId of productIds) {
       const product = productMap.get(productId);
       const requestedPieces = productQuantities.get(productId)!;
 
       if (!product) {
-        // This is a critical error, so we throw immediately.
         throw new Error(`الصنف بالمعرف ${productId} غير موجود.`);
       }
       if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
@@ -200,14 +195,12 @@ export async function createOrder(data: any, userId: string) {
           productId: product.id,
           modelNo: product.modelNo,
           color: product.color,
-          // Return available series, not pieces
           availableStock: Math.floor(product.currentStock / PIECES_PER_UNIT), 
           requestedQty: Math.floor(requestedPieces / PIECES_PER_UNIT),
         });
       }
     }
 
-    // 2. If there are any items with insufficient stock, return them to the client
     if (insufficientStockItems.length > 0) {
       return {
         success: false,
@@ -216,7 +209,6 @@ export async function createOrder(data: any, userId: string) {
       };
     }
 
-    // 3. If all checks pass, proceed with the transaction
     const result = await prisma.$transaction(async (tx) => {
         const order = await tx.order.create({
             data: {
@@ -250,6 +242,9 @@ export async function createOrder(data: any, userId: string) {
         await Promise.all(stockUpdatePromises);
 
         return order;
+    }, {
+      maxWait: 15000, // Wait 15s for the transaction to start
+      timeout: 30000, // Allow 30s for the whole transaction to complete
     });
 
     revalidatePath('/');
@@ -260,7 +255,6 @@ export async function createOrder(data: any, userId: string) {
 
   } catch (error: any) {
     console.error("Error creating order:", error);
-    // This will now mostly catch critical errors, not stock issues.
     return { success: false, error: error.message || 'فشل إنشاء الطلب' };
   }
 }
