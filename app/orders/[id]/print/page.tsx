@@ -58,7 +58,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
         items: [],
         totalDozenQuantity: 0,
         originalPricePerDozen: item.product.price,
-        description: item.product.description,
+        description: item.product.description || '',
         discountPercent: item.discountPercent,
       };
     }
