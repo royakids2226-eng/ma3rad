@@ -52,21 +52,20 @@ const PrintStyles = ({ siteName, customerName }: { siteName: string, customerNam
         #printable-area {
             box-shadow: none !important;
             margin: 0 !important;
-            padding: 0 !important;
+            padding: 0 !importan;
             max-width: 100% !important;
         }
 
         /* 4. Style the table headers with a border. */
-        thead th {
+        thead {
             display: table-header-group; /* Repeats table headers on each page */
+        }
+
+        thead th {
             border: 1px solid #000;
             padding: 8px; /* Adjust padding as needed */
             font-weight: bold;
-        }
-
-        /* 5. Basic print typography improvements. */
-        thead {
-            display: table-header-group; /* Repeats table headers on each page */
+            text-align: center;
         }
 
         /* RESTORING this rule to prevent the large gap */
