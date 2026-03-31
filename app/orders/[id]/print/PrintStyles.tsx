@@ -8,19 +8,19 @@ const PrintStyles = () => (
             margin: 1.5cm; /* A standard margin for printing */
         }
 
-        /* Hide the UI elements that are not part of the invoice. */
+        /* 1. Hide the UI elements that are not part of the invoice. */
         .no-print {
             display: none !important;
         }
 
-        /* Reset screen-specific styles that could interfere. */
+        /* 2. Reset any screen-specific styles that could interfere. */
         body, .bg-gray-100 {
             background: #ffffff !important;
             min-height: 0 !important;
             color: #000000 !important;
         }
 
-        /* Ensure the printable area takes up the full width and has no shadow. */
+        /* 3. Ensure the printable area takes up the full width and has no shadow. */
         #printable-area {
             box-shadow: none !important;
             margin: 0 !important;
@@ -28,12 +28,15 @@ const PrintStyles = () => (
             max-width: 100% !important;
         }
 
-        /* Ensure table headers repeat on new pages */
+        /* 4. Basic print typography improvements. */
         thead {
-            display: table-header-group;
+            display: table-header-group; /* Repeats table headers on each page */
         }
 
-        /* REMOVED the problematic page-break-inside rule */
+        /* RESTORING this rule to prevent the large gap */
+        tr, td, th {
+            page-break-inside: avoid;
+        }
     }
   `}</style>
 );
