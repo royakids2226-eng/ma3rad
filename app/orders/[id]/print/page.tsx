@@ -28,17 +28,15 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
 
   // --- CALCULATIONS ---
 
-  // Gross total is calculated from the original PRODUCT price, not the item price.
   const grossTotal = order.items.reduce((acc, item) => {
     const quantityInPieces = item.quantity * PIECE_MULTIPLIER;
-    const originalPricePerDozen = item.product.price; // Use the original product price.
+    const originalPricePerDozen = item.product.price;
     return acc + (quantityInPieces * originalPricePerDozen);
   }, 0);
 
-  // Total discount is calculated based on the original PRODUCT price.
   const totalItemsDiscount = order.items.reduce((acc, item) => {
     const quantityInPieces = item.quantity * PIECE_MULTIPLIER;
-    const originalPricePerDozen = item.product.price; // Use the original product price.
+    const originalPricePerDozen = item.product.price;
     const itemGrossTotal = quantityInPieces * originalPricePerDozen;
     const discountAmount = itemGrossTotal * (item.discountPercent / 100);
     return acc + discountAmount;
@@ -53,14 +51,13 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
   const depositDeducted = order.currency === 'EGP' ? depositPaid : 0;
   const remainingAmount = netTotal - depositDeducted;
 
-  // Group items for display, using the original PRODUCT price.
   const groupedItems = order.items.reduce((acc, item) => {
     const modelNo = item.product.modelNo;
     if (!acc[modelNo]) {
       acc[modelNo] = {
         items: [],
         totalDozenQuantity: 0,
-        originalPricePerDozen: item.product.price, // Store the original product price.
+        originalPricePerDozen: item.product.price,
         description: item.product.description,
         discountPercent: item.discountPercent,
       };
@@ -100,7 +97,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
                     <h1 className="text-4xl font-extrabold">{settings?.siteName || 'Ma3rad'}</h1>
                 </div>
             </div>
-            <div className="mt-6 border-t-2 border-gray-300 pt-4">
+            <div className="mt-6 border-t-2 border-gray-300 pt-4 break-words">
                 <p><strong>العميل:</strong> {order.customer.name}</p>
                 <p><strong>الهاتف:</strong> {order.customer.phone}</p>
                 {order.customer.address && <p><strong>العنوان:</strong> {order.customer.address}</p>}
@@ -124,7 +121,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
               {Object.keys(groupedItems).map((modelNo, index) => {
                 const group = groupedItems[modelNo];
                 const quantityInPieces = group.totalDozenQuantity * PIECE_MULTIPLIER;
-                const originalPricePerDozen = group.originalPricePerDozen; // Using the correct original price.
+                const originalPricePerDozen = group.originalPricePerDozen;
                 const details = group.items.map(item => `${item.quantity * PIECE_MULTIPLIER} ${item.product.color}`).join(' + ');
                 
                 const rowGrossTotal = quantityInPieces * originalPricePerDozen;

@@ -333,7 +333,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
               <div className="mt-8">
                 <div className="flex justify-between items-center mb-3">
                     <h3 className="font-bold text-gray-700">محتويات الفاتورة</h3>
-                    <div className="flex gap-2">
+                    <div className="relative flex gap-2">
                         <button onClick={handleApplyAutoProductDiscounts} className="bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold animate-pulse shadow">🏷️ خصم الموديلات</button>
                         <button onClick={() => setShowDiscountOptions(!showDiscountOptions)} className="bg-yellow-500 text-white px-3 py-1 rounded-lg text-xs font-bold shadow">+ خصم مخصص</button>
                         {showDiscountOptions && (
