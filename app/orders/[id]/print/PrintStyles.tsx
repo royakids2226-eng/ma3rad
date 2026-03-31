@@ -2,7 +2,7 @@
 
 const PrintStyles = ({ siteName, customerName }: { siteName: string, customerName: string }) => (
   <style jsx global>{`
-    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
 
     @media print {
         @page {
@@ -13,23 +13,23 @@ const PrintStyles = ({ siteName, customerName }: { siteName: string, customerNam
             margin-right: 1.5cm;
 
             @top-center {
-                content: ''; /* Removed as requested to avoid duplication */
+                content: '';
             }
 
             @top-right {
-                content: ''; /* Removed as requested to avoid duplication */
+                content: '';
             }
 
             @bottom-center {
                 content: "صفحة " counter(page) " من " counter(pages);
-                font-family: 'Tajawal', sans-serif;
+                font-family: 'Cairo', sans-serif;
                 font-size: 10px;
                 color: #888;
             }
         }
 
         body {
-            font-family: 'Tajawal', sans-serif !important;
+            font-family: 'Cairo', sans-serif !important;
             background: #ffffff !important;
             color: #000000 !important;
         }
@@ -47,7 +47,12 @@ const PrintStyles = ({ siteName, customerName }: { siteName: string, customerNam
         }
 
         thead {
-            display: table-header-group; /* Crucial for repeating headers */
+            display: table-header-group; 
+        }
+
+        thead tr {
+            -webkit-print-color-adjust: exact !important;
+            color-adjust: exact !important;
         }
 
         tr, td, th {

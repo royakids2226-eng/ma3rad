@@ -104,14 +104,14 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
         {/* --- Items Table --- */}
         <table className="w-full text-right border-collapse border border-gray-300 mb-10">
           <thead>
-            <tr className="bg-blue-50">
-              <th className="p-3 font-bold text-gray-700 border border-gray-300 text-center">م</th>
-              <th className="p-3 font-bold text-gray-700 border border-gray-300 text-right">الموديل</th>
-              <th className="p-3 font-bold text-gray-700 border border-gray-300 text-right">التفاصيل</th>
-              <th className="p-3 font-bold text-gray-700 border border-gray-300 text-center">الكمية</th>
-              <th className="p-3 font-bold text-gray-700 border border-gray-300 text-center">السعر</th>
-              <th className="p-3 font-bold text-gray-700 border border-gray-300 text-center">خصم %</th>
-              <th className="p-3 font-bold text-gray-700 border border-gray-300 text-center">الإجمالي</th>
+            <tr className="bg-slate-200">
+              <th className="p-3 font-semibold text-gray-800 border border-gray-300 text-center">م</th>
+              <th className="p-3 font-semibold text-gray-800 border border-gray-300 text-right">الموديل</th>
+              <th className="p-3 font-semibold text-gray-800 border border-gray-300 text-right">التفاصيل</th>
+              <th className="p-3 font-semibold text-gray-800 border border-gray-300 text-center">الكمية</th>
+              <th className="p-3 font-semibold text-gray-800 border border-gray-300 text-center">السعر</th>
+              <th className="p-3 font-semibold text-gray-800 border border-gray-300 text-center">خصم %</th>
+              <th className="p-3 font-semibold text-gray-800 border border-gray-300 text-center">الإجمالي</th>
             </tr>
           </thead>
           <tbody>
