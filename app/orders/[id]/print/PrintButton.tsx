@@ -2,9 +2,24 @@
 
 export default function PrintButton() {
   const handlePrint = () => {
-    // This simply opens the browser's print dialog.
-    // It does not cause a reload or navigation.
+    // This is the new, correct logic.
+    // It manually hides the button container before printing
+    // and shows it again after, avoiding the race condition.
+
+    const nonPrintableArea = document.querySelector('.no-print');
+
+    if (nonPrintableArea) {
+      // 1. Hide the button container.
+      (nonPrintableArea as HTMLElement).style.display = 'none';
+    }
+
+    // 2. Open the browser's print dialog.
     window.print();
+
+    // 3. Show the button container again after the dialog is closed.
+    if (nonPrintableArea) {
+      (nonPrintableArea as HTMLElement).style.display = 'flex';
+    }
   };
 
   return (
