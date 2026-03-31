@@ -1,12 +1,19 @@
 "use client";
-import Link from "next/link";
+import { useRouter } from 'next/navigation';
 
 export default function HomeButton() {
-    return (
-        <Link href="/">
-            <button className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
-                الرئيسية
-            </button>
-        </Link>
-    );
+  const router = useRouter();
+
+  const handleClick = () => {
+    router.push('/');
+  };
+
+  return (
+    <button 
+      onClick={handleClick}
+      className="bg-gray-500 text-white px-6 py-2 rounded-md font-bold hover:bg-gray-600 transition-colors"
+    >
+      العودة للرئيسية
+    </button>
+  );
 }

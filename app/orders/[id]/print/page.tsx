@@ -6,7 +6,7 @@ import PrintButton from "./PrintButton";
 import HomeButton from "./HomeButton";
 import NewOrderButton from "./NewOrderButton";
 import SharePdfButton from "./SharePdfButton";
-import PrintStyles from "./PrintStyles"; // Import the new client component
+import PrintStyles from "./PrintStyles";
 
 export default async function OrderPrintPage({ params }: { params: { id: string } }) {
   const resolvedParams = await Promise.resolve(params);
@@ -24,29 +24,55 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
     notFound();
   }
 
-  const DOZEN_MULTIPLIER = 4;
+  const PIECE_MULTIPLIER = 4;
 
+  // --- CALCULATIONS ---
+
+  // Gross total is calculated from the original PRODUCT price, not the item price.
   const grossTotal = order.items.reduce((acc, item) => {
-    const quantity = item.quantity * DOZEN_MULTIPLIER;
-    return acc + (item.price * quantity);
+    const quantityInPieces = item.quantity * PIECE_MULTIPLIER;
+    const originalPricePerDozen = item.product.price; // Use the original product price.
+    return acc + (quantityInPieces * originalPricePerDozen);
   }, 0);
 
+  // Total discount is calculated based on the original PRODUCT price.
   const totalItemsDiscount = order.items.reduce((acc, item) => {
-    const quantity = item.quantity * DOZEN_MULTIPLIER;
-    const itemDiscountValue = item.price * (item.discountPercent / 100);
-    return acc + (itemDiscountValue * quantity);
+    const quantityInPieces = item.quantity * PIECE_MULTIPLIER;
+    const originalPricePerDozen = item.product.price; // Use the original product price.
+    const itemGrossTotal = quantityInPieces * originalPricePerDozen;
+    const discountAmount = itemGrossTotal * (item.discountPercent / 100);
+    return acc + discountAmount;
   }, 0);
 
-  const orderDiscount = order.discount;
-  const totalDiscount = totalItemsDiscount + orderDiscount;
+  const orderLevelDiscount = order.discount;
+  const totalDiscount = totalItemsDiscount + orderLevelDiscount;
+
   const netTotal = grossTotal - totalDiscount;
-  const totalPaid = order.deposit;
-  const remainingAmount = netTotal - totalPaid;
+
+  const depositPaid = order.deposit;
+  const depositDeducted = order.currency === 'EGP' ? depositPaid : 0;
+  const remainingAmount = netTotal - depositDeducted;
+
+  // Group items for display, using the original PRODUCT price.
+  const groupedItems = order.items.reduce((acc, item) => {
+    const modelNo = item.product.modelNo;
+    if (!acc[modelNo]) {
+      acc[modelNo] = {
+        items: [],
+        totalDozenQuantity: 0,
+        originalPricePerDozen: item.product.price, // Store the original product price.
+        description: item.product.description,
+        discountPercent: item.discountPercent,
+      };
+    }
+    acc[modelNo].items.push(item);
+    acc[modelNo].totalDozenQuantity += item.quantity;
+    return acc;
+  }, {} as Record<string, { items: any[], totalDozenQuantity: number, originalPricePerDozen: number, description: string, discountPercent: number }>);
 
   return (
     <div className="bg-gray-100 min-h-screen" dir="rtl">
-      <PrintStyles /> {/* Use the PrintStyles component */}
-      {/* Action Buttons with no-print class */}
+      <PrintStyles />
       <div className="no-print flex justify-center gap-4 p-4 bg-white shadow-md mb-8">
         <PrintButton />
         <HomeButton />
@@ -58,14 +84,11 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
         />
       </div>
 
-      {/* Printable Invoice content */}
       <div id="invoice-content" className="bg-white text-black p-8 font-sans text-sm max-w-4xl mx-auto shadow-lg">
-        
-        <header id="page-header" style={{ height: settings?.header || 'auto' }} className="mb-8 text-center">
-            {/* Header for pre-printed paper */}
-        </header>
+        <header id="page-header" style={{ height: settings?.header || 'auto' }} className="mb-8 text-center"></header>
 
         <main id="page-content">
+          {/* --- Header --- */}
           <div className="border-b-4 border-black pb-4 mb-6">
             <div className="flex justify-between items-center">
                 <div className="flex flex-col">
@@ -82,66 +105,74 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
                 <p><strong>الهاتف:</strong> {order.customer.phone}</p>
                 {order.customer.address && <p><strong>العنوان:</strong> {order.customer.address}</p>}
             </div>
-        </div>
+          </div>
 
+          {/* --- Items Table --- */}
           <table className="w-full text-right border-collapse mb-8">
             <thead className="border-b-2 border-black bg-gray-100">
               <tr>
                 <th className="p-2 font-semibold">م</th>
-                <th className="p-2 font-semibold text-right">الصنف</th>
+                <th className="p-2 font-semibold text-right">الموديل</th>
+                <th className="p-2 font-semibold text-right">التفاصيل</th>
                 <th className="p-2 font-semibold">الكمية</th>
                 <th className="p-2 font-semibold">السعر</th>
-                <th className="p-2 font-semibold">الخصم</th>
+                <th className="p-2 font-semibold">خصم %</th>
                 <th className="p-2 font-semibold">الإجمالي</th>
               </tr>
             </thead>
             <tbody>
-              {order.items.map((item, index) => {
-                const quantity = item.quantity * DOZEN_MULTIPLIER;
-                const itemDiscountValue = item.price * (item.discountPercent / 100);
-                const rowDiscount = itemDiscountValue * quantity;
-                const rowTotal = (item.price * quantity) - rowDiscount;
+              {Object.keys(groupedItems).map((modelNo, index) => {
+                const group = groupedItems[modelNo];
+                const quantityInPieces = group.totalDozenQuantity * PIECE_MULTIPLIER;
+                const originalPricePerDozen = group.originalPricePerDozen; // Using the correct original price.
+                const details = group.items.map(item => `${item.quantity * PIECE_MULTIPLIER} ${item.product.color}`).join(' + ');
                 
+                const rowGrossTotal = quantityInPieces * originalPricePerDozen;
+
                 return (
-                  <tr key={item.id} className="border-b border-gray-200">
+                  <tr key={modelNo} className="border-b border-gray-200">
                     <td className="p-2">{index + 1}</td>
+                    <td className="p-2 text-right">{modelNo}</td>
                     <td className="p-2 text-right">
-                      {item.product.modelNo} - {item.product.color}
-                      {item.product.description && <span className="text-xs text-gray-500"> ({item.product.description})</span>}
+                      {group.description} ({details})
                     </td>
-                    <td className="p-2">{quantity}</td>
-                    <td className="p-2">{item.price.toFixed(2)}</td>
-                    <td className="p-2 text-red-500">{rowDiscount > 0 ? `-${rowDiscount.toFixed(2)}` : '0.00'}</td>
-                    <td className="p-2 font-bold">{rowTotal.toFixed(2)}</td>
+                    <td className="p-2">{quantityInPieces}</td>
+                    <td className="p-2">{originalPricePerDozen.toFixed(2)}</td>
+                    <td className="p-2 text-red-500">{group.discountPercent.toFixed(2)}</td>
+                    <td className="p-2 font-bold">{rowGrossTotal.toFixed(2)}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
 
+          {/* --- Footer --- */}
           <div className="flex justify-between items-start">
             <div className="w-2/5">
                 <h3 className="font-bold mb-2">الملاحظات:</h3>
-                {order.currency !== 'EGP' && (
-                    <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-2 rounded-md mb-4 text-xs" role="alert">
-                    <strong className="font-bold">تنبيه: </strong>
-                    تم استلام العربون بعملة أجنبية ({order.currency}).
+                {order.notes && <p className="text-xs mt-1">{order.notes}</p>}
+                {settings?.invoiceNotes && <p className="text-xs mt-1 text-gray-600">{settings.invoiceNotes}</p>}
+                
+                {order.currency !== 'EGP' && depositPaid > 0 && (
+                    <div className="mt-4 p-2 border border-blue-400 bg-blue-50 rounded-lg">
+                        <h4 className="font-bold text-blue-800">سجل تحصيلات العملات</h4>
+                        <p className="text-sm text-blue-700">
+                           تم استلام عربون بقيمة {depositPaid.toFixed(2)} {order.currency}
+                        </p>
                     </div>
                 )}
-                {settings?.invoiceNotes && <p className="text-xs mt-1 text-gray-600">{settings.invoiceNotes}</p>}
-                {order.notes && <p className="text-xs mt-1">{order.notes}</p>}
             </div>
 
             <div className="w-1/3">
               <div className="border border-gray-300 p-4 rounded-lg">
                 <div className="flex justify-between">
-                  <span>إجمالي الأصناف:</span>
+                  <span>إجمالي الفاتورة:</span>
                   <span>{grossTotal.toFixed(2)}</span>
                 </div>
                 {totalDiscount > 0 && (
                   <div className="flex justify-between text-red-500">
                     <span>إجمالي الخصم:</span>
-                    <span>-{totalDiscount.toFixed(2)}</span>
+                    <span>({totalDiscount.toFixed(2)})</span>
                   </div>
                 )}
                 <hr className="my-2"/>
@@ -151,7 +182,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
                 </div>
                 <div className="flex justify-between">
                   <span>المدفوع:</span>
-                  <span>{totalPaid.toFixed(2)}</span>
+                  <span>{depositPaid.toFixed(2)} {order.currency !== 'EGP' ? `(${order.currency})` : ''}</span>
                 </div>
                 <hr className="my-2"/>
                 <div className="flex justify-between font-bold text-lg text-green-600">
@@ -163,9 +194,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
           </div>
         </main>
 
-        <footer id="page-footer" style={{ height: settings?.footer || 'auto' }} className="mt-8 text-center text-xs text-gray-500">
-            {/* Footer for pre-printed paper */}
-        </footer>
+        <footer id="page-footer" style={{ height: settings?.footer || 'auto' }} className="mt-8 text-center text-xs text-gray-500"></footer>
       </div>
     </div>
   );

@@ -1,37 +1,18 @@
 'use client';
 
-import React from 'react';
-
-const PrintButton = () => {
+export default function PrintButton() {
   const handlePrint = () => {
-    const invoiceContent = document.getElementById('invoice-content');
-    if (invoiceContent) {
-      // Store the original body content
-      const originalBody = document.body.innerHTML;
-
-      // Replace the body with the entire invoice element (including the container itself)
-      document.body.innerHTML = invoiceContent.outerHTML;
-
-      // Optional: Add a small delay to ensure content is rendered before printing
-      setTimeout(() => {
-        // Trigger the print dialog
-        window.print();
-
-        // Restore the original body content after printing
-        // Using a reload to ensure all scripts and styles are re-initialized properly
-        window.location.reload();
-      }, 250); // 250ms delay
-    }
+    // This simply opens the browser's print dialog.
+    // It does not cause a reload or navigation.
+    window.print();
   };
 
   return (
     <button 
       onClick={handlePrint}
-      className="no-print bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+      className="bg-blue-600 text-white px-6 py-2 rounded-md font-bold hover:bg-blue-700 transition-colors"
     >
-      طباعة
+      طباعة الفاتورة
     </button>
   );
-};
-
-export default PrintButton;
+}
