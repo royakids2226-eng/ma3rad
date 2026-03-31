@@ -82,8 +82,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
       </div>
 
       <div id="printable-area" className="bg-white text-black p-8 font-sans text-sm max-w-4xl mx-auto shadow-lg">
-        <header id="page-header" style={{ height: settings?.header || 'auto' }} className="mb-8 text-center"></header>
-
+        
         {/* --- Header --- */}
         <div className="border-b-4 border-black pb-4 mb-6">
           <div className="flex justify-between items-center">
@@ -189,7 +188,6 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
           </div>
         </div>
 
-        <footer id="page-footer" style={{ height: settings?.footer || 'auto' }} className="mt-8 text-center text-xs text-gray-500"></footer>
       </div>
     </div>
   );

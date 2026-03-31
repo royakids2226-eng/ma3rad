@@ -5,52 +5,36 @@ const PrintStyles = () => (
     @media print {
         @page {
             size: A4;
-            margin: 1.5cm; /* Add some margin for safety */
+            margin: 1.5cm; /* A standard margin for printing */
         }
 
-        body {
-            /* Reset any strange browser-default backgrounds */
-            background-color: #fff !important;
-        }
-
-        /* Hide everything that is NOT the printable area */
-        body * {
-            visibility: hidden;
-        }
-
-        /* Make sure the printable area and all its children are visible */
-        #printable-area, #printable-area * {
-            visibility: visible;
-        }
-
-        /* 
-         * This is the crucial part:
-         * Reset the printable area to be a normal block element.
-         * This prevents it from being pushed to a new page.
-         */
-        #printable-area {
-            display: block; /* Or just remove any absolute positioning */
-            position: static; /* Explicitly set to default */
-            width: 100%;
-            top: auto;
-            left: auto;
-            margin: 0;
-            padding: 0;
-        }
-
-        /* Hide any user interface elements that shouldn't be printed */
+        /* 1. Hide the UI elements that are not part of the invoice. */
         .no-print {
             display: none !important;
         }
 
-        /* Ensure table headers repeat on new pages if the table is long */
-        thead {
-            display: table-header-group;
+        /* 2. Reset any screen-specific styles that could interfere. */
+        body, .bg-gray-100 {
+            background: #ffffff !important; /* Ensure no background color is printed */
+            min-height: 0 !important; /* Don't force a minimum height */
+            color: #000000 !important; /* Ensure text is black */
         }
 
-        /* Try to prevent table rows from splitting across pages */
+        /* 3. Ensure the printable area takes up the full width and has no shadow. */
+        #printable-area {
+            box-shadow: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            max-width: 100% !important;
+        }
+
+        /* 4. Basic print typography improvements. */
+        thead {
+            display: table-header-group; /* Repeats table headers on each page */
+        }
+
         tr, td, th {
-            page-break-inside: avoid;
+            page-break-inside: avoid; /* Prevents rows from splitting across pages */
         }
     }
   `}</style>
