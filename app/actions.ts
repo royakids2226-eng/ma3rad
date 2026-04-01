@@ -113,6 +113,32 @@ export async function getSafes() {
   } catch (error) { return []; }
 }
 
+// دالة لجلب كل المنتجات للبحث المحلي في الواجهة الأمامية
+export async function getProductsForSearch() {
+  try {
+    const products = await prisma.product.findMany({
+      select: {
+        id: true,
+        modelNo: true,
+        color: true,
+        price: true,
+        currentStock: true,
+        status: true,
+        description: true,
+        discount: true, // خصم المنتج الموسمي
+      },
+      orderBy: {
+        modelNo: 'asc'
+      }
+    });
+    return JSON.parse(JSON.stringify(products));
+  } catch (error) {
+    console.error("Error fetching products for search:", error);
+    return [];
+  }
+}
+
+
 export async function searchProducts(term: string) {
   if (!term || term.length < 2) return [];
   try {

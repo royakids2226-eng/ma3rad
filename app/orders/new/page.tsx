@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect, useRef } from 'react';
-import { getCustomers, searchProducts, createOrder, getSafes, searchCustomers, checkCustomerPhone } from '@/app/actions';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { getCustomers, getProductsForSearch, createOrder, getSafes, searchCustomers, checkCustomerPhone } from '@/app/actions';
 import { addCustomer } from '@/app/admin-actions'; 
 import { useSession } from 'next-auth/react';
 import { useRouter, usePathname } from 'next/navigation';
@@ -8,6 +8,18 @@ import { Scanner } from '@yudiel/react-qr-scanner';
 import Link from 'next/link';
 
 const PIECES_PER_UNIT = 4;
+
+// Define the Product type for TypeScript
+interface Product {
+  id: string;
+  modelNo: string;
+  color: string;
+  price: number;
+  currentStock: number;
+  status: string;
+  description: string;
+  discount: number;
+}
 
 export default function NewOrderPage() {
   const { data: session } = useSession();
@@ -28,9 +40,13 @@ export default function NewOrderPage() {
   const [newCust, setNewCust] = useState({ name: '', phone: '', phone2: '', code: '', address: '' });
   const [isSavingCust, setIsSavingCust] = useState(false);
 
+  // --- NEW: States for local product search ---
+  const [allProducts, setAllProducts] = useState<Product[]>([]); // Use the Product type
+  const [isProductsLoading, setIsProductsLoading] = useState(true);
+  // --- END NEW ---
+
   const [searchTerm, setSearchTerm] = useState('');
   const [showScanner, setShowScanner] = useState(false);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectionMap, setSelectionMap] = useState<{[key: string]: number}>({});
 
   const [cart, setCart] = useState<any[]>([]);
@@ -44,7 +60,6 @@ export default function NewOrderPage() {
   // State for stock validation issues
   const [failedItems, setFailedItems] = useState<any[]>([]);
   const [showOnlyFailed, setShowOnlyFailed] = useState(false);
-
 
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const productSearchInputRef = useRef<HTMLInputElement>(null);
@@ -81,10 +96,17 @@ export default function NewOrderPage() {
 
   // Initial Data Fetching
   useEffect(() => {
+    // Fetch non-critical data
     getCustomers().then(setCustomerResults);
     getSafes().then(data => {
       setSafes(data);
       if (data.length > 0) setSelectedSafeId(data[0].id);
+    });
+    
+    // Fetch all products for local search
+    getProductsForSearch().then(products => {
+        setAllProducts(products);
+        setIsProductsLoading(false);
     });
 
     const handleClickOutside = (event: MouseEvent) => {
@@ -111,18 +133,37 @@ export default function NewOrderPage() {
       return () => clearTimeout(delayDebounceFn);
   }, [customerSearchTerm]);
 
-  // Debounced Product Search
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(async () => {
-      if (searchTerm.length >= 2) {
-        const results = await searchProducts(searchTerm);
-        setSearchResults(results);
-      } else {
-        setSearchResults([]);
+  // --- NEW: Local Product Search Logic ---
+  const searchResults = useMemo(() => {
+    if (searchTerm.length < 2) return [];
+    const lowerCaseSearchTerm = searchTerm.toLowerCase();
+    return allProducts.filter(p => 
+        p.modelNo.toLowerCase().includes(lowerCaseSearchTerm)
+    );
+  }, [searchTerm, allProducts]);
+
+  const groupedSearchResults = useMemo(() => {
+    if (searchResults.length === 0) return {};
+    const grouped = searchResults.reduce((acc, product) => {
+        if (!acc[product.modelNo]) {
+            acc[product.modelNo] = [];
+        }
+        acc[product.modelNo].push(product);
+        return acc;
+    }, {} as { [key: string]: Product[] });
+    return grouped;
+  }, [searchResults]);
+
+  const firstResultModelNo = searchResults.length > 0 ? searchResults[0].modelNo : '';
+
+  const displayProducts = useMemo(() => {
+      if (firstResultModelNo) {
+          return groupedSearchResults[firstResultModelNo] || [];
       }
-    }, 300);
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchTerm]);
+      return [];
+  }, [firstResultModelNo, groupedSearchResults]);
+
+  // --- END NEW ---
 
   const toggleSelection = (productId: string, isChecked: boolean) => {
     setSelectionMap(prev => {
@@ -134,7 +175,7 @@ export default function NewOrderPage() {
 
   const updateQuantity = (productId: string, newQty: number) => {
     if (newQty < 1) return;
-    const product = searchResults.find(p => p.id === productId);
+    const product = allProducts.find(p => p.id === productId); // Search in all products
     if (!product) return;
 
     if (product.status === 'CLOSED') {
@@ -153,7 +194,7 @@ export default function NewOrderPage() {
 
   const handleSelectAll = () => {
     const newMap: {[key: string]: number} = {};
-    searchResults.forEach(p => { 
+    displayProducts.forEach((p: Product) => { 
         const isSoldOut = p.status !== 'OPEN' && p.currentStock <= 0;
         if (!isSoldOut) {
             newMap[p.id] = 1; 
@@ -166,7 +207,7 @@ export default function NewOrderPage() {
     const selectedIds = Object.keys(selectionMap);
     if (selectedIds.length === 0) return;
 
-    const selectedProducts = searchResults.filter(p => selectedIds.includes(p.id));
+    const selectedProducts = allProducts.filter(p => selectedIds.includes(p.id));
     const groupedByModel: {[key: string]: any[]} = {};
     selectedProducts.forEach(p => {
       if (!groupedByModel[p.modelNo]) groupedByModel[p.modelNo] = [];
@@ -209,7 +250,6 @@ export default function NewOrderPage() {
     setCart(updatedCart);
     setSelectionMap({});
     setSearchTerm('');
-    setSearchResults([]);
     setShowScanner(true); 
     // Clear failed items when cart is modified
     if (failedItems.length > 0) setFailedItems([]);
@@ -465,18 +505,18 @@ export default function NewOrderPage() {
                 )}
                 
                 <div className="relative mb-4 flex gap-2">
-                  <input ref={productSearchInputRef} type="text" placeholder="🔍 ابحث برقم الموديل..." className="flex-1 p-4 pl-12 border rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoFocus />
+                  <input ref={productSearchInputRef} type="text" placeholder={isProductsLoading ? "جاري تحميل قائمة الأصناف..." : "🔍 ابحث برقم الموديل..."} className="flex-1 p-4 pl-12 border rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoFocus disabled={isProductsLoading} />
                   <button onClick={() => setShowScanner(true)} className="bg-black text-white p-4 rounded-xl shadow-sm">📷</button>
                 </div>
 
-                {searchResults.length > 0 && (
+                {displayProducts.length > 0 && (
                   <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6">
                      <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
-                      <span className="font-bold text-gray-700">موديل: {searchResults[0]?.modelNo}</span>
+                      <span className="font-bold text-gray-700">موديل: {firstResultModelNo}</span>
                       <button onClick={handleSelectAll} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold">تحديد الكل</button>
                     </div>
                     <div className="divide-y divide-gray-100">
-                      {searchResults.map(prod => {
+                      {displayProducts.map(prod => {
                         const isSoldOut = prod.status !== 'OPEN' && prod.currentStock <= 0;
                         const isSelected = !!selectionMap[prod.id];
                         const qty = selectionMap[prod.id] || 1;
