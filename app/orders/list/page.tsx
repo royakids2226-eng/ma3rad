@@ -105,8 +105,12 @@ export default function OrdersListPage() {
 
   const handleDelete = async (id: string) => {
     if (confirm('هل أنت متأكد من حذف هذا الأوردر؟')) {
-      await deleteOrder(id);
-      setOrders(orders.filter(o => o.id !== id));
+      const result = await deleteOrder(id);
+      if (result.success) {
+        setOrders(orders.filter(o => o.id !== id));
+      } else {
+        alert(`فشل حذف الأوردر: ${result.error}`);
+      }
     }
   };
 

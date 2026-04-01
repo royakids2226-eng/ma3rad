@@ -282,7 +282,23 @@ export async function getOrderById(orderId: string) {
 export async function deleteOrder(orderId: string) {
   try {
     await prisma.$transaction(async (tx) => {
+        const fulfilledItems = await tx.orderItem.findMany({
+            where: {
+                orderId: orderId,
+                fulfilledQty: { gt: 0 }
+            },
+            include: {
+                product: true
+            }
+        });
+
+        if (fulfilledItems.length > 0) {
+            const itemDetails = fulfilledItems.map(item => `${item.product.modelNo} (الكمية المصروفة: ${item.fulfilledQty})`).join(', ');
+            throw new Error(`لا يمكن حذف الأوردر لوجود أصناف تم صرفها بالفعل: ${itemDetails}`);
+        }
+        
         const orderItems = await tx.orderItem.findMany({ where: { orderId } });
+
         for (const item of orderItems) {
            const piecesToReturn = item.quantity * PIECES_PER_UNIT;
            await tx.product.update({
@@ -293,11 +309,18 @@ export async function deleteOrder(orderId: string) {
         
         await tx.orderItem.deleteMany({ where: { orderId } });
         await tx.order.delete({ where: { id: orderId } });
+    }, {
+      maxWait: 15000, // Wait 15s for the transaction to start
+      timeout: 30000, // Allow 30s for the whole transaction to complete
     });
+
     revalidatePath('/orders/list');
-    revalidatePath('/admin/notifications'); // ✅ تحديث الإشعارات عند الحذف
+    revalidatePath('/admin/notifications');
     return { success: true };
-  } catch (error) { return { success: false }; }
+  } catch (error: any) { 
+    console.error("Error deleting order:", error);
+    return { success: false, error: error.message || 'فشل حذف الطلب' }; 
+  }
 }
 
 export async function updateOrder(orderId: string, data: any) {
@@ -427,8 +450,8 @@ export async function updateOrder(orderId: string, data: any) {
                 }
             });
         }, {
-            maxWait: 10000,
-            timeout: 20000,
+            maxWait: 15000,
+            timeout: 60000,
         });
 
         revalidatePath(`/orders/list`);
