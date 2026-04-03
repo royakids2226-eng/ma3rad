@@ -8,11 +8,11 @@ import NotificationBell from "./admin/NotificationBell";
 export default async function Home() {
   const session = await getServerSession(authOptions);
   
-  if (!session?.user?.image) {
+  if (!session?.user?.image) { // Corrected: Use .image to get the user ID
     redirect("/login");
   }
 
-  const user = await getCurrentUser(session.user.image as string);
+  const user = await getCurrentUser(session.user.image as string); // Corrected: Use .image
   
   if (!user) {
      redirect("/api/auth/signout");
@@ -51,7 +51,6 @@ export default async function Home() {
 
       {/* Main Actions */}
       <div className="grid grid-cols-1 gap-4 max-w-2xl mx-auto">
-        {/* زر أوردر جديد - الأكبر والأهم */}
         <Link href="/orders/new" className="bg-blue-600 text-white p-8 rounded-3xl shadow-xl shadow-blue-200 flex items-center justify-between hover:bg-blue-700 transition-all transform hover:scale-[1.02] active:scale-95 group">
           <div className="flex flex-col items-start">
             <span className="text-3xl font-black mb-1">أوردر جديد</span>
@@ -60,21 +59,20 @@ export default async function Home() {
           <span className="text-5xl bg-white/20 w-16 h-16 flex items-center justify-center rounded-2xl">+</span>
         </Link>
 
-        {/* شبكة الأزرار الفرعية */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className={`grid ${user?.role === 'EMPLOYEE' ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
           <Link href="/orders/list" className="bg-white p-6 rounded-3xl shadow-sm text-gray-700 font-bold border border-gray-100 text-center hover:bg-gray-50 flex flex-col justify-center items-center gap-3 transition-all hover:-translate-y-1">
              <span className="text-4xl bg-gray-50 p-3 rounded-2xl">📝</span>
              <span>الأوردرات السابقة</span>
           </Link>
 
-          <Link href="/payments/new" className="bg-white p-6 rounded-3xl shadow-sm text-gray-700 font-bold border border-gray-100 text-center hover:bg-gray-50 flex flex-col justify-center items-center gap-3 transition-all hover:-translate-y-1">
-             <span className="text-4xl bg-gray-50 p-3 rounded-2xl">💰</span>
-             <span>إدارة النقدية</span>
-          </Link>
+          {user?.role !== 'EMPLOYEE' && (
+            <Link href="/payments/new" className="bg-white p-6 rounded-3xl shadow-sm text-gray-700 font-bold border border-gray-100 text-center hover:bg-gray-50 flex flex-col justify-center items-center gap-3 transition-all hover:-translate-y-1">
+                <span className="text-4xl bg-gray-50 p-3 rounded-2xl">💰</span>
+                <span>إدارة النقدية</span>
+            </Link>
+          )}
 
-          {/* 👇 الزر الجديد: فرز الأوردرات */}
-          {/* col-span-2 لجعله يأخذ العرض الكامل أسفل الزرين السابقين */}
-          <Link href="/sorting" className="col-span-2 bg-white p-6 rounded-3xl shadow-sm text-emerald-700 font-bold border border-emerald-100 text-center hover:bg-emerald-50 flex flex-row justify-center items-center gap-4 transition-all hover:shadow-emerald-100 hover:shadow-lg">
+          <Link href="/sorting" className={`${user?.role === 'EMPLOYEE' ? 'col-span-1' : 'col-span-2'} bg-white p-6 rounded-3xl shadow-sm text-emerald-700 font-bold border border-emerald-100 text-center hover:bg-emerald-50 flex flex-row justify-center items-center gap-4 transition-all hover:shadow-emerald-100 hover:shadow-lg`}>
              <span className="text-4xl">📦</span>
              <span className="text-xl">فرز المخزن (جاهزية الأوردرات)</span>
           </Link>

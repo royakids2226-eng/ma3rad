@@ -33,28 +33,38 @@ export const authOptions: NextAuthOptions = {
 
         if (!isValid) return null;
 
-        return { 
-            id: user.id, 
-            name: user.name, 
-            email: user.code 
+        // Return the user object with the role included
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.code,
+          role: user.role,
         };
       },
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
+      // If the user object is available (on sign-in), add the role to the token
       if (user) {
         token.id = user.id;
         token.name = user.name;
+        // @ts-ignore
+        token.role = user.role;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
+        // Restore the original workaround for storing user ID in `image` field
         // @ts-ignore
-        session.user.image = token.id; // تخزين الـ ID في حقل image
+        session.user.image = token.id;
         session.user.name = token.name;
-        session.user.email = token.email; // الكود
+        session.user.email = token.email; // This is the user code
+
+        // Add the role to the session from the token
+        // @ts-ignore
+        session.user.role = token.role;
       }
       return session;
     },

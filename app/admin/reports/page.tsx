@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react';
 import { getInventoryReport, getSafesList, getSafeLedger, getEmployeePerformance } from '@/app/report-actions';
+import { useSession } from 'next-auth/react';
 
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<'INVENTORY' | 'SAFE' | 'EMPLOYEES'>('INVENTORY');
@@ -75,16 +76,15 @@ export default function ReportsPage() {
 // 1. مكون تقرير حركة المخزون
 // ===============================================
 function InventoryReportView() {
+    const { data: session } = useSession();
+    const userRole = session?.user?.role;
+
     const [data, setData] = useState<any[]>([]); 
     const [summary, setSummary] = useState<any>({});
     const [loading, setLoading] = useState(true);
-    
-    // 👇 إضافة حالة البحث 👇
     const [searchTerm, setSearchTerm] = useState('');
-    
     const [viewMode, setViewMode] = useState<'COLOR' | 'MODEL'>('COLOR');
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
-
     const [selectedHistory, setSelectedHistory] = useState<any[] | null>(null);
     const [selectedItemName, setSelectedItemName] = useState('');
 
@@ -127,13 +127,11 @@ function InventoryReportView() {
 
     let displayData = viewMode === 'COLOR' ? data : getGroupedData();
 
-    // إضافة نسبة المبيع
     displayData = displayData.map((item: any) => ({
         ...item,
         salesPercentage: item.initialStock > 0 ? (item.totalSold / item.initialStock) * 100 : 0
     }));
 
-    // 👇 تطبيق فلتر البحث الحي 👇
     if (searchTerm.trim() !== '') {
         displayData = displayData.filter((item: any) => {
             const term = searchTerm.toLowerCase();
@@ -178,7 +176,6 @@ function InventoryReportView() {
 
     return (
         <div className="space-y-12 animate-in fade-in duration-700">
-            {/* Header with Search and Toggles */}
             <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 border-b border-gray-100 pb-8">
                 <div>
                     <h2 className="text-3xl font-black text-gray-800">تحليل المخزون والأصناف</h2>
@@ -186,7 +183,6 @@ function InventoryReportView() {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
-                    {/* 👇 مربع البحث الجديد 👇 */}
                     <div className="relative flex-1 sm:min-w-[300px] group">
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-600 transition-colors pointer-events-none">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -219,12 +215,10 @@ function InventoryReportView() {
                 </div>
             </div>
             
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${userRole === 'ACCOUNTANT' ? 'lg:grid-cols-2' : 'lg:grid-cols-5'} gap-6`}>
                 <div className="bg-gradient-to-br from-blue-50 to-white p-8 rounded-[2rem] border border-blue-100 shadow-sm relative overflow-hidden group">
                     <div className="text-blue-500 text-xs font-black uppercase mb-2 tracking-widest">عدد الموديلات</div>
                     <div className="text-5xl font-black text-blue-800 tracking-tighter">
-                         {/* عرض العدد بناءً على الفلتر إذا كان هناك بحث */}
                          {searchTerm ? displayData.length : (viewMode === 'MODEL' ? displayData.length : summary.totalItems)}
                     </div>
                 </div>
@@ -232,21 +226,24 @@ function InventoryReportView() {
                     <div className="text-indigo-500 text-xs font-black uppercase mb-2 tracking-widest">الرصيد الحالي (قطعة)</div>
                     <div className="text-5xl font-black text-indigo-800 tracking-tighter">{summary.totalCurrentStock}</div>
                 </div>
-                <div className="bg-gradient-to-br from-yellow-50 to-white p-8 rounded-[2rem] border border-yellow-100 shadow-sm relative overflow-hidden group">
-                    <div className="text-yellow-600 text-xs font-black uppercase mb-2 tracking-widest">إجمالي المباع (قطعة)</div>
-                    <div className="text-5xl font-black text-yellow-700 tracking-tighter">{summary.totalSoldUnits || 0}</div>
-                </div>
-                <div className="bg-gradient-to-br from-orange-50 to-white p-8 rounded-[2rem] border border-orange-100 shadow-sm relative overflow-hidden group">
-                    <div className="text-orange-500 text-xs font-black uppercase mb-2 tracking-widest">إجمالي المبيعات</div>
-                    <div className="text-4xl font-black text-orange-700 tracking-tighter">{summary.totalSalesValue?.toLocaleString()} <small className="text-xs">ج.م</small></div>
-                </div>
-                <div className="bg-gradient-to-br from-green-50 to-white p-8 rounded-[2rem] border border-green-100 shadow-sm relative overflow-hidden group">
-                    <div className="text-green-500 text-xs font-black uppercase mb-2 tracking-widest">قيمة المخزون</div>
-                    <div className="text-4xl font-black text-green-700 tracking-tighter">{summary.totalValue?.toLocaleString()} <small className="text-xs">ج.م</small></div>
-                </div>
+                {userRole !== 'ACCOUNTANT' && (
+                    <>
+                        <div className="bg-gradient-to-br from-yellow-50 to-white p-8 rounded-[2rem] border border-yellow-100 shadow-sm relative overflow-hidden group">
+                            <div className="text-yellow-600 text-xs font-black uppercase mb-2 tracking-widest">إجمالي المباع (قطعة)</div>
+                            <div className="text-5xl font-black text-yellow-700 tracking-tighter">{summary.totalSoldUnits || 0}</div>
+                        </div>
+                        <div className="bg-gradient-to-br from-orange-50 to-white p-8 rounded-[2rem] border border-orange-100 shadow-sm relative overflow-hidden group">
+                            <div className="text-orange-500 text-xs font-black uppercase mb-2 tracking-widest">إجمالي المبيعات</div>
+                            <div className="text-4xl font-black text-orange-700 tracking-tighter">{summary.totalSalesValue?.toLocaleString()} <small className="text-xs">ج.م</small></div>
+                        </div>
+                        <div className="bg-gradient-to-br from-green-50 to-white p-8 rounded-[2rem] border border-green-100 shadow-sm relative overflow-hidden group">
+                            <div className="text-green-500 text-xs font-black uppercase mb-2 tracking-widest">قيمة المخزون</div>
+                            <div className="text-4xl font-black text-green-700 tracking-tighter">{summary.totalValue?.toLocaleString()} <small className="text-xs">ج.م</small></div>
+                        </div>
+                    </>
+                )}
             </div>
 
-            {/* الجدول الرئيسي */}
             <div className="overflow-x-auto rounded-[2.5rem] border border-gray-100 shadow-xl shadow-gray-100/50">
                 <table className="w-full text-sm text-right border-collapse">
                     <thead className="bg-slate-900 text-slate-400 font-black uppercase text-[10px] tracking-[0.2em]">
@@ -260,7 +257,7 @@ function InventoryReportView() {
                                 نسبة المبيع {sortConfig?.key === 'salesPercentage' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                             </th>
                             <th className="p-6 border-b border-slate-800">الحالة</th>
-                            <th className="p-6 border-b border-slate-800">القيمة المالية</th>
+                            {userRole !== 'ACCOUNTANT' && <th className="p-6 border-b border-slate-800">القيمة المالية</th>}
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
@@ -305,14 +302,16 @@ function InventoryReportView() {
                                             <span className="bg-red-100 text-red-700 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase shadow-sm">مغلق</span>
                                         )}
                                     </td>
-                                    <td className="p-6 font-mono font-bold text-lg text-slate-400">
-                                        {item.currentValue.toLocaleString()} <small className="text-[9px]">ج.م</small>
-                                    </td>
+                                    {userRole !== 'ACCOUNTANT' && 
+                                        <td className="p-6 font-mono font-bold text-lg text-slate-400">
+                                            {item.currentValue.toLocaleString()} <small className="text-[9px]">ج.م</small>
+                                        </td>
+                                    }
                                 </tr>
                             ))
                         ) : (
                             <tr>
-                                <td colSpan={8} className="p-12 text-center text-gray-400">
+                                <td colSpan={userRole === 'ACCOUNTANT' ? 7 : 8} className="p-12 text-center text-gray-400">
                                     <div className="flex flex-col items-center gap-4">
                                         <span className="text-4xl">🔍</span>
                                         <p className="font-bold text-lg">لا توجد نتائج تطابق بحثك "{searchTerm}"</p>
@@ -325,7 +324,6 @@ function InventoryReportView() {
                 </table>
             </div>
 
-            {/* مودال تفاصيل التاريخ */}
             {selectedHistory && (
                 <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex justify-center items-center p-4 animate-in fade-in duration-500" onClick={() => setSelectedHistory(null)}>
                     <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-3xl overflow-hidden animate-in zoom-in-95 duration-500" onClick={e => e.stopPropagation()}>
@@ -439,7 +437,6 @@ function SafeLedgerView() {
               <div className="text-center py-32 text-gray-300 font-black text-xl animate-pulse italic">جاري جلب سجلات التدفق المالي...</div>
             ) : (
                 <>
-                    {/* ملخصات العملات المنفصلة */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-12">
                         {Object.entries(summaryGrouped).map(([curr, totals]: any) => (
                             <div key={curr} className="bg-white border-2 border-slate-900 rounded-[2.5rem] overflow-hidden shadow-2xl transform hover:-translate-y-2 transition-all duration-500">
@@ -503,10 +500,10 @@ function SafeLedgerView() {
     );
 }
 
-// ===============================================
-// 3. مكون تقرير أداء الموظفين (النسخة الأصلية الكاملة)
-// ===============================================
 function EmployeePerformanceView() {
+    const { data: session } = useSession();
+    const userRole = session?.user?.role;
+
     const [data, setData] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
@@ -551,9 +548,11 @@ function EmployeePerformanceView() {
                             <th className="p-8 cursor-pointer hover:bg-purple-700 transition-all" onClick={() => handleSort('orderCount')}>
                                 عدد الأوردرات {sortConfig?.key === 'orderCount' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                             </th>
-                            <th className="p-8 cursor-pointer hover:bg-purple-700 transition-all" onClick={() => handleSort('totalSales')}>
-                                إجمالي المبيعات {sortConfig?.key === 'totalSales' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                            </th>
+                            {userRole !== 'ACCOUNTANT' && 
+                                <th className="p-8 cursor-pointer hover:bg-purple-700 transition-all" onClick={() => handleSort('totalSales')}>
+                                    إجمالي المبيعات {sortConfig?.key === 'totalSales' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                                </th>
+                            }
                             <th className="p-8 cursor-pointer hover:bg-purple-700 transition-all" onClick={() => handleSort('totalDiscount')}>
                                 الخصومات الممنوحة {sortConfig?.key === 'totalDiscount' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                             </th>
@@ -565,9 +564,11 @@ function EmployeePerformanceView() {
                                 <td className="p-8 font-black text-slate-900 text-2xl group-hover:text-purple-700 transition-colors">{emp.name}</td>
                                 <td className="p-8 font-mono text-slate-300 text-xs tracking-tighter">{emp.code}</td>
                                 <td className="p-8 text-center font-black text-4xl text-slate-800 tracking-tighter">{emp.orderCount}</td>
-                                <td className="p-8 font-black text-green-700 text-3xl tracking-tighter">
-                                    {emp.totalSales.toLocaleString()} <small className="text-xs font-normal">ج.م</small>
-                                </td>
+                                {userRole !== 'ACCOUNTANT' && 
+                                    <td className="p-8 font-black text-green-700 text-3xl tracking-tighter">
+                                        {emp.totalSales.toLocaleString()} <small className="text-xs font-normal">ج.م</small>
+                                    </td>
+                                }
                                 <td className="p-8 font-black text-red-600 text-2xl tracking-tighter">
                                     {emp.totalDiscount.toLocaleString()} <small className="text-xs font-normal">ج.م</small>
                                 </td>

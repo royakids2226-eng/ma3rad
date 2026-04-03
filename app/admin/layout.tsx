@@ -4,7 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 import { authOptions } from "@/auth";
 import NotificationBell from "./NotificationBell";
-import { HomeIcon, UsersIcon, UserGroupIcon, ArchiveBoxIcon, ChartBarIcon, ShoppingCartIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, UsersIcon, UserGroupIcon, ArchiveBoxIcon, ChartBarIcon, ShoppingCartIcon, BanknotesIcon } from '@heroicons/react/24/outline';
 
 const prisma = new PrismaClient();
 
@@ -52,9 +52,11 @@ export default async function AdminLayout({
               <HomeIcon className="w-5 h-5" /> <span className="hidden lg:inline">الرئيسية</span>
             </Link>
             
-            <Link href="/admin/users" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
-              <UsersIcon className="w-5 h-5" /> <span className="hidden lg:inline">الموظفين</span>
-            </Link>
+            {user.role !== 'ACCOUNTANT' && (
+              <Link href="/admin/users" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
+                <UsersIcon className="w-5 h-5" /> <span className="hidden lg:inline">الموظفين</span>
+              </Link>
+            )}
             
             <Link href="/admin/customers" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
               <UserGroupIcon className="w-5 h-5" /> <span className="hidden lg:inline">العملاء</span>
@@ -67,6 +69,12 @@ export default async function AdminLayout({
             <Link href="/admin/reports" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
               <ChartBarIcon className="w-5 h-5" /> <span className="hidden lg:inline">التقارير</span>
             </Link>
+
+            {user.role !== 'EMPLOYEE' && (
+              <Link href="/admin/safes" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
+                <BanknotesIcon className="w-5 h-5" /> <span className="hidden lg:inline">إدارة النقدية</span>
+              </Link>
+            )}
 
             <div className="w-px h-6 bg-slate-700 mx-1"></div>
 
