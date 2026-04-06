@@ -8,6 +8,12 @@ import Link from 'next/link';
 
 const PIECES_PER_UNIT = 4;
 
+// Define the Safe type
+interface Safe {
+  id: string;
+  name: string;
+}
+
 export default function EditOrderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -15,7 +21,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [safes, setSafes] = useState<any[]>([]);
+  const [safes, setSafes] = useState<Safe[]>([]);
   const [order, setOrder] = useState<any>(null);
   
   // Product Search
@@ -37,49 +43,61 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
   const [isSavingCust, setIsSavingCust] = useState(false);
 
   useEffect(() => {
-    getSafes().then(setSafes);
-    
-    getOrderById(id).then(res => {
-        if (!res) return router.push('/orders/list');
-        setOrder(res);
-        setDeposit(res.deposit.toString());
-        setSelectedSafeId(res.safeId || '');
+    getSafes().then((fetchedSafes: Safe[]) => {
+        setSafes(fetchedSafes);
         
-        const initialCart: any[] = [];
-        const modelGroups: {[key: string]: any} = {};
-        
-        res.items.forEach((item: any) => {
-            const modelNo = item.product.modelNo;
-            if (!modelGroups[modelNo]) {
-                modelGroups[modelNo] = {
-                    type: 'product',
-                    id: Math.random(),
-                    modelNo: modelNo,
-                    baseDescription: item.product.description,
-                    unitPrice: item.product.price,
-                    variants: []
-                };
+        getOrderById(id).then(res => {
+            if (!res) return router.push('/orders/list');
+            setOrder(res);
+            setDeposit(res.deposit.toString());
+
+            if (res.safeId) {
+                setSelectedSafeId(res.safeId);
+            } else if (fetchedSafes.length > 0) {
+                const mainSafe = fetchedSafes.find(safe => safe.name === 'الخزنة الرئيسية');
+                if (mainSafe) {
+                    setSelectedSafeId(mainSafe.id);
+                } else {
+                    setSelectedSafeId(fetchedSafes[0].id);
+                }
             }
-            modelGroups[modelNo].variants.push({
-                productId: item.productId,
-                quantity: item.quantity,
-                price: item.price,
-                color: item.product.color,
-                discountPercent: item.discountPercent,
-                productDiscount: item.product.discount
+            
+            const initialCart: any[] = [];
+            const modelGroups: {[key: string]: any} = {};
+            
+            res.items.forEach((item: any) => {
+                const modelNo = item.product.modelNo;
+                if (!modelGroups[modelNo]) {
+                    modelGroups[modelNo] = {
+                        type: 'product',
+                        id: Math.random(),
+                        modelNo: modelNo,
+                        baseDescription: item.product.description,
+                        unitPrice: item.product.price,
+                        variants: []
+                    };
+                }
+                modelGroups[modelNo].variants.push({
+                    productId: item.productId,
+                    quantity: item.quantity,
+                    price: item.price,
+                    color: item.product.color,
+                    discountPercent: item.discountPercent,
+                    productDiscount: item.product.discount
+                });
             });
-        });
 
-        Object.values(modelGroups).forEach((item: any) => {
-            if (item.variants[0].discountPercent > 0) {
-                initialCart.push({ type: 'discount', percent: item.variants[0].discountPercent, id: Math.random(), isAuto: false });
-            }
-            item.totalQty = item.variants.reduce((s:any, v:any) => s + v.quantity, 0);
-            initialCart.push(item);
-        });
+            Object.values(modelGroups).forEach((item: any) => {
+                if (item.variants[0].discountPercent > 0) {
+                    initialCart.push({ type: 'discount', percent: item.variants[0].discountPercent, id: Math.random(), isAuto: false });
+                }
+                item.totalQty = item.variants.reduce((s:any, v:any) => s + v.quantity, 0);
+                initialCart.push(item);
+            });
 
-        setCart(initialCart);
-        setLoading(false);
+            setCart(initialCart);
+            setLoading(false);
+        });
     });
   }, [id, router]);
 

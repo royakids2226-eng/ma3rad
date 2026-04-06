@@ -21,13 +21,19 @@ interface Product {
   discount: number;
 }
 
+// Define the Safe type
+interface Safe {
+  id: string;
+  name: string;
+}
+
 export default function NewOrderPage() {
   const { data: session } = useSession();
   const router = useRouter();
   const pathname = usePathname();
   
   const [step, setStep] = useState(1);
-  const [safes, setSafes] = useState<any[]>([]);
+  const [safes, setSafes] = useState<Safe[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
@@ -98,9 +104,16 @@ export default function NewOrderPage() {
   useEffect(() => {
     // Fetch non-critical data
     getCustomers().then(setCustomerResults);
-    getSafes().then(data => {
+    getSafes().then((data: Safe[]) => {
       setSafes(data);
-      if (data.length > 0) setSelectedSafeId(data[0].id);
+      if (data.length > 0) {
+        const mainSafe = data.find(safe => safe.name === 'الخزنة الرئيسية');
+        if (mainSafe) {
+          setSelectedSafeId(mainSafe.id);
+        } else {
+          setSelectedSafeId(data[0].id);
+        }
+      }
     });
     
     // Fetch all products for local search
