@@ -410,6 +410,15 @@ export default function NewOrderPage() {
       }
       setIsSavingCust(false);
   };
+  const handleHomeClick = () => {
+    if (cart.length > 0) {
+      if (window.confirm("لديك أصناف في السلة لم يتم حفظها. هل تريد الخروج وتجاهل التغييرات؟")) {
+        router.push('/');
+      }
+    } else {
+      router.push('/');
+    }
+  };
 
   const processedDisplayCart = getProcessedCart(); 
   const currentTotal = processedDisplayCart.reduce((acc, i) => acc + i.totalLinePrice, 0);
@@ -432,10 +441,10 @@ export default function NewOrderPage() {
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans text-gray-800" dir="rtl">
       <div className="bg-white p-4 shadow mb-4 sticky top-0 z-20 flex justify-between items-center">
-      <Link href="/" className="text-sm text-blue-600 font-bold flex items-center gap-2">
+      <button onClick={handleHomeClick} className="text-sm text-blue-600 font-bold flex items-center gap-2">
         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" /></svg>
         الرئيسية
-      </Link>
+      </button>
         <h2 className="font-bold text-lg">{step === 1 ? '🛒 أوردر جديد' : '💰 الدفع والحفظ'}</h2>
         {step === 2 && <button onClick={() => setStep(1)} className="text-sm text-blue-600 font-bold">تعديل الأصناف</button>}
       </div>
@@ -518,11 +527,13 @@ export default function NewOrderPage() {
                     <div className="divide-y divide-gray-100">
                       {displayProducts.map(prod => {
                         const isSoldOut = prod.status !== 'OPEN' && prod.currentStock <= 0;
+                        const availableSeria = Math.floor(prod.currentStock / PIECES_PER_UNIT);
+                        const isLastOne = availableSeria === 1;
                         const isSelected = !!selectionMap[prod.id];
                         const qty = selectionMap[prod.id] || 1;
                         
                         return (
-                          <div key={prod.id} className={`p-4 flex items-center justify-between transition-colors ${isSoldOut ? 'bg-gray-100 opacity-60' : (isSelected ? 'bg-blue-50' : 'bg-white')}`}>
+                          <div key={prod.id} className={`p-4 flex items-center justify-between transition-colors ${isSoldOut ? 'bg-gray-100 opacity-60' : (isSelected ? 'bg-blue-50' : 'bg-white')} ${isLastOne ? 'bg-red-50' : ''}`}>
                             <div className="flex items-center gap-3 flex-1">
                               <input 
                                 type="checkbox" 
@@ -532,9 +543,10 @@ export default function NewOrderPage() {
                                 className="w-6 h-6" 
                               />
                               <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
-                                  <div className="font-bold">{prod.color}</div>
-                                  <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {Math.floor(prod.currentStock / PIECES_PER_UNIT)} سرية</div>
+                                  <div className={`font-bold ${isLastOne ? 'text-red-700' : ''}`}>{prod.color}</div>
+                                  <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {availableSeria} سرية</div>
                                   {prod.discount > 0 && <div className="text-[10px] text-red-600 font-bold">خصم صنف: {prod.discount}%</div>}
+                                  {isLastOne && <div className="text-red-700 text-xs font-bold animate-pulse mt-1">🔥 آخر سرية!</div>}
                                   {isSoldOut && <span className="text-[10px] text-red-600 font-bold block">نفذت الكمية</span>}
                               </div>
                             </div>

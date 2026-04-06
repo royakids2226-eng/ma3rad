@@ -5,7 +5,9 @@ export default function HomeButton() {
   const router = useRouter();
 
   const handleClick = () => {
-    router.push('/');
+    if (window.confirm("هل أنت متأكد من الخروج؟ سيتم فقدان كافة التغييرات التي لم يتم حفظها.")) {
+      router.push('/');
+    }
   };
 
   return (
