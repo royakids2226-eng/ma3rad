@@ -75,7 +75,7 @@ async function main() {
   }
 
   // 4. إضافة الخزن
-  const safes = ['الخزنة الرئيسية', 'انستا باي', 'فودافون كاش', 'الشيخ محمد فؤاد', 'خزنة تسليم'];
+  const safes = ['الخزنة الرئيسية', 'انستا باي', 'فودافون كاش', 'الشيخ محمد فؤاد', 'خزنة تسليم', 'ابو مالك'];
   for (const safeName of safes) {
     const existing = await prisma.safe.findFirst({ where: { name: safeName } });
     if (!existing) {
