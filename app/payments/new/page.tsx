@@ -38,11 +38,19 @@ export default function CashManagementPage() {
   useEffect(() => {
     getCustomers().then(setCustomerResults);
     getSafes().then(data => {
-        setSafes(data);
-        if (data.length > 0) {
-            setSelectedSafeId(data[0].id);
-            if (data.length > 1) setTargetSafeId(data[1].id);
+      setSafes(data);
+      if (data.length > 0) {
+        const mainSafe = data.find(safe => safe.name === 'الخزنة الرئيسية');
+        if (mainSafe) {
+          setSelectedSafeId(mainSafe.id);
+        } else {
+          setSelectedSafeId(data[0].id);
         }
+        if (data.length > 1) {
+          const secondSafe = data.find(s => s.id !== (mainSafe ? mainSafe.id : data[0].id));
+          if(secondSafe) setTargetSafeId(secondSafe.id);
+        }
+      }
     });
 
     const handleClickOutside = (event: MouseEvent) => {
