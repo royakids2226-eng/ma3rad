@@ -89,15 +89,19 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
             {settings?.siteAddress && <p className="text-gray-500">{settings.siteAddress}</p>}
           </div>
           <div className="mt-6 md:mt-8 border-t border-gray-200 pt-4 md:pt-6">
-            <div className="flex flex-col md:flex-row md:gap-6 mb-2 md:mb-4">
-                <p><span className="font-semibold">رقم الفاتورة:</span> {order.id.slice(-6)}</p>
-                <p><span className="font-semibold">التاريخ:</span> {new Date(order.createdAt).toLocaleDateString('ar-EG')}</p>
-            </div>
-            <div className="flex flex-col md:flex-row md:gap-6">
-                <p><span className="font-semibold">العميل:</span> {order.customer.name}</p>
-                <p><span className="font-semibold">الهاتف:</span> {order.customer.phone}</p>
-                {order.customer.address && <p><span className="font-semibold">العنوان:</span> {order.customer.address}</p>}
-            </div>
+            <table className="w-full">
+                <tbody>
+                    <tr>
+                        <td><span className="font-semibold">رقم الفاتورة:</span> {order.id.slice(-6)}</td>
+                        <td><span className="font-semibold">التاريخ:</span> {new Date(order.createdAt).toLocaleDateString('ar-EG')}</td>
+                    </tr>
+                    <tr>
+                        <td className="pt-2"><span className="font-semibold">العميل:</span> {order.customer.name}</td>
+                        <td className="pt-2"><span className="font-semibold">الهاتف:</span> {order.customer.phone}</td>
+                         {order.customer.address && <td className="pt-2"><span className="font-semibold">العنوان:</span> {order.customer.address}</td>}
+                    </tr>
+                </tbody>
+            </table>
           </div>
         </header>
 
