@@ -5,6 +5,19 @@ import { addCustomer } from '@/app/admin-actions'; // استيراد وظيفة 
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
+interface Safe {
+  id: string;
+  name: string;
+}
+
+interface Customer {
+  id: string;
+  name: string;
+  phone?: string;
+  code?: string;
+  source?: string;
+}
+
 export default function CashManagementPage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -12,7 +25,7 @@ export default function CashManagementPage() {
   // الحالة العامة للتبويبات
   const [activeTab, setActiveTab] = useState<'IN' | 'OUT' | 'TRANSFER'>('IN');
 
-  const [safes, setSafes] = useState<any[]>([]);
+  const [safes, setSafes] = useState<Safe[]>([]);
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('EGP'); 
   const [description, setDescription] = useState('');
@@ -25,7 +38,7 @@ export default function CashManagementPage() {
   // حالات العميل (للتبويب IN فقط)
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-  const [customerResults, setCustomerResults] = useState<any[]>([]);
+  const [customerResults, setCustomerResults] = useState<Customer[]>([]);
   const [showCustomerList, setShowCustomerList] = useState(false);
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
   const customerListRef = useRef<HTMLDivElement>(null);
@@ -37,7 +50,7 @@ export default function CashManagementPage() {
 
   useEffect(() => {
     getCustomers().then(setCustomerResults);
-    getSafes().then(data => {
+    getSafes().then((data: Safe[]) => {
       setSafes(data);
       if (data.length > 0) {
         const mainSafe = data.find(safe => safe.name === 'الخزنة الرئيسية');
