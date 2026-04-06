@@ -26,7 +26,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
 
   const PIECE_MULTIPLIER = 4;
 
-  // --- CALCULATIONS ---
+  // --- CALCULATIONS -- -
   const grossTotal = order.items.reduce((acc, item) => {
     const quantityInPieces = item.quantity * PIECE_MULTIPLIER;
     const originalPricePerDozen = item.product.price;

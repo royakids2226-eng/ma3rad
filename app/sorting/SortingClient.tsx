@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useTransition } from 'react';
 import Link from 'next/link';
-import { executeOrderBatch } from './actions';
+import { executeOrderBatch, undoOrderBatch } from './actions';
+
 
 // تعريف الأنواع
 type LogItem = {
@@ -53,6 +54,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
   const [selectedBatchId, setSelectedBatchId] = useState<string>(''); // الباتش المختار من القائمة
 
   const [isPending, startTransition] = useTransition();
+  const [isUndoPending, startUndoTransition] = useTransition();
+
 
   // 1. الفلترة والترتيب (تم الإصلاح هنا)
   const filteredAndSortedOrders = useMemo(() => {
@@ -203,6 +206,23 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     });
   };
 
+  const handleUndoBatch = async (batchId: string) => {
+    if (!batchId) return;
+
+    if (!confirm('هل أنت متأكد من التراجع عن هذه الدفعة؟ لا يمكن استعادة هذه العملية.')) return;
+
+    startUndoTransition(async () => {
+      const result = await undoOrderBatch(batchId);
+      if (result.success) {
+        alert('تم التراجع عن الدفعة بنجاح.');
+        setSelectedOrder(null); // أغلق النافذة الحالية
+      } else {
+        alert(`فشل التراجع: ${result.error}`);
+      }
+    });
+  };
+
+
   const openModal = (order: OrderType) => {
     setSelectedOrder(order);
     // إذا كان الأوردر منتهي، نفتح مباشرة على التاريخ
@@ -313,8 +333,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
 
                 <button 
                   onClick={() => openModal(order)}
-                  className={`w-full py-2 text-white rounded-lg transition-colors font-bold flex justify-center items-center gap-2 ${order.isCompletelyDone ? 'bg-green-600 hover:bg-green-700' : 'bg-slate-800 hover:bg-slate-700'}`}
-                >
+                  className={`w-full py-2 text-white rounded-lg transition-colors font-bold flex justify-center items-center gap-2 ${order.isCompletelyDone ? 'bg-green-600 hover:bg-green-700' : 'bg-slate-800 hover:bg-slate-700'}`}>
                   {order.isCompletelyDone ? '📄 مراجعة الأرشيف' : '📄 تنفيذ / طباعة'}
                 </button>
               </div>
@@ -332,7 +351,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
       {/*                  MODAL: PRINT VIEW                        */}
       {/* ========================================================= */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 flex justify-center items-start overflow-y-auto bg-black bg-opacity-50 print:bg-white print:p-0">
+        <div className="fixed inset-0 z-50 flex justify-center items-start overflow-y-auto bg-black bg-opacity-50 print:static print:overflow-visible print:bg-white print:p-0">
           <div className="bg-white w-full max-w-4xl m-4 p-8 rounded-xl shadow-2xl relative print:shadow-none print:w-full print:max-w-none print:m-0 print:rounded-none">
             
             {/* أزرار التحكم - لا تظهر في الطباعة */}
@@ -390,19 +409,32 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                 </button>
               </div>
 
-              <div className="flex justify-end gap-2 mt-2">
-                <button 
-                    onClick={handleExecuteAndPrint} 
-                    disabled={isPending || (viewMode === 'current' && selectedOrder.itemsAllocatedNow === 0)}
-                    className={`px-6 py-2 rounded text-white flex items-center gap-2 font-bold shadow-md
-                        ${isPending || (viewMode === 'current' && selectedOrder.itemsAllocatedNow === 0) 
-                            ? 'bg-gray-400 cursor-not-allowed' 
-                            : viewMode === 'current' ? 'bg-green-600 hover:bg-green-700' : 'bg-slate-800 hover:bg-slate-900'
-                        }`}
-                >
-                    {isPending ? 'جاري الحفظ...' : (viewMode === 'current' ? '💾 حفظ وطباعة الدفعة' : '🖨️ طباعة السجل المعروض')}
-                </button>
-                <button onClick={() => setSelectedOrder(null)} className="bg-red-100 text-red-600 px-4 py-2 rounded hover:bg-red-200">إغلاق</button>
+              <div className="flex justify-between items-center gap-2 mt-4">
+                {/* زر التراجع الجديد */}
+                {viewMode === 'specific' && selectedBatchId && (
+                    <button
+                        onClick={() => handleUndoBatch(selectedBatchId)}
+                        disabled={isUndoPending}
+                        className="px-4 py-2 rounded text-white bg-red-600 hover:bg-red-700 font-bold shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                        {isUndoPending ? 'جاري التراجع...' : '🗑️ تراجع عن تنفيذ الباتش'}
+                    </button>
+                )}
+                
+                <div className="flex-grow flex justify-end gap-2">
+                    <button 
+                        onClick={handleExecuteAndPrint} 
+                        disabled={isPending || (viewMode === 'current' && selectedOrder.itemsAllocatedNow === 0)}
+                        className={`px-6 py-2 rounded text-white flex items-center gap-2 font-bold shadow-md
+                            ${isPending || (viewMode === 'current' && selectedOrder.itemsAllocatedNow === 0) 
+                                ? 'bg-gray-400 cursor-not-allowed' 
+                                : viewMode === 'current' ? 'bg-green-600 hover:bg-green-700' : 'bg-slate-800 hover:bg-slate-900'
+                            }`}
+                    >
+                        {isPending ? 'جاري الحفظ...' : (viewMode === 'current' ? '💾 حفظ وطباعة الدفعة' : '🖨️ طباعة السجل المعروض')}
+                    </button>
+                    <button onClick={() => setSelectedOrder(null)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">إغلاق</button>
+                </div>
               </div>
             </div>
 
@@ -435,7 +467,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
 
               {/* الجدول */}
               <table className="w-full border-collapse border border-gray-300 mb-8">
-                <thead>
+                <thead className="print:table-header-group">
                   <tr className="bg-gray-100 print:bg-gray-200 text-sm">
                     <th className="border border-gray-300 p-2 w-10">م</th>
                     <th className="border border-gray-300 p-2 w-10">حالة</th>
@@ -448,7 +480,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                 </thead>
                 <tbody>
                   {invoiceItems.map((item: any, index: number) => (
-                    <tr key={index} className="text-sm">
+                    <tr key={index} className="text-sm print:break-inside-avoid">
                         <td className="border border-gray-300 p-2 text-center">{index + 1}</td>
                         <td className="border border-gray-300 p-2 text-center text-lg">
                             {item.isCheck ? '✅' : '❌'}
