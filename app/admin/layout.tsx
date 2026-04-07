@@ -8,11 +8,7 @@ import { HomeIcon, UsersIcon, UserGroupIcon, ArchiveBoxIcon, ChartBarIcon, Shopp
 
 const prisma = new PrismaClient();
 
-export default async function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
 
   if (!session?.user?.image) {
@@ -71,7 +67,7 @@ export default async function AdminLayout({
             </Link>
 
             {user.role !== 'EMPLOYEE' && (
-              <Link href="/admin/safes" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
+              <Link href="/admin/cash-management" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
                 <BanknotesIcon className="w-5 h-5" /> <span className="hidden lg:inline">إدارة النقدية</span>
               </Link>
             )}

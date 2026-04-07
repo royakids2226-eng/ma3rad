@@ -137,7 +137,6 @@ export async function addBulkProducts(products: any[]) {
         revalidatePath('/admin/notifications');
         return { success: true, count };
     } catch (e) {
-        console.error(e);
         return { success: false, error: 'حدث خطأ أثناء الاستيراد' };
     }
 }
@@ -248,7 +247,6 @@ export async function addCustomer(data: any) {
       revalidatePath('/admin/customers');
       return { success: true, customer: JSON.parse(JSON.stringify(customer)) };
     } catch (e) { 
-        console.error(e);
         return { success: false, error: 'كود العميل مكرر أو خطأ في البيانات' }; 
     }
 }
@@ -298,7 +296,6 @@ export async function addBulkCustomers(customers: any[]) {
         revalidatePath('/admin/customers');
         return { success: true, count };
     } catch (e) {
-        console.error(e);
         return { success: false, error: 'حدث خطأ أثناء الاستيراد' };
     }
 }
@@ -394,7 +391,62 @@ export async function getLowStockClosedItems() {
     });
     return items;
   } catch (error) {
-    console.error(error);
     return [];
   }
+}
+
+// ==========================================
+// 5. إدارة النقدية (Cash Management)
+// ==========================================
+
+export async function getPayments() {
+    try {
+        const payments = await prisma.payment.findMany({
+            orderBy: { createdAt: 'desc' },
+            take: 50,
+            include: {
+                safe: true,
+                targetSafe: true,
+                customer: true,
+                user: true
+            }
+        });
+        return { success: true, data: JSON.parse(JSON.stringify(payments)) };
+    } catch (e) {
+        return { success: false, error: 'Failed to fetch payments.' };
+    }
+}
+
+export async function updatePayment(id: string, data: any) {
+    try {
+        await prisma.payment.update({
+            where: { id },
+            data: {
+                amount: parseFloat(data.amount),
+                description: data.description,
+                type: data.type,
+                currency: data.currency,
+                safeId: data.safeId,
+                targetSafeId: data.targetSafeId,
+                customerId: data.customerId,
+                // We don't allow changing the user
+            }
+        });
+        revalidatePath('/admin/cash-management'); // Assuming this is the page
+        revalidatePath('/admin/reports');
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: 'Failed to update payment.' };
+    }
+}
+
+export async function deletePayment(id: string) {
+    try {
+        await prisma.payment.delete({ where: { id } });
+        revalidatePath('/admin/cash-management'); // Assuming this is the page
+        revalidatePath('/admin/reports');
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: 'Failed to delete payment.' };
+    }
 }

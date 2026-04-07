@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getUsers, getProducts, getAdminCustomers } from "@/app/admin-actions";
-import { UsersIcon, UserGroupIcon, ArchiveBoxIcon, ChartBarIcon, Cog6ToothIcon } from '@heroicons/react/24/outline';
+import { UsersIcon, UserGroupIcon, ArchiveBoxIcon, ChartBarIcon, Cog6ToothIcon, BanknotesIcon } from '@heroicons/react/24/outline';
 
 export default async function AdminDashboard() {
   // جلب البيانات للإحصائيات العامة فقط
@@ -56,6 +56,19 @@ export default async function AdminDashboard() {
                 </div>
                 <div className="text-4xl bg-purple-50 p-4 rounded-2xl group-hover:scale-110 transition-transform shadow-inner border border-purple-100">
                   <ArchiveBoxIcon className="w-8 h-8 text-purple-400" />
+                </div>
+            </div>
+        </Link>
+        
+        {/* كارت إدارة النقدية */}
+        <Link href="/admin/cash-management" className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all group">
+            <div className="flex justify-between items-start">
+                <div>
+                    <p className="text-slate-400 font-bold text-sm mb-2 uppercase tracking-wider">إدارة النقدية</p>
+                    <h3 className="text-4xl font-black text-slate-800 group-hover:text-teal-600 transition-colors">...</h3>
+                </div>
+                <div className="text-4xl bg-teal-50 p-4 rounded-2xl group-hover:scale-110 transition-transform shadow-inner border border-teal-100">
+                  <BanknotesIcon className="w-8 h-8 text-teal-400" />
                 </div>
             </div>
         </Link>
