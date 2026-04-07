@@ -48,7 +48,6 @@ export async function getUsers() {
 export async function addProduct(data: any) {
   try {
     for (const item of data.colors) {
-        // 👈 تم التعديل: تعيين الرصيد الحالي (currentStock) ليساوي الرصيد الافتتاحي عند الإضافة
         await prisma.product.create({
             data: {
                 modelNo: data.modelNo,
@@ -58,7 +57,7 @@ export async function addProduct(data: any) {
                 discount: parseFloat(data.discount) || 0, 
                 color: item.color,
                 stockQty: parseInt(item.stock),
-                currentStock: parseInt(item.stock), // ✅ إضافة الرصيد الحالي
+                currentStock: parseInt(item.stock), 
                 status: data.status || 'OPEN'
             }
         });
@@ -73,8 +72,6 @@ export async function addProduct(data: any) {
 
 export async function updateProduct(id: string, data: any) {
     try {
-        // عند التعديل نحدث البيانات الأساسية فقط، ولا نلمس الرصيد الحالي للحفاظ على العمليات السابقة
-        // إلا إذا أردت منطقاً مختلفاً لتصحيح الجرد
         await prisma.product.update({
             where: { id },
             data: {
@@ -111,7 +108,6 @@ export async function addBulkProducts(products: any[]) {
                         }
                     },
                     update: {
-                        // عند التحديث (Update)، لا نعدل currentStock للحفاظ على المبيعات
                         stockQty: parseInt(p.stockQty) || 0,
                         price: parseFloat(p.price) || 0,
                         discount: parseFloat(p.discount) || 0,
@@ -126,7 +122,7 @@ export async function addBulkProducts(products: any[]) {
                         price: parseFloat(p.price) || 0,
                         discount: parseFloat(p.discount) || 0,
                         stockQty: parseInt(p.stockQty) || 0,
-                        currentStock: parseInt(p.stockQty) || 0, // ✅ إضافة الرصيد الحالي عند الإنشاء الجديد
+                        currentStock: parseInt(p.stockQty) || 0, 
                         status: productStatus
                     }
                 });
@@ -194,8 +190,6 @@ export async function getProducts() {
 export async function addCustomer(data: any) {
     try {
       const { name, phone, phone2, code, source, force } = data;
-
-      // 1. التحقق من الاسم المتشابه (تجاهل الهمزات)
       const normalizedInputName = name.replace(/[أإآ]/g, 'ا');
       const existingByName: any[] = await prisma.$queryRaw`
         SELECT name FROM "Customer" 
@@ -207,7 +201,6 @@ export async function addCustomer(data: any) {
           return { success: false, error: `الاسم موجود مسبقاً باسم: (${existingByName[0].name})` };
       }
 
-      // 2. التحقق من تكرار الهاتف (إلا إذا تم الإجبار force)
       if (!force) {
           const phonesToCheck = [phone, phone2].filter(p => p && p.trim() !== "");
           if (phonesToCheck.length > 0) {
@@ -216,7 +209,7 @@ export async function addCustomer(data: any) {
                       OR: [
                           { phone: { in: phonesToCheck } },
                           { phone2: { in: phonesToCheck } },
-                          { phone: { in: phonesToCheck.map(p => p) } } // ضمان البحث في كل الحقول
+                          { phone: { in: phonesToCheck.map(p => p) } } 
                       ]
                   },
                   select: { name: true }
@@ -228,7 +221,6 @@ export async function addCustomer(data: any) {
           }
       }
 
-      // 3. توليد كود تلقائي
       let finalCode = code;
       if (!finalCode || finalCode.trim() === "") {
         finalCode = "C-" + Date.now().toString().slice(-6);
@@ -354,7 +346,6 @@ export async function getAdminCustomers() {
 
 export async function getLowStockClosedCount() {
     try {
-        // حساب عدد الأصناف المغلقة التي رصيدها 4 أو أقل
         const count = await prisma.product.count({
             where: {
                 status: 'CLOSED',
@@ -366,8 +357,6 @@ export async function getLowStockClosedCount() {
         return 0;
     }
 }
-
-// داخل ملف app/admin-actions.ts
 
 export async function getLowStockClosedItems() {
   try {
@@ -382,7 +371,6 @@ export async function getLowStockClosedItems() {
         color: true,
         currentStock: true,
         price: true,
-        // 👇👇 تأكد من إضافة هذا السطر
         isStockAlertRead: true, 
       },
       orderBy: {
@@ -396,26 +384,69 @@ export async function getLowStockClosedItems() {
 }
 
 // ==========================================
-// 5. إدارة النقدية (Cash Management)
+// 5. إدارة النقدية ودفتر الأستاذ (Cash Management & Ledger)
 // ==========================================
 
 export async function getPayments() {
     try {
+        // 1. Fetch all standard payments
         const payments = await prisma.payment.findMany({
             orderBy: { createdAt: 'desc' },
-            take: 50,
             include: {
                 safe: true,
                 targetSafe: true,
                 customer: true,
-                user: true
-            }
+                user: true,
+            },
         });
-        return { success: true, data: JSON.parse(JSON.stringify(payments)) };
+
+        // 2. Fetch all orders with a deposit (the correct field name is `deposit`)
+        const ordersWithDeposits = await prisma.order.findMany({
+            where: {
+                deposit: { gt: 0 },
+            },
+            include: {
+                customer: true,
+                user: true,
+                safe: true, // `safeId` exists on the Order model, so we can include the safe
+            },
+        });
+
+        // 3. Format orders to match the payment structure
+        const formattedDeposits = ordersWithDeposits.map(order => ({
+            id: `order-dep-${order.id}`, // Virtual ID
+            amount: order.deposit, // Use the correct field `deposit`
+            type: 'INCOME',
+            description: `عربون للطلب رقم #${order.orderNo}`, // Use the correct field `orderNo`
+            currency: order.currency,
+            createdAt: order.createdAt,
+            user: order.user,
+            customer: order.customer,
+            safe: order.safe,
+            isDownPayment: true, // Flag to identify and lock in the UI
+            targetSafe: null,
+            targetSafeId: null,
+            safeId: order.safeId,
+            customerId: order.customerId,
+            userId: order.userId,
+            receiptNo: null, // Deposits from orders don't have a receipt number
+        }));
+
+        // 4. Combine and sort all transactions
+        const combinedLedger = [...payments, ...formattedDeposits].sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+
+        const recentLedger = combinedLedger.slice(0, 200);
+
+        return { success: true, data: JSON.parse(JSON.stringify(recentLedger)) };
+
     } catch (e) {
+        console.error("Failed to fetch payments ledger:", e);
         return { success: false, error: 'Failed to fetch payments.' };
     }
 }
+
 
 export async function updatePayment(id: string, data: any) {
     try {
@@ -429,10 +460,9 @@ export async function updatePayment(id: string, data: any) {
                 safeId: data.safeId,
                 targetSafeId: data.targetSafeId,
                 customerId: data.customerId,
-                // We don't allow changing the user
             }
         });
-        revalidatePath('/admin/cash-management'); // Assuming this is the page
+        revalidatePath('/admin/cash-management');
         revalidatePath('/admin/reports');
         return { success: true };
     } catch (error) {
@@ -443,7 +473,7 @@ export async function updatePayment(id: string, data: any) {
 export async function deletePayment(id: string) {
     try {
         await prisma.payment.delete({ where: { id } });
-        revalidatePath('/admin/cash-management'); // Assuming this is the page
+        revalidatePath('/admin/cash-management');
         revalidatePath('/admin/reports');
         return { success: true };
     } catch (error) {

@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { getPayments, updatePayment, deletePayment } from '@/app/admin-actions';
 import { getSafes, getCustomers } from '@/app/actions';
-import { PencilIcon, TrashIcon } from '@heroicons/react/24/solid';
+import { PencilIcon, TrashIcon, LockClosedIcon } from '@heroicons/react/24/solid';
 import { BanknotesIcon, ArrowUpTrayIcon, ArrowDownTrayIcon, ArrowPathRoundedSquareIcon } from '@heroicons/react/24/outline';
 
 const typeStyles: { [key: string]: { badge: string; text: string; icon: React.ElementType } } = {
@@ -34,10 +34,12 @@ export default function CashManagementPage() {
     };
 
     const handleEdit = (payment: any) => {
+        if(payment.isDownPayment) return; // Prevent editing down payments
         setEditingPayment({ ...payment });
     };
 
-    const handleDelete = async (id: string) => {
+    const handleDelete = async (id: string, isDownPayment: boolean) => {
+        if(isDownPayment) return; // Prevent deleting down payments
         if (confirm('هل أنت متأكد أنك تريد حذف هذه الحركة؟')) {
             await deletePayment(id);
             fetchData();
@@ -67,7 +69,7 @@ export default function CashManagementPage() {
     return (
         <div dir="rtl" className="bg-white p-4 md:p-8 rounded-2xl shadow-xl animate-in fade-in duration-500">
             <div className="flex justify-between items-center border-b border-gray-100 pb-6 mb-6">
-                 <h1 className="text-2xl md:text-3xl font-black text-gray-800">إدارة النقدية</h1>
+                 <h1 className="text-2xl md:text-3xl font-black text-gray-800">دفتر الأستاذ الموحد للخزينة</h1>
                  <BanknotesIcon className="w-10 h-10 text-gray-300"/>
             </div>
 
@@ -76,10 +78,10 @@ export default function CashManagementPage() {
                 {payments.map(p => {
                     const TypeIcon = typeStyles[p.type]?.icon || BanknotesIcon;
                     return (
-                        <div key={p.id} className="bg-white border border-gray-100 rounded-2xl p-5 space-y-4 shadow-sm hover:shadow-lg transition-shadow duration-300">
+                        <div key={p.id} className={`bg-white border border-gray-100 rounded-2xl p-5 space-y-4 shadow-sm hover:shadow-lg transition-shadow duration-300 ${p.isDownPayment ? 'opacity-80' : ''}`}>
                             <div className="flex justify-between items-start">
                                 <div className="space-y-1">
-                                    <p className="font-bold text-lg text-gray-800">{p.description}</p>
+                                    <p className="font-bold text-lg text-gray-800 flex items-center gap-2">{p.isDownPayment && <LockClosedIcon className='w-4 h-4 text-gray-400'/>} {p.description}</p>
                                     <p className={`text-sm font-semibold px-2 py-0.5 rounded-full inline-block ${typeStyles[p.type]?.badge}`}>
                                         {typeStyles[p.type]?.text}
                                     </p>
@@ -93,8 +95,8 @@ export default function CashManagementPage() {
                                 <p><strong>التاريخ:</strong> {new Date(p.createdAt).toLocaleDateString('ar-EG', { day: 'numeric', month: 'long', year: 'numeric'})}</p>
                             </div>
                             <div className="flex justify-end gap-2 pt-3 border-t border-gray-50">
-                                <button onClick={() => handleEdit(p)} className="p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors"><PencilIcon className="w-5 h-5"/></button>
-                                <button onClick={() => handleDelete(p.id)} className="p-2 rounded-full bg-red-50 hover:bg-red-100 text-red-600 transition-colors"><TrashIcon className="w-5 h-5"/></button>
+                                <button onClick={() => handleEdit(p)} disabled={p.isDownPayment} className="p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"><PencilIcon className="w-5 h-5"/></button>
+                                <button onClick={() => handleDelete(p.id, p.isDownPayment)} disabled={p.isDownPayment} className="p-2 rounded-full bg-red-50 hover:bg-red-100 text-red-600 transition-colors disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"><TrashIcon className="w-5 h-5"/></button>
                             </div>
                         </div>
                     )
@@ -118,17 +120,17 @@ export default function CashManagementPage() {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                         {payments.map(p => (
-                            <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                            <tr key={p.id} className={`hover:bg-gray-50 transition-colors ${p.isDownPayment ? 'bg-gray-50 opacity-80' : ''}`}>
                                 <td className="px-6 py-4 whitespace-nowrap"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${typeStyles[p.type]?.badge}`}>{typeStyles[p.type]?.text}</span></td>
-                                <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-800">{p.description}</td>
+                                <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-800 flex items-center gap-2">{p.isDownPayment && <LockClosedIcon className='w-4 h-4 text-gray-400'/>} {p.description}</td>
                                 <td className="px-6 py-4 whitespace-nowrap font-bold text-gray-900">{p.amount.toLocaleString()} <span className="text-xs text-gray-400">{p.currency}</span></td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{p.safe?.name} {p.type === 'TRANSFER' && p.targetSafe ? `-> ${p.targetSafe.name}` : ''}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{p.customer?.name || '-'}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{p.user?.name}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(p.createdAt).toLocaleDateString('ar-EG')}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-3">
-                                     <button onClick={() => handleEdit(p)} className="p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors"><PencilIcon className="w-5 h-5"/></button>
-                                     <button onClick={() => handleDelete(p.id)} className="p-2 rounded-full bg-red-50 hover:bg-red-100 text-red-600 transition-colors"><TrashIcon className="w-5 h-5"/></button>
+                                     <button onClick={() => handleEdit(p)} disabled={p.isDownPayment} className="p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"><PencilIcon className="w-5 h-5"/></button>
+                                     <button onClick={() => handleDelete(p.id, p.isDownPayment)} disabled={p.isDownPayment} className="p-2 rounded-full bg-red-50 hover:bg-red-100 text-red-600 transition-colors disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"><TrashIcon className="w-5 h-5"/></button>
                                 </td>
                             </tr>
                         ))}
