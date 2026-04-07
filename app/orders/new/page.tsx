@@ -541,7 +541,7 @@ export default function NewOrderPage() {
                       {displayProducts.map(prod => {
                         const isSoldOut = prod.status !== 'OPEN' && prod.currentStock <= 0;
                         const availableSeria = Math.floor(prod.currentStock / PIECES_PER_UNIT);
-                        const isLastOne = availableSeria === 1;
+                        const isLastOne = availableSeria === 1 && prod.status === 'CLOSED';
                         const isSelected = !!selectionMap[prod.id];
                         const qty = selectionMap[prod.id] || 1;
                         
