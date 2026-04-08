@@ -84,7 +84,7 @@ function InventoryReportView() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'COLOR' | 'MODEL'>('COLOR');
-    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'totalSold', direction: 'desc' });
     const [selectedHistory, setSelectedHistory] = useState<any[] | null>(null);
     const [selectedItemName, setSelectedItemName] = useState('');
 
@@ -251,7 +251,9 @@ function InventoryReportView() {
                             <th className="p-6 text-white border-b border-slate-800">كود الموديل</th>
                             <th className="p-6 border-b border-slate-800">{viewMode === 'COLOR' ? 'اللون' : 'الألوان المتاحة'}</th>
                             <th className="p-6 border-b border-slate-800 bg-blue-900/20 text-blue-400">الرصيد الأولي (قطعة)</th>
-                            <th className="p-6 border-b border-slate-800 bg-yellow-900/20 text-yellow-400">المباع (قطعة)</th>
+                            <th className="p-6 border-b border-slate-800 bg-yellow-900/40 text-yellow-300 cursor-pointer hover:bg-yellow-900/60 transition-colors select-none" onClick={() => handleSort('totalSold')}>
+                                المباع (قطعة) {sortConfig?.key === 'totalSold' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                            </th>
                             <th className="p-6 border-b border-slate-800 bg-green-900/20 text-green-400">الرصيد الحالي (قطعة)</th>
                             <th className="p-6 border-b border-slate-800 cursor-pointer hover:bg-slate-800 transition-colors select-none" onClick={() => handleSort('salesPercentage')}>
                                 نسبة المبيع {sortConfig?.key === 'salesPercentage' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
@@ -269,7 +271,7 @@ function InventoryReportView() {
                                         {viewMode === 'COLOR' ? item.color : <span className="bg-gray-100 px-3 py-1 rounded-xl text-[10px] font-bold text-gray-400">{item.colors.join(', ')}</span>}
                                     </td>
                                     <td className="p-6 font-bold text-blue-700 bg-blue-50/20">{item.initialStock}</td>
-                                    <td className="p-6">
+                                    <td className="p-6 bg-yellow-50/20">
                                         {item.totalSold > 0 ? (
                                             <button 
                                             onClick={() => openHistory(item)} 
