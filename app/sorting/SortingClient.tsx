@@ -28,6 +28,7 @@ type ItemDetail = {
   logs: LogItem[]; // سجلات الصرف
 };
 
+
 type OrderType = {
   id: string;
   orderNo: number;
@@ -510,7 +511,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                 <div>
                    <p className="font-bold text-lg">الإجمالي: {invoiceItems.reduce((acc:number, cur:any) => acc + cur.displayQty, 0)} قطعة</p>
                 </div>
-                <div className="text-left text-sm space-y-8 mt-4">
+                <div className="text-left text-base font-bold space-y-8 mt-4">
                    <p>توقيع المستلم: .......................................</p>
                    <p>توقيع أمين المخزن: .......................................</p>
                 </div>

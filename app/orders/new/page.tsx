@@ -150,6 +150,14 @@ export default function NewOrderPage() {
   const searchResults = useMemo(() => {
     if (searchTerm.length < 2) return [];
     const lowerCaseSearchTerm = searchTerm.toLowerCase();
+
+    // Prioritize exact match
+    const exactMatches = allProducts.filter(p => p.modelNo.toLowerCase() === lowerCaseSearchTerm);
+    if (exactMatches.length > 0) {
+      return exactMatches;
+    }
+
+    // Fallback to 'includes' search if no exact match is found
     return allProducts.filter(p => 
         p.modelNo.toLowerCase().includes(lowerCaseSearchTerm)
     );
