@@ -80,7 +80,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
         />
       </div>
 
-      <div id="printable-area" className="bg-white text-gray-800 p-4 md:p-8 font-sans text-sm max-w-4xl mx-auto my-4 md:my-8 shadow-lg border-t-8 border-blue-600">
+      <div id="invoice-content" className="bg-white text-gray-800 p-4 md:p-8 font-sans text-sm max-w-4xl mx-auto my-4 md:my-8 shadow-lg border-t-8 border-blue-600">
 
         {/* --- Header --- */}
         <header className="mb-10">
