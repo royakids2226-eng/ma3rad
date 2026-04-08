@@ -188,6 +188,11 @@ export async function getAdminStockAlerts() {
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, safeId, currency, notes } = data;
 
+  // First validation: If there's a deposit, a safe must be selected.
+  if (deposit > 0 && !safeId) {
+    return { success: false, error: "عند وجود دفعة مقدمة، يجب تحديد الخزنة." };
+  }
+
   const productQuantities = new Map<string, number>();
   const allVariants: any[] = [];
 
@@ -202,6 +207,7 @@ export async function createOrder(data: any, userId: string) {
   const productIds = Array.from(productQuantities.keys());
 
   try {
+    // Pre-transaction check for stock to provide a better user experience
     const products = await prisma.product.findMany({
       where: { id: { in: productIds } },
     });
@@ -214,8 +220,10 @@ export async function createOrder(data: any, userId: string) {
       const requestedPieces = productQuantities.get(productId)!;
 
       if (!product) {
+        // This case should ideally not happen if client-side search is synced
         throw new Error(`الصنف بالمعرف ${productId} غير موجود.`);
       }
+      // Check stock only for products that are tracked (status != 'OPEN')
       if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
         insufficientStockItems.push({
           productId: product.id,
@@ -235,7 +243,9 @@ export async function createOrder(data: any, userId: string) {
       };
     }
 
+    // Start atomic transaction
     const result = await prisma.$transaction(async (tx) => {
+        // 1. Create the order
         const order = await tx.order.create({
             data: {
                 userId,
@@ -243,11 +253,13 @@ export async function createOrder(data: any, userId: string) {
                 totalAmount: total,
                 deposit: deposit || 0,
                 currency: currency || 'EGP',
-                safeId: deposit > 0 ? safeId : null,
                 notes: notes,
             },
+            // We need the order number for the payment description
+            include: { customer: true }
         });
 
+        // 2. Create order items
         const orderItemsData = allVariants.map(variant => ({
             orderId: order.id,
             productId: variant.productId,
@@ -258,14 +270,29 @@ export async function createOrder(data: any, userId: string) {
 
         await tx.orderItem.createMany({ data: orderItemsData });
 
+        // 3. Update product stock
         const stockUpdatePromises = productIds.map(productId =>
             tx.product.update({
                 where: { id: productId },
                 data: { currentStock: { decrement: productQuantities.get(productId) } },
             })
         );
-
         await Promise.all(stockUpdatePromises);
+
+        // 4. Create a payment record if a deposit was made
+        if (deposit > 0) {
+            await tx.payment.create({
+                data: {
+                    type: 'PAYMENT_COLLECTION',
+                    amount: deposit,
+                    currency: currency || 'EGP',
+                    safeId: safeId!,
+                    userId: userId,
+                    customerId: customerId,
+                    description: `تحصيل دفعة للأوردر رقم #${order.orderNo} للعميل: ${order.customer.name}`,
+                }
+            });
+        }
 
         return order;
     }, {
@@ -276,12 +303,14 @@ export async function createOrder(data: any, userId: string) {
     revalidatePath('/');
     revalidatePath('/admin/products');
     revalidatePath('/admin/notifications');
+    revalidatePath('/orders/list');
 
     return { success: true, data: JSON.parse(JSON.stringify(result)) };
 
   } catch (error: any) {
     console.error("Error creating order:", error);
-    return { success: false, error: error.message || 'فشل إنشاء الطلب' };
+    // Provide a more generic error message to the user
+    return { success: false, error: error.message || 'فشل إنشاء الطلب بسبب خطأ غير متوقع.' };
   }
 }
 
