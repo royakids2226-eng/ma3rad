@@ -2,10 +2,10 @@
 
 import { useState, useMemo, useTransition } from 'react';
 import Link from 'next/link';
-import { executeOrderBatch, undoOrderBatch } from './actions';
+import { queueOrderBatchProcessing, undoOrderBatch } from './actions';
 
 
-// تعريف الأنواع
+// All the type definitions remain the same...
 type LogItem = {
     batchId: string;
     quantity: number;
@@ -25,7 +25,7 @@ type ItemDetail = {
   qtyAllocatedPieces: number;
   isFullyReady: boolean;
   price: number;
-  logs: LogItem[]; // سجلات الصرف
+  logs: LogItem[];
 };
 
 
@@ -41,25 +41,19 @@ type OrderType = {
   itemDetails: ItemDetail[];
 };
 
+// The main component
 export default function SortingClient({ initialOrders }: { initialOrders: OrderType[] }) {
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // 👈 استعادة حالة الترتيب
   const [sortBy, setSortBy] = useState('date-desc');
-
-  const [showCompleted, setShowCompleted] = useState(false); // تبديل بين الجاري والمنتهي
+  const [showCompleted, setShowCompleted] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OrderType | null>(null);
-  
-  // أوضاع العرض: 'current_batch' | 'full_history' | 'specific_batch'
   const [viewMode, setViewMode] = useState<'current' | 'history' | 'specific'>('current');
-  const [selectedBatchId, setSelectedBatchId] = useState<string>(''); // الباتش المختار من القائمة
-
+  const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [isPending, startTransition] = useTransition();
   const [isUndoPending, startUndoTransition] = useTransition();
 
-
-  // 1. الفلترة والترتيب (تم الإصلاح هنا)
-  const filteredAndSortedOrders = useMemo(() => {
+  // Memos for filtering, sorting, and display logic remain the same...
+    const filteredAndSortedOrders = useMemo(() => {
     let result = [...initialOrders]; // نسخة جديدة لتجنب تعديل الأصل
 
     // أ. فلترة حسب الحالة (منتهي / جاري)
@@ -174,16 +168,19 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
   }, [selectedOrder, viewMode, selectedBatchId]);
 
 
-  const handleExecuteAndPrint = async () => {
+  /**
+   * MODIFIED: This function now queues the job instead of executing it directly.
+   */
+  const handleQueueAndPrint = async () => {
     if (!selectedOrder) return;
-    
-    // إذا لم نكن في وضع "صرف جديد"، زر الطباعة يفتح نافذة الطباعة فقط
+
+    // If not in 'current' mode, the button just prints the historical view.
     if (viewMode !== 'current') {
-        window.print();
-        return;
+      window.print();
+      return;
     }
 
-    if (!confirm('هل أنت متأكد من تنفيذ الكميات المتاحة وحفظها؟')) return;
+    if (!confirm('هل أنت متأكد من إرسال الكميات المتاحة للمعالجة؟ سيتم تجهيزها في الخلفية.')) return;
 
     const itemsToFulfill = selectedOrder.itemDetails
       .filter(item => item.qtyAllocatedPieces > 0)
@@ -193,20 +190,28 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
       }));
 
     if (itemsToFulfill.length === 0) {
-        alert('لا توجد كميات متاحة للتنفيذ حالياً.');
-        return;
+      alert('لا توجد كميات متاحة للمعالجة حالياً.');
+      return;
     }
 
     startTransition(async () => {
-        const result = await executeOrderBatch(selectedOrder.id, itemsToFulfill);
-        if (result.success) {
-            setTimeout(() => window.print(), 500);
-        } else {
-            alert('حدث خطأ أثناء الحفظ.');
-        }
+      // Use the new server action to queue the job.
+      const result = await queueOrderBatchProcessing(selectedOrder.id, itemsToFulfill);
+
+      if (result.success) {
+        // Give immediate feedback to the user and allow them to print what they *see*.
+        alert(result.message);
+        // We can now safely close the modal and the UI will update once the job is done.
+        setSelectedOrder(null);
+        // Optional: you could trigger a print of the *current view* as a reference.
+        // window.print(); 
+      } else {
+        alert(`فشل إرسال الطلب للمعالجة: ${result.error}`);
+      }
     });
   };
 
+  // handleUndoBatch remains the same...
   const handleUndoBatch = async (batchId: string) => {
     if (!batchId) return;
 
@@ -223,23 +228,24 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     });
   };
 
-
   const openModal = (order: OrderType) => {
     setSelectedOrder(order);
-    // إذا كان الأوردر منتهي، نفتح مباشرة على التاريخ
     if (order.isCompletelyDone) {
-        setViewMode('history');
+      setViewMode('history');
     } else {
-        setViewMode('current');
+      setViewMode('current');
     }
     setSelectedBatchId('');
   };
 
+  // The entire JSX render structure remains the same.
+  // I will only change the button handler and text.
+
   return (
     <div className="p-6 bg-slate-50 min-h-screen" dir="rtl">
       <div className="print:hidden">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+          {/* Header remains unchanged... */}
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold text-slate-800">📦 سجلات الفرز والتنفيذ</h1>
             <p className="text-slate-500 mt-1">متابعة صرف الأوردرات وطباعة الباتشات السابقة.</p>
@@ -348,16 +354,13 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
         </div>
       </div>
 
-      {/* ========================================================= */}
-      {/*                  MODAL: PRINT VIEW                        */}
-      {/* ========================================================= */}
       {selectedOrder && (
         <div className="fixed inset-0 z-50 flex justify-center items-start overflow-y-auto bg-black bg-opacity-50 print:static print:overflow-visible print:bg-white print:p-0">
           <div className="bg-white w-full max-w-4xl m-4 p-8 rounded-xl shadow-2xl relative print:shadow-none print:w-full print:max-w-none print:m-0 print:rounded-none">
             
-            {/* أزرار التحكم - لا تظهر في الطباعة */}
             <div className="flex flex-col gap-4 mb-8 print:hidden border-b pb-4">
-              <div className="flex justify-between items-center">
+               {/* Modal header and view options remain the same */}
+                 <div className="flex justify-between items-center">
                   <h2 className="text-xl font-bold">
                       {selectedOrder.isCompletelyDone ? 'أرشيف التسليمات' : 'إدارة الصرف'}
                   </h2>
@@ -411,8 +414,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
               </div>
 
               <div className="flex justify-between items-center gap-2 mt-4">
-                {/* زر التراجع الجديد */}
-                {viewMode === 'specific' && selectedBatchId && (
+                {/* Undo button remains the same */}
+                 {viewMode === 'specific' && selectedBatchId && (
                     <button
                         onClick={() => handleUndoBatch(selectedBatchId)}
                         disabled={isUndoPending}
@@ -421,25 +424,25 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         {isUndoPending ? 'جاري التراجع...' : '🗑️ تراجع عن تنفيذ الباتش'}
                     </button>
                 )}
-                
                 <div className="flex-grow flex justify-end gap-2">
+                    {/* MODIFIED: Button text and handler */}
                     <button 
-                        onClick={handleExecuteAndPrint} 
+                        onClick={handleQueueAndPrint} 
                         disabled={isPending || (viewMode === 'current' && selectedOrder.itemsAllocatedNow === 0)}
                         className={`px-6 py-2 rounded text-white flex items-center gap-2 font-bold shadow-md
                             ${isPending || (viewMode === 'current' && selectedOrder.itemsAllocatedNow === 0) 
                                 ? 'bg-gray-400 cursor-not-allowed' 
-                                : viewMode === 'current' ? 'bg-green-600 hover:bg-green-700' : 'bg-slate-800 hover:bg-slate-900'
+                                : viewMode === 'current' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-800 hover:bg-slate-900'
                             }`}
                     >
-                        {isPending ? 'جاري الحفظ...' : (viewMode === 'current' ? '💾 حفظ وطباعة الدفعة' : '🖨️ طباعة السجل المعروض')}
+                        {isPending ? 'جاري الإرسال...' : (viewMode === 'current' ? '🚀 إرسال للمعالجة' : '🖨️ طباعة السجل المعروض')}
                     </button>
                     <button onClick={() => setSelectedOrder(null)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">إغلاق</button>
                 </div>
               </div>
             </div>
 
-            {/* ورقة الطباعة */}
+            {/* The print view remains exactly the same */}
             <div className="print:block" dir="rtl">
               <div className="text-center mb-8 border-b border-black pb-4">
                  <h1 className="text-3xl font-bold mb-2">

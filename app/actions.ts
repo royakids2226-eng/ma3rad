@@ -297,7 +297,7 @@ export async function createOrder(data: any, userId: string) {
         return order;
     }, {
       maxWait: 15000, // Wait 15s for the transaction to start
-      timeout: 30000, // Allow 30s for the whole transaction to complete
+      timeout: 60000, // Allow 60s for the whole transaction to complete
     });
 
     revalidatePath('/');
