@@ -11,32 +11,34 @@ type FulfillmentItem = {
 
 export async function executeOrderBatch(orderId: string, items: FulfillmentItem[]) {
   try {
-    // إنشاء معرف موحد لهذه الدفعة (Batch ID)
     const batchId = randomUUID();
 
-    await prisma.$transaction(
-      items.map((item) => {
-        // عمليتان لكل صنف:
-        // 1. تحديث إجمالي المنفذ في OrderItem
-        // 2. إنشاء سجل جديد في FulfillmentLog
-        return [
-            prisma.orderItem.update({
-                where: { id: item.orderItemId },
-                data: {
-                    fulfilledQty: {
-                        increment: item.qtyToFulfill,
-                    },
-                },
-            }),
-            prisma.fulfillmentLog.create({
-                data: {
-                    orderItemId: item.orderItemId,
-                    quantity: item.qtyToFulfill,
-                    batchId: batchId,
-                }
-            })
-        ];
-      }).flat() // دمج المصفوفات لأننا نرجع مصفوفتين لكل عنصر
+    await prisma.$transaction(async (tx) => {
+      // 1. Create all fulfillment logs in a single batch operation
+      await tx.fulfillmentLog.createMany({
+        data: items.map(item => ({
+          orderItemId: item.orderItemId,
+          quantity: item.qtyToFulfill,
+          batchId: batchId,
+        })),
+      });
+
+      // 2. Update each order item individually
+      for (const item of items) {
+        await tx.orderItem.update({
+          where: { id: item.orderItemId },
+          data: {
+            fulfilledQty: {
+              increment: item.qtyToFulfill,
+            },
+          },
+        });
+      }
+    },
+    {
+      maxWait: 10000, // default: 2000
+      timeout: 20000, // default: 5000
+    }
     );
 
     revalidatePath('/sorting');
