@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
-import { randomUUID } from 'crypto'; // لإنشاء معرف فريد للباتش
+import { randomUUID } from 'crypto';
 
 type FulfillmentItem = {
   orderItemId: string;
@@ -23,27 +23,27 @@ export async function executeOrderBatch(orderId: string, items: FulfillmentItem[
         })),
       });
 
-      // 2. Update each order item individually
-      for (const item of items) {
-        await tx.orderItem.update({
+      // 2. Concurrently update all order items to improve performance
+      const updatePromises = items.map(item =>
+        tx.orderItem.update({
           where: { id: item.orderItemId },
           data: {
             fulfilledQty: {
               increment: item.qtyToFulfill,
             },
           },
-        });
-      }
-    },
-    {
-      maxWait: 10000, // default: 2000
-      timeout: 20000, // default: 5000
-    }
-    );
+        })
+      );
+      await Promise.all(updatePromises);
+
+    }, {
+      maxWait: 10000, // Optional: Increase max wait time
+      timeout: 20000, // Optional: Increase transaction timeout
+    });
 
     revalidatePath('/sorting');
-    
     return { success: true };
+
   } catch (error) {
     console.error('Error executing batch:', error);
     return { success: false, error: 'Failed to update order items' };
@@ -57,7 +57,7 @@ export async function undoOrderBatch(batchId: string) {
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. جلب كل سجلات الصرف للباتش المحدد
+      // 1. Find all fulfillment logs for the given batch ID
       const logs = await tx.fulfillmentLog.findMany({
         where: { batchId: batchId },
       });
@@ -66,28 +66,33 @@ export async function undoOrderBatch(batchId: string) {
         throw new Error('No logs found for this batch ID.');
       }
 
-      // 2. تجميع التحديثات المطلوبة لـ OrderItem
+      // 2. Aggregate the quantities to be decremented for each order item
       const updates = new Map<string, number>();
       for (const log of logs) {
         updates.set(log.orderItemId, (updates.get(log.orderItemId) || 0) + log.quantity);
       }
 
-      // 3. تنفيذ التحديثات (طرح الكميات)
-      for (const [orderItemId, quantity] of updates.entries()) {
-        await tx.orderItem.update({
+      // 3. Concurrently decrement the fulfilled quantities for all affected items
+      const updatePromises = Array.from(updates.entries()).map(([orderItemId, quantity]) =>
+        tx.orderItem.update({
           where: { id: orderItemId },
           data: {
             fulfilledQty: {
               decrement: quantity,
             },
           },
-        });
-      }
+        })
+      );
+      await Promise.all(updatePromises);
 
-      // 4. حذف سجلات الصرف لهذا الباتش
+      // 4. Delete the fulfillment logs for this batch
       await tx.fulfillmentLog.deleteMany({
         where: { batchId: batchId },
       });
+
+    }, {
+      maxWait: 10000, // Optional: Increase max wait time
+      timeout: 20000, // Optional: Increase transaction timeout
     });
 
     revalidatePath('/sorting');
