@@ -406,7 +406,7 @@ export async function getPayments() {
         const processedPayments = payments.map(p => ({
             ...p,
             // The description for order deposits is specific, we use it to lock them.
-            isDownPayment: p.description.startsWith('تحصيل دفعة للأوردر')
+            isDownPayment: p.description ? p.description.startsWith('تحصيل دفعة للأوردر') : false
         }));
 
         return { success: true, data: JSON.parse(JSON.stringify(processedPayments)) };
