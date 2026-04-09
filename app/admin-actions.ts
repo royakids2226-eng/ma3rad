@@ -389,7 +389,7 @@ export async function getLowStockClosedItems() {
 
 export async function getPayments() {
     try {
-        // 1. Fetch all standard payments
+        // 1. Fetch all standard payments from the Payment table
         const payments = await prisma.payment.findMany({
             orderBy: { createdAt: 'desc' },
             include: {
@@ -398,48 +398,18 @@ export async function getPayments() {
                 customer: true,
                 user: true,
             },
+            take: 200 // Limit the number of records for performance
         });
 
-        // 2. Fetch all orders with a deposit (the correct field name is `deposit`)
-        const ordersWithDeposits = await prisma.order.findMany({
-            where: {
-                deposit: { gt: 0 },
-            },
-            include: {
-                customer: true,
-                user: true,
-                safe: true, // `safeId` exists on the Order model, so we can include the safe
-            },
-        });
-
-        // 3. Format orders to match the payment structure
-        const formattedDeposits = ordersWithDeposits.map(order => ({
-            id: `order-dep-${order.id}`, // Virtual ID
-            amount: order.deposit, // Use the correct field `deposit`
-            type: 'INCOME',
-            description: `عربون للطلب رقم #${order.orderNo}`, // Use the correct field `orderNo`
-            currency: order.currency,
-            createdAt: order.createdAt,
-            user: order.user,
-            customer: order.customer,
-            safe: order.safe,
-            isDownPayment: true, // Flag to identify and lock in the UI
-            targetSafe: null,
-            targetSafeId: null,
-            safeId: order.safeId,
-            customerId: order.customerId,
-            userId: order.userId,
-            receiptNo: null, // Deposits from orders don't have a receipt number
+        // 2. Process payments to add the isDownPayment flag for UI purposes
+        // This identifies payments that were created as part of an order.
+        const processedPayments = payments.map(p => ({
+            ...p,
+            // The description for order deposits is specific, we use it to lock them.
+            isDownPayment: p.description.startsWith('تحصيل دفعة للأوردر')
         }));
 
-        // 4. Combine and sort all transactions
-        const combinedLedger = [...payments, ...formattedDeposits].sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-
-        const recentLedger = combinedLedger.slice(0, 200);
-
-        return { success: true, data: JSON.parse(JSON.stringify(recentLedger)) };
+        return { success: true, data: JSON.parse(JSON.stringify(processedPayments)) };
 
     } catch (e) {
         console.error("Failed to fetch payments ledger:", e);
