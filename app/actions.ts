@@ -359,14 +359,18 @@ export async function deleteOrder(orderId: string) {
                 throw new Error(`لا يمكن حذف الأوردر لوجود أصناف تم صرفها بالفعل: ${itemDetails}`);
             }
 
-            // Step 2: Get order details to find the associated payment
+            // Step 2: Get order details and items to restore stock
             const order = await tx.order.findUnique({
                 where: { id: orderId },
-                select: { orderNo: true, deposit: true }
+                select: { orderNo: true, deposit: true, items: true }
             });
 
+            if (!order) {
+                throw new Error("لم يتم العثور على الطلب.");
+            }
+
             // Step 3: If a deposit exists, delete the corresponding payment entry
-            if (order && order.deposit && order.deposit > 0) {
+            if (order.deposit && order.deposit > 0) {
                 await tx.payment.deleteMany({
                     where: {
                         description: { contains: `للأوردر رقم #${order.orderNo}` },
@@ -375,14 +379,17 @@ export async function deleteOrder(orderId: string) {
                 });
             }
 
-            // Step 4: Restore stock for all items in the order
-            const orderItems = await tx.orderItem.findMany({ where: { orderId } });
-            for (const item of orderItems) {
-                const piecesToReturn = item.quantity * PIECES_PER_UNIT;
-                await tx.product.update({
-                    where: { id: item.productId },
-                    data: { currentStock: { increment: piecesToReturn } }
-                });
+            // Step 4: Efficiently restore stock for all items in the order
+            if (order.items.length > 0) {
+                const caseStatement = order.items
+                    .map(item => `WHEN id = '${item.productId}' THEN "currentStock" + ${item.quantity * PIECES_PER_UNIT}`)
+                    .join(' ');
+                
+                const idList = order.items.map(item => `'${item.productId}'`).join(',');
+                
+                const query = `UPDATE "Product" SET "currentStock" = CASE ${caseStatement} END WHERE id IN (${idList})`;
+                
+                await tx.$executeRawUnsafe(query);
             }
 
             // Step 5: Delete order items and the order itself
@@ -390,11 +397,12 @@ export async function deleteOrder(orderId: string) {
             await tx.order.delete({ where: { id: orderId } });
         }, {
             maxWait: 15000, 
-            timeout: 30000, 
+            timeout: 90000, // Increased timeout for large deletions
         });
 
         revalidatePath('/orders/list');
         revalidatePath('/admin/notifications');
+        revalidatePath('/admin/products');
         revalidatePath('/admin/cash-management'); // Ensure ledger is updated
         return { success: true };
 
@@ -403,6 +411,7 @@ export async function deleteOrder(orderId: string) {
         return { success: false, error: error.message || 'فشل حذف الطلب' };
     }
 }
+
 
 export async function updateOrder(orderId: string, data: any) {
   const { items, total, deposit, safeId, currency, notes } = data // Added notes
