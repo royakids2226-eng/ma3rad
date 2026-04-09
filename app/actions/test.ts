@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { prisma as db } from '../../lib/prisma';
 
 const TEST_CUSTOMER_NAME = 'عميل تجريبي TEST';
-const ORDER_ITEM_COUNT = 400; // تم التغيير إلى 400
+const ORDER_ITEM_COUNT = 400;
 
 /**
  * Creates a large, random, and REAL test order for testing business logic and performance.
@@ -108,7 +108,7 @@ export async function createTestOrder(userId: string) {
         message: `تم إنشاء فاتورة تجريبية حقيقية بنجاح برقم #${newOrder.orderNo}. تم خصم ${newOrder.items.length} صنف من المخزون.`,
       };
     }, {
-      timeout: 60000, // Increase timeout to 60 seconds
+      timeout: 60000, // 60 seconds timeout
     });
 
     return result;
@@ -176,7 +176,7 @@ export async function deleteTestOrders() {
                     },
                 });
                 restoredItemsCount += order.items.length;
-            }, { timeout: 30000 }); // Give deletion transaction enough time too
+            }, { timeout: 60000 }); // Increase timeout to 60 seconds
         }
 
         revalidatePath('/');
