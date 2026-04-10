@@ -17,23 +17,19 @@ export async function getInventoryReport() {
 
     const report = products.map(p => {
         const initial = p.stockQty || 0;
-        const current = p.currentStock;
+        
+        // حساب المباع الفعلي من واقع الفواتير المسجلة فقط
         const totalSoldPieces = p.orderItems.reduce((acc, item) => {
             return acc + ((item.quantity || 0) * PIECES_PER_UNIT);
         }, 0);
 
+        // الرصيد الحالي "المنطقي" = الأولي - المباع
+        // هذا الرقم سيتجاهل أي أخطاء تراكمت في قاعدة البيانات
+        const logicalCurrentStock = initial - totalSoldPieces;
+
         const soldValue = p.orderItems.reduce((acc, item) => {
             return acc + ((item.quantity || 0) * PIECES_PER_UNIT * (item.price || 0));
         }, 0);
-
-        const history = p.orderItems.map(item => ({
-            orderId: item.orderId,
-            orderNo: item.order.orderNo,
-            date: item.order.createdAt,
-            customer: item.order.customer.name,
-            quantity: (item.quantity || 0) * PIECES_PER_UNIT,
-            price: item.price
-        }));
 
         return {
             id: p.id,
@@ -41,12 +37,19 @@ export async function getInventoryReport() {
             color: p.color,
             initialStock: initial,
             totalSold: totalSoldPieces,
-            currentStock: current, 
+            currentStock: logicalCurrentStock, // نستخدم الحساب المنطقي هنا
             totalSoldValue: soldValue,
-            currentValue: current * (p.price || 0),
+            currentValue: logicalCurrentStock * (p.price || 0),
             price: p.price,
             status: p.status,
-            history: history
+            history: p.orderItems.map(item => ({
+                orderId: item.orderId,
+                orderNo: item.order.orderNo,
+                date: item.order.createdAt,
+                customer: item.order.customer.name,
+                quantity: (item.quantity || 0) * PIECES_PER_UNIT,
+                price: item.price
+            }))
         };
     });
 

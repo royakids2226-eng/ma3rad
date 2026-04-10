@@ -82,6 +82,7 @@ export async function updateProduct(id: string, data: any) {
                 price: parseFloat(data.price),
                 discount: parseFloat(data.discount) || 0,
                 stockQty: parseInt(data.stockQty),
+                currentStock: parseInt(data.stockQty), // تم التعديل هنا أيضاً
                 status: data.status
             }
         });
@@ -109,6 +110,7 @@ export async function addBulkProducts(products: any[]) {
                     },
                     update: {
                         stockQty: parseInt(p.stockQty) || 0,
+                        currentStock: parseInt(p.stockQty) || 0, // تم التعديل هنا
                         price: parseFloat(p.price) || 0,
                         discount: parseFloat(p.discount) || 0,
                         description: p.description || '',
