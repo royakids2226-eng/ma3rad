@@ -1,304 +1,9 @@
-// app/report-actions.ts
 'use server'
 
 import { PrismaClient } from '@prisma/client'
-import { revalidatePath } from 'next/cache'
-import bcrypt from 'bcryptjs' 
-
 const prisma = new PrismaClient()
-const PIECES_PER_UNIT = 4; // معامل التحويل: كل وحدة مبيعات تساوي 4 قطع
+const PIECES_PER_UNIT = 4;
 
-// ==========================================
-// 1. العملاء (جلب وبحث)
-// ==========================================
-export async function getCustomers() {
-  try {
-    const customers = await prisma.customer.findMany({ take: 20, orderBy: { name: 'asc' } });
-    return JSON.parse(JSON.stringify(customers));
-  } catch (error) { return []; }
-}
-
-export async function searchCustomers(term: string) {
-  if (!term) return [];
-  const normalizedTerm = term.replace(/[أإآ]/g, 'ا');
-  try {
-    const customers = await prisma.$queryRaw`
-      SELECT id, name, phone, "phone2", address, source 
-      FROM "Customer"
-      WHERE 
-        TRANSLATE(name, 'أإآ', 'ااا') LIKE ${'%' + normalizedTerm + '%'}
-        OR phone LIKE ${'%' + term + '%'}
-        OR "phone2" LIKE ${'%' + term + '%'}
-      LIMIT 50;
-    `;
-    return JSON.parse(JSON.stringify(customers));
-  } catch (error) {
-    console.error("Search Error:", error);
-    return [];
-  }
-}
-
-// ==========================================
-// 2. الخزن والمنتجات
-// ==========================================
-export async function getSafes() {
-  try {
-    const safes = await prisma.safe.findMany({ orderBy: { name: 'asc' } });
-    return JSON.parse(JSON.stringify(safes));
-  } catch (error) { return []; }
-}
-
-export async function searchProducts(term: string) {
-  if (!term || term.length < 2) return [];
-  try {
-    const products = await prisma.product.findMany({
-      where: { modelNo: { contains: term, mode: 'insensitive' } },
-      orderBy: { modelNo: 'asc' }
-    });
-    return JSON.parse(JSON.stringify(products));
-  } catch (error) { return []; }
-}
-
-// ==========================================
-// 3. إدارة الأوردرات
-// ==========================================
-export async function createOrder(data: any, userId: string) {
-  const { customerId, items, total, deposit, safeId, currency } = data; 
-  
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. خصم الكميات بناءً على حالة الصنف (OPEN vs CLOSED)
-      for (const cartItem of items) {
-        for (const variant of cartItem.variants) {
-          const requestedPieces = variant.quantity * PIECES_PER_UNIT;
-          
-          // جلب الصنف للتحقق من حالته ورصيده
-          const product = await tx.product.findUnique({ where: { id: variant.productId } });
-          if (!product) throw new Error(`الصنف غير موجود`);
-
-          // المنطق الجديد:
-          // إذا كان الصنف "ليس مفتوحاً" (أي مغلق) ورصيده الحالي أقل من المطلوب -> نرفض العملية
-          // إذا كان مفتوحاً -> سيتم الخصم حتى لو نزل بالسالب
-          if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
-             throw new Error(`عذراً، الرصيد غير كافي للصنف المغلق: ${product.modelNo} - ${product.color} (المتاح: ${product.currentStock})`);
-          }
-
-          // تنفيذ الخصم
-          await tx.product.update({
-            where: { id: variant.productId },
-            data: { currentStock: { decrement: requestedPieces } }
-          });
-        }
-      }
-
-      // 2. إنشاء الأوردر
-      const order = await tx.order.create({
-        data: {
-          userId, 
-          customerId, 
-          totalAmount: total, 
-          deposit: deposit || 0,
-          currency: currency || 'EGP', 
-          safeId: deposit > 0 ? safeId : null,
-        }
-      });
-
-      // 3. إضافة الأصناف
-      for (const cartItem of items) {
-        for (const variant of cartItem.variants) {
-          await tx.orderItem.create({
-            data: {
-              orderId: order.id,
-              productId: variant.productId,
-              quantity: variant.quantity,
-              price: variant.price,
-              discountPercent: variant.discountPercent || 0
-            }
-          });
-        }
-      }
-      return order;
-    });
-    
-    revalidatePath('/');
-    return { success: true, data: JSON.parse(JSON.stringify(result)) };
-
-  } catch (error: any) {
-    console.error("Error creating order:", error);
-    return { success: false, error: error.message || 'حدث خطأ أثناء حفظ الطلب' };
-  }
-}
-
-export async function getOrderById(orderId: string) {
-  if (!orderId) return null;
-  try {
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: { 
-          customer: {
-              include: {
-                  payments: { orderBy: { createdAt: 'desc' } } 
-              }
-          }, 
-          user: true, 
-          items: { include: { product: true } } 
-      }
-    });
-    return JSON.parse(JSON.stringify(order));
-  } catch (error) { return null; }
-}
-
-export async function deleteOrder(orderId: string) {
-  try {
-    await prisma.$transaction(async (tx) => {
-        // استرجاع الكميات للمخزون قبل الحذف
-        const orderItems = await tx.orderItem.findMany({ where: { orderId } });
-        for (const item of orderItems) {
-           const piecesToReturn = item.quantity * PIECES_PER_UNIT;
-           await tx.product.update({
-              where: { id: item.productId },
-              data: { currentStock: { increment: piecesToReturn } }
-           });
-        }
-        await tx.orderItem.deleteMany({ where: { orderId } });
-        await tx.order.delete({ where: { id: orderId } });
-    });
-    revalidatePath('/orders/list');
-    return { success: true };
-  } catch (error) { return { success: false }; }
-}
-
-export async function updateOrder(orderId: string, data: any) {
-    const { items, total, deposit, safeId, currency } = data;
-    try {
-        await prisma.$transaction(async (tx) => {
-            // 1. استرجاع كميات الأصناف القديمة
-            const oldItems = await tx.orderItem.findMany({ where: { orderId } });
-            for (const item of oldItems) {
-               const piecesToReturn = item.quantity * PIECES_PER_UNIT;
-               await tx.product.update({
-                  where: { id: item.productId },
-                  data: { currentStock: { increment: piecesToReturn } }
-               });
-            }
-            await tx.orderItem.deleteMany({ where: { orderId } });
-
-            // 2. خصم الكميات الجديدة (بنفس منطق التحقق من الحالة)
-            for (const cartItem of items) {
-              for (const variant of cartItem.variants) {
-                const requestedPieces = variant.quantity * PIECES_PER_UNIT;
-                
-                const product = await tx.product.findUnique({ where: { id: variant.productId } });
-                if (!product) throw new Error(`الصنف غير موجود`);
-
-                if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
-                    throw new Error(`عذراً، الرصيد لا يكفي للصنف المغلق: ${product.modelNo} أثناء التعديل`);
-                }
-
-                await tx.product.update({
-                    where: { id: variant.productId },
-                    data: { currentStock: { decrement: requestedPieces } }
-                });
-
-                await tx.orderItem.create({
-                    data: {
-                        orderId: orderId,
-                        productId: variant.productId,
-                        quantity: variant.quantity,
-                        price: variant.price,
-                        discountPercent: variant.discountPercent || 0
-                    }
-                });
-              }
-            }
-
-            // 3. تحديث بيانات الأوردر
-            await tx.order.update({
-                where: { id: orderId },
-                data: {
-                    totalAmount: total,
-                    deposit: deposit || 0,
-                    currency: currency || 'EGP',
-                    safeId: deposit > 0 ? safeId : null
-                }
-            });
-        });
-        revalidatePath('/orders/list');
-        return { success: true };
-    } catch (error: any) { 
-        return { success: false, error: error.message || 'فشل التحديث' }; 
-    }
-}
-
-export async function getUserOrders(userId: string) {
-  try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    let whereCondition = {};
-    if (user?.role !== 'ADMIN' && user?.role !== 'OWNER') {
-      whereCondition = { userId: userId };
-    }
-    const orders = await prisma.order.findMany({
-      where: whereCondition,
-      include: { 
-          customer: true, 
-          user: true, 
-          items: { include: { product: true } } 
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 100
-    });
-    return { orders: JSON.parse(JSON.stringify(orders)), userRole: user?.role };
-  } catch (error) { return { orders: [], userRole: 'EMPLOYEE' }; }
-}
-
-// ==========================================
-// 4. إدارة النقدية والموظفين
-// ==========================================
-export async function createPayment(data: any, userId: string) {
-  const { type, amount, currency, safeId, customerId, targetSafeId, description } = data;
-  try {
-    await prisma.payment.create({ 
-      data: { 
-        type, 
-        amount: parseFloat(amount), 
-        currency: currency || 'EGP', 
-        safeId, 
-        userId,
-        customerId: customerId || null,
-        targetSafeId: targetSafeId || null,
-        description: description || ''
-      } 
-    });
-    revalidatePath('/');
-    return { success: true };
-  } catch (error) { return { success: false, error: 'فشل العملية' }; }
-}
-
-export async function registerEmployee(data: any) {
-  try {
-    const { code, name, password } = data;
-    const existingUser = await prisma.user.findUnique({ where: { code } });
-    if (existingUser) return { success: false, error: 'كود الموظف مستخدم بالفعل' };
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    await prisma.user.create({
-      data: { code, name, password: hashedPassword, role: 'EMPLOYEE' }
-    });
-    return { success: true };
-  } catch (e) { return { success: false, error: 'حدث خطأ أثناء التسجيل' }; }
-}
-
-export async function getCurrentUser(userId: string) {
-  if (!userId) return null;
-  try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    return JSON.parse(JSON.stringify(user));
-  } catch (error) { return null; }
-}
-
-// ==========================================
-// 5. تقارير الجرد
-// ==========================================
 export async function getInventoryReport() {
   try {
     const products = await prisma.product.findMany({
@@ -311,13 +16,8 @@ export async function getInventoryReport() {
     });
 
     const report = products.map(p => {
-        // الرصيد الأولي (ثابت من إدخال الأدمن)
         const initial = p.stockQty || 0;
-        
-        // الرصيد الحالي (المتغير في قاعدة البيانات)
         const current = p.currentStock;
-        
-        // المباع (محسوب من الفواتير لضمان الدقة في التقرير)
         const totalSoldPieces = p.orderItems.reduce((acc, item) => {
             return acc + ((item.quantity || 0) * PIECES_PER_UNIT);
         }, 0);
@@ -381,21 +81,32 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         dateFilter.lte = end;
     }
 
+    // 1. جلب المدفوعات مع استثناء دفعات الأوردة لتجنب التكرار
     const payments = await prisma.payment.findMany({
       where: {
         OR: [ { safeId: safeId }, { targetSafeId: safeId } ],
-        createdAt: startDate || endDate ? dateFilter : undefined
+        createdAt: startDate || endDate ? dateFilter : undefined,
+        // تم التعديل هنا: استثناء نوع PAYMENT_COLLECTION تماماً لأنه يُجلب من جدول الأوردات بالأسفل
+        type: {
+          notIn: ['PAYMENT_COLLECTION']
+        }
       },
       include: { customer: true, user: true, safe: true, targetSafe: true }
     });
 
+    // 2. جلب الأوردات (التي تمثل العربون الوارد للخزنة)
     const orders = await prisma.order.findMany({
-      where: { safeId, deposit: { gt: 0 }, createdAt: startDate || endDate ? dateFilter : undefined },
+      where: { 
+          safeId, 
+          deposit: { gt: 0 }, 
+          createdAt: startDate || endDate ? dateFilter : undefined 
+      },
       include: { customer: true, user: true }
     });
 
     let transactions: any[] = [];
 
+    // معالجة المدفوعات (سندات القبض والصرف والتحويلات اليدوية)
     payments.forEach((p: any) => {
         let desc = '';
         let inAmt = 0;
@@ -405,7 +116,7 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         if (p.type === 'IN') {
              typeLabel = 'سند قبض';
              const custName = p.customer?.name || 'عميل';
-             desc = p.customer ? `إيصال #${p.receiptNo} - ${custName}` : `إيصال #${p.receiptNo}`;
+             desc = p.description || (p.customer ? `إيصال #${p.receiptNo} - ${custName}` : `إيصال #${p.receiptNo}`);
              inAmt = p.amount;
         } else if (p.type === 'OUT') {
              typeLabel = 'سند صرف';
@@ -425,27 +136,36 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
              }
         }
 
-        transactions.push({
-            id: p.id, 
-            date: p.createdAt, 
-            type: typeLabel,
-            description: desc,
-            currency: p.currency || 'EGP',
-            inAmount: inAmt, 
-            outAmount: outAmt, 
-            user: p.user.name
-        });
+        // إضافة الحركة فقط إذا كان لها نوع (لتجنب الأسطر الفارغة)
+        if (typeLabel) {
+            transactions.push({
+                id: p.id, 
+                date: p.createdAt, 
+                type: typeLabel,
+                description: desc,
+                currency: p.currency || 'EGP',
+                inAmount: inAmt, 
+                outAmount: outAmt, 
+                user: p.user.name
+            });
+        }
     });
 
+    // معالجة الأوردات (العربون)
     orders.forEach(o => {
         transactions.push({
-            id: o.id, date: o.createdAt, type: 'عربون أوردر',
+            id: o.id, 
+            date: o.createdAt, 
+            type: 'عربون أوردر',
             description: `أوردر #${o.orderNo} - ${o.customer.name}`,
             currency: o.currency || 'EGP',
-            inAmount: o.deposit, outAmount: 0, user: o.user.name
+            inAmount: o.deposit, 
+            outAmount: 0, 
+            user: o.user.name
         });
     });
 
+    // ترتيب الحركات حسب التاريخ
     transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     const summaryByCurrency: any = {};
