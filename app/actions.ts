@@ -116,26 +116,48 @@ export async function getSafes() {
 export async function getProductsForSearch() {
   try {
     const products = await prisma.product.findMany({
-      select: {
-        id: true,
-        modelNo: true,
-        color: true,
-        price: true,
-        currentStock: true,
-        status: true,
-        description: true,
-        discount: true, // خصم المنتج الموسمي
+      include: {
+        // نجلب مبيعات كل صنف لنحسب الرصيد الفعلي حالاً
+        orderItems: {
+          select: { quantity: true }
+        }
       },
-      orderBy: {
-        modelNo: 'asc'
-      }
+      orderBy: { modelNo: 'asc' }
     });
-    return JSON.parse(JSON.stringify(products));
+
+    const PIECES_PER_UNIT = 4; // التأكد من نفس المعامل
+
+    const logicalProducts = products.map(p => {
+        const initialPieces = p.stockQty || 0;
+        
+        // حساب إجمالي القطع المباعة
+        const totalSoldPieces = p.orderItems.reduce((acc, item) => {
+            return acc + ((item.quantity || 0) * PIECES_PER_UNIT);
+        }, 0);
+
+        // الرصيد الفعلي بالقطع
+        const actualCurrentStockPieces = initialPieces - totalSoldPieces;
+
+        return {
+            id: p.id,
+            modelNo: p.modelNo,
+            color: p.color,
+            price: p.price,
+            // نرسل الرصيد المحسوب بدلاً من المخزن في قاعدة البيانات
+            currentStock: actualCurrentStockPieces, 
+            status: p.status,
+            description: p.description,
+            discount: p.discount,
+        };
+    });
+
+    return JSON.parse(JSON.stringify(logicalProducts));
   } catch (error) {
     console.error("Error fetching products for search:", error);
     return [];
   }
 }
+
 
 export async function searchProducts(term: string) {
   if (!term || term.length < 2) return []
