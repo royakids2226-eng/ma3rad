@@ -2,6 +2,21 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getInventoryReport, getSafesList, getSafeLedger, getEmployeePerformance } from '@/app/report-actions';
 import { useSession } from 'next-auth/react';
+import * as XLSX from 'xlsx';
+
+// 1. دالة التصدير العمومية التي اقترحتها
+const exportToExcel = (data: any[], fileName: string) => {
+    if (data.length === 0) {
+        alert('لا توجد بيانات حالية في الجدول لتصديرها.');
+        return;
+    }
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
+    // إضافة التاريخ لاسم الملف لجعله فريداً
+    XLSX.writeFile(workbook, `${fileName}_${new Date().toISOString().split('T')[0]}.xlsx`);
+};
+
 
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<'INVENTORY' | 'SAFE' | 'EMPLOYEES'>('INVENTORY');
@@ -22,10 +37,22 @@ export default function ReportsPage() {
           </div>
         </div>
         
-        <div className="flex gap-2 w-full md:w-auto">
+        {/* 2. تعديل الهيدر واستخدام CustomEvent */}
+        <div className="flex gap-2 w-full md:w-auto print:hidden">
+            <button 
+              onClick={() => {
+                const event = new CustomEvent('download-excel');
+                window.dispatchEvent(event);
+              }}
+              className="flex-1 md:flex-none bg-green-700 text-white px-8 py-4 rounded-2xl font-black shadow-xl hover:bg-green-800 transition-all transform active:scale-95 flex items-center justify-center gap-3"
+            >
+                <span className="text-xl">📄</span>
+                <span>تحميل Excel</span>
+            </button>
+
             <button 
               onClick={() => window.print()} 
-              className="flex-1 md:flex-none bg-slate-900 text-white px-10 py-4 rounded-2xl font-black shadow-xl hover:bg-black transition-all transform active:scale-95 flex items-center justify-center gap-3 print:hidden"
+              className="flex-1 md:flex-none bg-slate-900 text-white px-10 py-4 rounded-2xl font-black shadow-xl hover:bg-black transition-all transform active:scale-95 flex items-center justify-center gap-3"
             >
                 <span className="text-xl">🖨️</span>
                 <span>طباعة التقرير</span>
@@ -151,6 +178,26 @@ function InventoryReportView() {
             return 0;
         });
     }
+    
+    // 3. أ. إضافة المستمع داخل تقرير المخزون
+    useEffect(() => {
+        const handleDownload = () => {
+            const excelData = displayData.map(item => ({
+                "كود الموديل": item.modelNo,
+                "اللون/الألوان": viewMode === 'COLOR' ? item.color : item.colors.join(', '),
+                "الرصيد الأولي (قطعة)": item.initialStock,
+                "المباع (قطعة)": item.totalSold,
+                "الرصيد الحالي (قطعة)": item.currentStock,
+                "نسبة المبيع": `${item.salesPercentage.toFixed(1)}%`,
+                "الحالة": item.status === 'OPEN' ? 'مفتوح' : (item.status === 'CLOSED' ? 'مغلق' : 'مختلط'),
+                ...(userRole !== 'ACCOUNTANT' && { "القيمة المالية للمخزون": item.currentValue })
+            }));
+            exportToExcel(excelData, "Inventory_Report");
+        };
+        window.addEventListener('download-excel', handleDownload);
+        return () => window.removeEventListener('download-excel', handleDownload);
+    }, [displayData, viewMode, userRole]);
+
 
     const handleSort = (key: string) => {
         let direction: 'asc' | 'desc' = 'desc';
@@ -406,6 +453,24 @@ function SafeLedgerView() {
 
     useEffect(() => { fetchLedgerData(); }, [fetchLedgerData]);
 
+    // 3. ب. إضافة المستمع داخل دفتر الخزينة
+    useEffect(() => {
+        const handleDownload = () => {
+            const excelData = ledger.map(row => ({
+                "التاريخ": new Date(row.date).toLocaleDateString('ar-EG'),
+                "نوع الحركة": row.type,
+                "البيان": row.description,
+                "العملة": row.currency,
+                "وارد": row.inAmount > 0 ? row.inAmount : '-',
+                "صادر": row.outAmount > 0 ? row.outAmount : '-',
+                "المستخدم": row.user
+            }));
+            exportToExcel(excelData, "Safe_Ledger_Report");
+        };
+        window.addEventListener('download-excel', handleDownload);
+        return () => window.removeEventListener('download-excel', handleDownload);
+    }, [ledger]);
+
     const getCurrencyName = (code: string) => {
         const names: any = { 'EGP': 'جنيه مصري', 'USD': 'دولار أمريكي', 'SAR': 'ريال سعودي', 'KWD': 'دينار كويتي' };
         return names[code] || code;
@@ -525,6 +590,22 @@ function EmployeePerformanceView() {
             return 0;
         });
     }
+
+    // 3. ج. إضافة المستمع داخل تقرير أداء الموظفين
+    useEffect(() => {
+        const handleDownload = () => {
+            const excelData = sortedData.map(emp => ({
+                "اسم الموظف": emp.name,
+                "كود الدخول": emp.code,
+                "عدد الأوردرات": emp.orderCount,
+                ...(userRole !== 'ACCOUNTANT' && { "إجمالي المبيعات": emp.totalSales }),
+                "الخصومات الممنوحة": emp.totalDiscount
+            }));
+            exportToExcel(excelData, "Employees_Performance_Report");
+        };
+        window.addEventListener('download-excel', handleDownload);
+        return () => window.removeEventListener('download-excel', handleDownload);
+    }, [sortedData, userRole]);
 
     const handleSort = (key: string) => {
         let direction: 'asc' | 'desc' = 'desc';
