@@ -114,6 +114,7 @@ function InventoryReportView() {
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'totalSold', direction: 'desc' });
     const [selectedHistory, setSelectedHistory] = useState<any[] | null>(null);
     const [selectedItemName, setSelectedItemName] = useState('');
+    const [showDetailedColors, setShowDetailedColors] = useState(false);
 
     useEffect(() => {
         getInventoryReport().then(res => {
@@ -132,7 +133,7 @@ function InventoryReportView() {
                 groups[item.modelNo] = {
                     id: item.modelNo,
                     modelNo: item.modelNo,
-                    colors: [], 
+                    colors: [], // سنخزن هنا مصفوفة من الكائنات
                     initialStock: 0,
                     totalSold: 0,
                     currentStock: 0,
@@ -142,7 +143,14 @@ function InventoryReportView() {
                 };
             }
             const g = groups[item.modelNo];
-            if (!g.colors.includes(item.color)) g.colors.push(item.color);
+            
+            // إضافة تفاصيل اللون (الاسم، المباع، المتاح)
+            g.colors.push({
+                name: item.color,
+                sold: item.totalSold,
+                stock: item.currentStock
+            });
+    
             g.initialStock += item.initialStock;
             g.totalSold += item.totalSold;
             g.currentStock += item.currentStock;
@@ -163,9 +171,11 @@ function InventoryReportView() {
         displayData = displayData.filter((item: any) => {
             const term = searchTerm.toLowerCase();
             const matchesModel = item.modelNo.toLowerCase().includes(term);
+            
+            // البحث في الألوان بناءً على الهيكل الجديد
             const matchesColor = viewMode === 'COLOR' 
                 ? item.color.toLowerCase().includes(term) 
-                : item.colors.join(' ').toLowerCase().includes(term);
+                : item.colors.some((c: any) => c.name.toLowerCase().includes(term));
             
             return matchesModel || matchesColor;
         });
@@ -179,24 +189,43 @@ function InventoryReportView() {
         });
     }
     
-    // 3. أ. إضافة المستمع داخل تقرير المخزون
     useEffect(() => {
-        const handleDownload = () => {
-            const excelData = displayData.map(item => ({
+    const handleDownload = () => {
+        const excelData = displayData.map(item => {
+            // منطق ذكي: هل نعرض المتاح أم لا بناءً على اختيارك في الواجهة؟
+            const colorsDetail = viewMode === 'COLOR' 
+                ? item.color 
+                : item.colors.map((c: any) => {
+                    // إذا كان showDetailedColors (إظهار المتاح) مفعلاً، ننزل البيانات كاملة
+                    if (showDetailedColors) {
+                        return `${c.name}: (${c.sold / 4} سرية | ${c.stock / 4} متاح)`;
+                    } 
+                    // إذا كان مطفأ (المباع فقط)، ننزل المباع فقط في الإكسيل
+                    else {
+                        return `${c.name}: (${c.sold / 4} سرية)`;
+                    }
+                }).join(' - ');
+
+            return {
                 "كود الموديل": item.modelNo,
-                "اللون/الألوان": viewMode === 'COLOR' ? item.color : item.colors.join(', '),
+                "الألوان والتفاصيل": colorsDetail,
                 "الرصيد الأولي (قطعة)": item.initialStock,
-                "المباع (قطعة)": item.totalSold,
-                "الرصيد الحالي (قطعة)": item.currentStock,
+                "إجمالي المباع (قطعة)": item.totalSold,
+                "إجمالي الرصيد الحالي": item.currentStock,
                 "نسبة المبيع": `${item.salesPercentage.toFixed(1)}%`,
-                "الحالة": item.status === 'OPEN' ? 'مفتوح' : (item.status === 'CLOSED' ? 'مغلق' : 'مختلط'),
-                ...(userRole !== 'ACCOUNTANT' && { "القيمة المالية للمخزون": item.currentValue })
-            }));
-            exportToExcel(excelData, "Inventory_Report");
-        };
-        window.addEventListener('download-excel', handleDownload);
-        return () => window.removeEventListener('download-excel', handleDownload);
-    }, [displayData, viewMode, userRole]);
+                "الحالة": item.status === 'OPEN' ? 'مفتوح' : 'مغلق',
+                "القيمة المالية": item.currentValue
+            };
+        });
+
+        exportToExcel(excelData, viewMode === 'COLOR' ? "Inventory_By_Color" : "Inventory_By_Model");
+    };
+
+    window.addEventListener('download-excel', handleDownload);
+    return () => window.removeEventListener('download-excel', handleDownload);
+    
+    // ملاحظة مهمة جداً: أضفنا showDetailedColors هنا لكي يتحدث الإكسيل عند تغيير الزر
+}, [displayData, viewMode, showDetailedColors]);
 
 
     const handleSort = (key: string) => {
@@ -255,10 +284,20 @@ function InventoryReportView() {
                         )}
                     </div>
 
-                    <div className="bg-gray-100 p-2 rounded-2xl flex text-sm shadow-inner print:hidden shrink-0">
-                        <button onClick={() => { setViewMode('COLOR'); setSortConfig(null); }} className={`px-6 md:px-10 py-3 rounded-xl transition-all ${viewMode === 'COLOR' ? 'bg-white shadow-xl text-blue-700 font-black' : 'text-gray-500 hover:text-gray-700'}`}>عرض الألوان</button>
-                        <button onClick={() => { setViewMode('MODEL'); setSortConfig(null); }} className={`px-6 md:px-10 py-3 rounded-xl transition-all ${viewMode === 'MODEL' ? 'bg-white shadow-xl text-blue-700 font-black' : 'text-gray-500 hover:text-gray-700'}`}>عرض الموديلات</button>
-                    </div>
+                    <div className="bg-gray-100 p-2 rounded-2xl flex text-sm shadow-inner print:hidden shrink-0 items-center gap-2">
+    <button onClick={() => { setViewMode('COLOR'); setSortConfig(null); }} className={`px-6 md:px-10 py-3 rounded-xl transition-all ${viewMode === 'COLOR' ? 'bg-white shadow-xl text-blue-700 font-black' : 'text-gray-500 hover:text-gray-700'}`}>عرض الألوان</button>
+    <button onClick={() => { setViewMode('MODEL'); setSortConfig(null); }} className={`px-6 md:px-10 py-3 rounded-xl transition-all ${viewMode === 'MODEL' ? 'bg-white shadow-xl text-blue-700 font-black' : 'text-gray-500 hover:text-gray-700'}`}>عرض الموديلات</button>
+    
+    {/* الزر الجديد للتحكم في التفاصيل */}
+    {viewMode === 'MODEL' && (
+        <button 
+            onClick={() => setShowDetailedColors(!showDetailedColors)}
+            className={`mr-2 px-4 py-2 rounded-xl text-[10px] font-black transition-all border ${showDetailedColors ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-600 border-blue-200'}`}
+        >
+            {showDetailedColors ? '📉 إخفاء المتاح' : '📈 إظهار المتاح'}
+        </button>
+    )}
+</div>
                 </div>
             </div>
             
@@ -315,8 +354,36 @@ function InventoryReportView() {
                                 <tr key={item.id} className="hover:bg-blue-50/50 transition-all group">
                                     <td className="p-6 font-black text-gray-900 text-xl group-hover:text-blue-600 transition-colors">{item.modelNo}</td>
                                     <td className="p-6 text-gray-500 font-medium italic">
-                                        {viewMode === 'COLOR' ? item.color : <span className="bg-gray-100 px-3 py-1 rounded-xl text-[10px] font-bold text-gray-400">{item.colors.join(', ')}</span>}
-                                    </td>
+    {viewMode === 'COLOR' ? (
+        item.color
+    ) : (
+        <div className="flex flex-wrap gap-1.5 max-w-[450px]">
+            {item.colors.map((c: any, idx: number) => (
+                <div 
+                    key={idx} 
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded-xl border transition-all ${showDetailedColors ? 'bg-white border-blue-100 shadow-sm' : 'bg-gray-50 border-gray-100'}`}
+                >
+                    <span className="text-[10px] font-black text-gray-700">{c.name}</span>
+                    
+                    {/* عرض المباع بالسريات (القسمة على 4) */}
+                    <span className="bg-blue-100 text-blue-700 text-[9px] px-1.5 py-0.5 rounded-lg font-black">
+                        {c.sold / 4} سرية
+                    </span>
+
+                    {/* عرض المتاح بالسريات عند التفعيل */}
+                    {showDetailedColors && (
+                        <div className="flex items-center gap-1 border-r border-gray-100 pr-1.5 mr-0.5">
+                            <span className="text-[8px] text-gray-400">متاح:</span>
+                            <span className={`text-[9px] font-black ${c.stock <= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                                {c.stock / 4}
+                            </span>
+                        </div>
+                    )}
+                </div>
+            ))}
+        </div>
+    )}
+</td>
                                     <td className="p-6 font-bold text-blue-700 bg-blue-50/20">{item.initialStock}</td>
                                     <td className="p-6 bg-yellow-50/20">
                                         {item.totalSold > 0 ? (
