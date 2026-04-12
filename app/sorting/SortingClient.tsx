@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useTransition } from 'react';
 import Link from 'next/link';
-import { queueOrderBatchProcessing, undoOrderBatch } from './actions';
+import { processSortingBatchDirectly, undoOrderBatch } from './actions';
+import * as XLSX from 'xlsx';
 
 
 // All the type definitions remain the same...
@@ -167,20 +168,43 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     });
   }, [selectedOrder, viewMode, selectedBatchId]);
 
+   const handleExportToExcel = (order: OrderType) => {
+    // 1. تجميع البيانات (barcode هو موديل الصنف و qty هو الكمية المنفذة)
+    // قمنا بعمل reduce هنا لجمع الكميات إذا كان الموديل متكرر بألوان مختلفة
+    const dataForExcel = order.itemDetails
+        .filter(item => item.alreadyFulfilled > 0) // فقط الأصناف التي تم صرفها
+        .reduce((acc: any[], item) => {
+            const existing = acc.find(x => x.barcode === item.modelNo);
+            if (existing) {
+                existing.qty += item.alreadyFulfilled;
+            } else {
+                acc.push({
+                    barcode: item.modelNo,
+                    qty: item.alreadyFulfilled
+                });
+            }
+            return acc;
+        }, []);
 
-  /**
-   * MODIFIED: This function now queues the job instead of executing it directly.
-   */
+    // 2. إنشاء ورقة العمل (Worksheet)
+    const ws = XLSX.utils.json_to_sheet(dataForExcel);
+    
+    // 3. إنشاء كتاب العمل (Workbook) وتسمية الورقة Sheet1 كما طلبت
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+
+    // 4. تنزيل الملف باسم العميل
+    XLSX.writeFile(wb, `${order.customer.name}.xlsx`);
+};
+
   const handleQueueAndPrint = async () => {
     if (!selectedOrder) return;
 
-    // If not in 'current' mode, the button just prints the historical view.
+    // إذا لم نكن في وضع "الصرف الحالي"، نقوم بالطباعة فقط (لأنها بيانات قديمة)
     if (viewMode !== 'current') {
       window.print();
       return;
     }
-
-    if (!confirm('هل أنت متأكد من إرسال الكميات المتاحة للمعالجة؟ سيتم تجهيزها في الخلفية.')) return;
 
     const itemsToFulfill = selectedOrder.itemDetails
       .filter(item => item.qtyAllocatedPieces > 0)
@@ -194,19 +218,21 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
       return;
     }
 
+    if (!confirm('سيتم الآن خصم الكميات المتاحة من المخزن وطباعة الإذن. هل أنت متأكد؟')) return;
+
     startTransition(async () => {
-      // Use the new server action to queue the job.
-      const result = await queueOrderBatchProcessing(selectedOrder.id, itemsToFulfill);
+      // استدعاء المعالجة المباشرة
+      const result = await processSortingBatchDirectly(selectedOrder.id, itemsToFulfill);
 
       if (result.success) {
-        // Give immediate feedback to the user and allow them to print what they *see*.
-        alert(result.message);
-        // We can now safely close the modal and the UI will update once the job is done.
-        setSelectedOrder(null);
-        // Optional: you could trigger a print of the *current view* as a reference.
-        // window.print(); 
+        // بمجرد نجاح الخصم في قاعدة البيانات، نفتح نافذة الطباعة فوراً
+        setTimeout(() => {
+            window.print();
+            alert("✅ تمت المعالجة والطباعة بنجاح");
+            setSelectedOrder(null); // إغلاق النافذة
+        }, 500); // تأخير بسيط لضمان استقرار الواجهة
       } else {
-        alert(`فشل إرسال الطلب للمعالجة: ${result.error}`);
+        alert(`❌ فشل: ${result.error}`);
       }
     });
   };
@@ -338,11 +364,33 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                    )}
                 </div>
 
-                <button 
-                  onClick={() => openModal(order)}
-                  className={`w-full py-2 text-white rounded-lg transition-colors font-bold flex justify-center items-center gap-2 ${order.isCompletelyDone ? 'bg-green-600 hover:bg-green-700' : 'bg-slate-800 hover:bg-slate-700'}`}>
-                  {order.isCompletelyDone ? '📄 مراجعة الأرشيف' : '📄 تنفيذ / طباعة'}
-                </button>
+                
+                {order.isCompletelyDone ? (
+                    <div className="flex items-stretch gap-2">
+                        <button
+                            onClick={() => openModal(order)}
+                            className="flex-grow py-2 text-white rounded-lg transition-colors font-bold flex justify-center items-center gap-2 bg-green-600 hover:bg-green-700"
+                        >
+                            📄 مراجعة الأرشيف
+                        </button>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleExportToExcel(order);
+                            }}
+                            className="flex-grow py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-bold flex justify-center items-center gap-2"
+                        >
+                            📄 تحميل اكسيل
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => openModal(order)}
+                        className="w-full py-2 text-white rounded-lg transition-colors font-bold flex justify-center items-center gap-2 bg-slate-800 hover:bg-slate-700"
+                    >
+                        📄 تنفيذ / طباعة
+                    </button>
+                )}
               </div>
             );
           })}
@@ -425,8 +473,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                     </button>
                 )}
                 <div className="flex-grow flex justify-end gap-2">
-                    {/* MODIFIED: Button text and handler */}
-                    <button 
+                     <button 
                         onClick={handleQueueAndPrint} 
                         disabled={isPending || (viewMode === 'current' && selectedOrder.itemsAllocatedNow === 0)}
                         className={`px-6 py-2 rounded text-white flex items-center gap-2 font-bold shadow-md
@@ -435,7 +482,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                                 : viewMode === 'current' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-800 hover:bg-slate-900'
                             }`}
                     >
-                        {isPending ? 'جاري الإرسال...' : (viewMode === 'current' ? '🚀 إرسال للمعالجة' : '🖨️ طباعة السجل المعروض')}
+                        {isPending ? '⏳ جاري المعالجة...' : (viewMode === 'current' ? '🚀 تنفيذ وطباعة فورية' : '🖨️ طباعة السجل المعروض')}
                     </button>
                     <button onClick={() => setSelectedOrder(null)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">إغلاق</button>
                 </div>
@@ -491,7 +538,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         </td>
                         <td className="border border-gray-300 p-2">
                             <span className="font-bold text-base block">{item.modelNo}</span>
-                            {item.description && <span className="text-gray-500 text-xs">{item.description}</span>}
+                            {item.description && <span className="text-gray-500 text-xs">{item.description}</span>} 
                         </td>
                         <td className="border border-gray-300 p-2 font-medium text-xs">
                             {item.colorsDisplay}
