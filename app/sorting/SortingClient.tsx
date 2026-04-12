@@ -45,6 +45,7 @@ type OrderType = {
   itemsAllocatedNow: number;
   itemsPendingTotal: number;
   isCompletelyDone: boolean;
+  totalFulfilledOverall: number;
   itemDetails: ItemDetail[];
 };
 
@@ -55,6 +56,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
   const [selectedOrder, setSelectedOrder] = useState<OrderType | null>(null);
   const [viewMode, setViewMode] = useState<'current' | 'history' | 'specific'>('current');
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
+  const [archiveViewType, setArchiveViewType] = useState<'executed_only' | 'full_statement'>('executed_only');
   const [isPending, startTransition] = useTransition();
   const [isUndoPending, startUndoTransition] = useTransition();
   const [isQuickUndoPending, startQuickUndoTransition] = useTransition();
@@ -72,10 +74,48 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
       });
   };
 
+    const handleExportLastBatchExcel = (order: OrderType) => {
+        const allLogs = order.itemDetails.flatMap(item => 
+            item.logs.map(log => ({ ...log, modelNo: item.modelNo }))
+        );
+
+        if (allLogs.length === 0) return alert("لا توجد سجلات صرف لهذا الأوردر");
+
+        const latestLog = allLogs.reduce((prev, current) => 
+            (new Date(prev.createdAt) > new Date(current.createdAt)) ? prev : current
+        );
+        const latestBatchId = latestLog.batchId;
+
+        const lastBatchData = allLogs
+            .filter(log => log.batchId === latestBatchId)
+            .reduce((acc: any[], log) => {
+                const existing = acc.find(x => x.barcode === log.modelNo);
+                if (existing) {
+                    existing.qty += log.quantity;
+                } else {
+                    acc.push({
+                        barcode: log.modelNo,
+                        qty: log.quantity
+                    });
+                }
+                return acc;
+            }, []);
+
+        const ws = XLSX.utils.json_to_sheet(lastBatchData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+        
+        XLSX.writeFile(wb, `${order.customer.name}_اخر_دفعة.xlsx`);
+    };
+
   const filteredAndSortedOrders = useMemo(() => {
     let result = [...initialOrders];
 
-    result = result.filter(o => showCompleted ? o.isCompletelyDone : !o.isCompletelyDone);
+    if (showCompleted) {
+        result = result.filter(o => o.totalFulfilledOverall > 0);
+    } else {
+        result = result.filter(o => !o.isCompletelyDone);
+    }
 
     if (searchTerm) {
       const lowerTerm = searchTerm.toLowerCase();
@@ -123,55 +163,59 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     const groups: { [key: string]: any } = {};
 
     selectedOrder.itemDetails.forEach((item) => {
-      let quantityToShow = 0;
-      let colorsToShow: {[key:string]: number} = {};
+        let quantityToShow = 0;
+        let colorsToShow: {[key:string]: number} = {};
 
-      if (viewMode === 'current') {
-          quantityToShow = item.qtyAllocatedPieces;
-          if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
-
-      } else if (viewMode === 'history') {
-          quantityToShow = item.alreadyFulfilled;
-           if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
-
-      } else if (viewMode === 'specific' && selectedBatchId) {
-          const batchLog = item.logs.find(log => log.batchId === selectedBatchId);
-          quantityToShow = batchLog ? batchLog.quantity : 0;
-          if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
-      }
-
-      if (!groups[item.modelNo]) {
-        groups[item.modelNo] = {
-          ...item,
-          displayQty: quantityToShow,
-          colorsCount: colorsToShow,
-          totalQtyPieces: item.totalQtyPieces,
-          totalRemaining: item.remainingNeeded,
-        };
-      } else {
-        groups[item.modelNo].totalQtyPieces += item.totalQtyPieces;
-        groups[item.modelNo].totalRemaining += item.remainingNeeded;
-        groups[item.modelNo].displayQty += quantityToShow;
-
-        if (quantityToShow > 0) {
-            groups[item.modelNo].colorsCount[item.color] = (groups[item.modelNo].colorsCount[item.color] || 0) + quantityToShow;
+        if (viewMode === 'current') {
+            quantityToShow = item.qtyAllocatedPieces;
+            if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
+        } else if (viewMode === 'history') {
+            quantityToShow = item.alreadyFulfilled;
+            if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
+        } else if (viewMode === 'specific' && selectedBatchId) {
+            const batchLog = item.logs.find(log => log.batchId === selectedBatchId);
+            quantityToShow = batchLog ? batchLog.quantity : 0;
+            if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
         }
-      }
+
+        if (!groups[item.modelNo]) {
+            groups[item.modelNo] = {
+                ...item,
+                displayQty: quantityToShow,
+                colorsCount: colorsToShow,
+                totalQtyPieces: item.totalQtyPieces,
+                totalRemaining: item.remainingNeeded,
+            };
+        } else {
+            groups[item.modelNo].totalQtyPieces += item.totalQtyPieces;
+            groups[item.modelNo].totalRemaining += item.remainingNeeded;
+            groups[item.modelNo].displayQty += quantityToShow;
+            if (quantityToShow > 0) {
+                groups[item.modelNo].colorsCount[item.color] = (groups[item.modelNo].colorsCount[item.color] || 0) + quantityToShow;
+            }
+        }
     });
 
-    return Object.values(groups).map((group: any) => {
-        const colorsStr = Object.entries(group.colorsCount)
-          .map(([color, qty]) => `${color} (${qty})`)
-          .join(' + ');
+    return Object.values(groups)
+        .map((group: any) => {
+            const colorsStr = Object.entries(group.colorsCount)
+              .map(([color, qty]) => `${color} (${qty})`)
+              .join(' + ');
 
-        return {
-            ...group,
-            colorsDisplay: colorsStr === '' ? '-' : colorsStr,
-            isCheck: group.displayQty > 0,
-            lineTotal: group.displayQty * group.price
-        };
-    });
-  }, [selectedOrder, viewMode, selectedBatchId]);
+            return {
+                ...group,
+                colorsDisplay: colorsStr === '' ? '-' : colorsStr,
+                isCheck: group.displayQty > 0 
+            };
+        })
+        .filter(item => {
+            if (viewMode === 'history') {
+                return archiveViewType === 'executed_only' ? item.displayQty > 0 : true;
+            }
+            if (viewMode === 'specific') return item.displayQty > 0;
+            return true;
+        });
+}, [selectedOrder, viewMode, selectedBatchId, archiveViewType]);
 
    const handleExportToExcel = (order: OrderType) => {
     const dataForExcel = order.itemDetails
@@ -313,16 +357,22 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredAndSortedOrders.map((order) => {
-             let statusColor = "bg-red-500";
-             let statusText = "text-red-600";
-             
-             if (order.isCompletelyDone) {
-                statusColor = "bg-green-600";
-                statusText = "text-green-700";
-             } else if (order.readinessPercentage > 0) {
-                statusColor = "bg-amber-500";
-                statusText = "text-amber-600";
-             }
+            let statusText = "";
+            let statusColor = "";
+            let progressBarColor = "bg-red-500";
+
+            if (order.isCompletelyDone) {
+                statusText = "مكتمل ✅";
+                statusColor = "text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-200";
+                progressBarColor = "bg-green-500";
+            } else if (order.totalFulfilledOverall > 0) {
+                statusText = "تنفيذ جزئي ⏳";
+                statusColor = "text-orange-600 bg-orange-50 px-3 py-1 rounded-full border border-orange-200";
+                progressBarColor = "bg-amber-500";
+            } else {
+                statusText = `${order.readinessPercentage}%`;
+                statusColor = "text-red-600";
+            }
 
             return (
               <div key={order.id} className={`bg-white rounded-lg shadow-sm p-5 border relative group ${order.isCompletelyDone ? 'border-green-200 bg-green-50' : 'border-slate-100'}`}>
@@ -336,14 +386,14 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         </span>
                     </div>
                   </div>
-                  <div className={`text-xl font-bold ${statusText}`}>
-                    {order.isCompletelyDone ? 'مكتمل ✅' : `${order.readinessPercentage}%`}
+                  <div className={`text-base font-black ${statusColor}`}>
+                    {statusText}
                   </div>
                 </div>
 
                 {!order.isCompletelyDone && (
                     <div className="w-full bg-slate-100 rounded-full h-4 mb-4 overflow-hidden">
-                        <div className={`${statusColor} h-4 rounded-full`} style={{ width: `${order.readinessPercentage}%` }}></div>
+                        <div className={`${progressBarColor} h-4 rounded-full`} style={{ width: `${order.readinessPercentage}%` }}></div>
                     </div>
                 )}
 
@@ -356,36 +406,43 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                 </div>
 
                 
-                {order.isCompletelyDone ? (
-                    <div className="flex gap-2 mt-4">
-                        {/* زر مراجعة الأرشيف */}
-                        <button onClick={() => openModal(order)} className="flex-1 py-2 text-white rounded-lg font-bold bg-green-600 hover:bg-green-700">
-                            📄 الأرشيف
-                        </button>
-
-                        {/* زر التراجع الجديد */}
-                        <button 
-                            onClick={() => handleQuickUndo(order.id)}
-                            disabled={isQuickUndoPending}
-                            className="px-4 py-2 bg-red-100 text-red-700 border border-red-200 rounded-lg hover:bg-red-200 transition-all font-bold flex items-center gap-2 shadow-sm"
-                            title="تراجع وإعادة لقيد التنفيذ"
-                        >
-                            {isQuickUndoPending ? '...' : '🔄 تراجع'}
-                        </button>
-
-                        {/* زر الإكسيل */}
-                        <button onClick={() => handleExportToExcel(order)} className="px-4 py-2 bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-bold flex items-center gap-2">
-                            📊 Excel
-                        </button>
-                    </div>
-                ) : (
-                    <button
-                        onClick={() => openModal(order)}
-                        className="w-full py-2 text-white rounded-lg transition-colors font-bold flex justify-center items-center gap-2 bg-slate-800 hover:bg-slate-700"
+                <div className="flex flex-wrap gap-2 mt-4">
+                    <button 
+                        onClick={() => openModal(order)} 
+                        className={`flex-1 py-2 text-white rounded-lg font-bold transition-colors ${order.isCompletelyDone ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-600 hover:bg-orange-700'}`}
                     >
-                        📄 تنفيذ / طباعة
+                        📄 {order.isCompletelyDone ? 'الأرشيف' : 'متابعة الصرف'}
                     </button>
-                )}
+
+                    {order.totalFulfilledOverall > 0 && (
+                        <>
+                            <button 
+                                onClick={() => handleQuickUndo(order.id)}
+                                disabled={isQuickUndoPending}
+                                className="px-3 py-2 bg-red-100 text-red-700 border border-red-200 rounded-lg hover:bg-red-200 font-bold shadow-sm"
+                                title="تراجع عن آخر دفعة صرف"
+                            >
+                                {isQuickUndoPending ? '...' : '🔄 تراجع'}
+                            </button>
+
+                            <button 
+                                onClick={() => handleExportLastBatchExcel(order)}
+                                className="px-3 py-2 bg-blue-100 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-200 font-bold shadow-sm"
+                                title="تحميل إكسيل لآخر دفعة فقط"
+                            >
+                                📊 آخر دفعة
+                            </button>
+                            
+                            <button 
+                                onClick={() => handleExportToExcel(order)}
+                                className="px-3 py-2 bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-200 font-bold shadow-sm"
+                                title="تحميل إكسيل لكل المنصرف"
+                            >
+                                📁 إجمالي
+                            </button>
+                        </>
+                    )}
+                </div>
               </div>
             );
           })}
@@ -409,47 +466,26 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                   <button onClick={() => setSelectedOrder(null)} className="text-gray-500 hover:text-red-500 text-2xl font-bold">&times;</button>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                
-                <button 
-                    onClick={() => { setViewMode('current'); setSelectedBatchId(''); }}
-                    disabled={selectedOrder.isCompletelyDone}
-                    className={`p-3 rounded-lg border text-sm font-bold flex flex-col items-center gap-1
-                        ${viewMode === 'current' ? 'bg-white border-blue-500 text-blue-600 shadow-md ring-1 ring-blue-500' : 'bg-gray-100 text-gray-500 border-transparent hover:bg-white'}
-                        ${selectedOrder.isCompletelyDone ? 'opacity-50 cursor-not-allowed' : ''}
-                    `}
-                >
-                    <span>⚡ دفعة جديدة (متاحة الآن)</span>
-                </button>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-2 bg-gray-50 p-3 rounded-lg print:hidden">
+                    <button onClick={() => { setViewMode('current'); }} className={`p-2 rounded-lg border text-xs font-bold ${viewMode === 'current' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500'}`}>
+                        ⚡ دفعة جديدة
+                    </button>
 
-                <div className={`p-3 rounded-lg border flex flex-col gap-2 ${viewMode === 'specific' ? 'bg-white border-purple-500 shadow-md ring-1 ring-purple-500' : 'bg-gray-100 border-transparent'}`}>
-                    <label className={`text-sm font-bold text-center ${viewMode === 'specific' ? 'text-purple-600' : 'text-gray-500'}`}>📅 باتش سابق (أرشيف)</label>
-                    <select 
-                        className="w-full p-1 text-sm border rounded"
-                        value={selectedBatchId}
-                        onChange={(e) => { 
-                            setSelectedBatchId(e.target.value); 
-                            setViewMode(e.target.value ? 'specific' : viewMode);
-                        }}
-                    >
-                        <option value="">-- اختر تاريخ الصرف --</option>
-                        {pastBatches.map(batch => (
-                            <option key={batch.id} value={batch.id}>
-                                {new Date(batch.date).toLocaleString('ar-EG')}
-                            </option>
-                        ))}
-                    </select>
+                    <button onClick={() => { setViewMode('history'); setArchiveViewType('executed_only'); }} className={`p-2 rounded-lg border text-xs font-bold ${viewMode === 'history' && archiveViewType === 'executed_only' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500'}`}>
+                        🚚 كشف المنفذ فقط
+                    </button>
+
+                    <button onClick={() => { setViewMode('history'); setArchiveViewType('full_statement'); }} className={`p-2 rounded-lg border text-xs font-bold ${viewMode === 'history' && archiveViewType === 'full_statement' ? 'bg-slate-800 text-white' : 'bg-white text-gray-500'}`}>
+                        📊 الفاتورة العامة
+                    </button>
+
+                    <div className="p-1 border rounded bg-white flex flex-col">
+                        <select value={selectedBatchId} onChange={(e) => { setSelectedBatchId(e.target.value); setViewMode('specific'); }} className="text-[10px] outline-none">
+                            <option value="">📅 باتش سابق</option>
+                            {pastBatches.map(b => <option key={b.id} value={b.id}>{new Date(b.date).toLocaleDateString()}</option>)}
+                        </select>
+                    </div>
                 </div>
-
-                <button 
-                    onClick={() => { setViewMode('history'); setSelectedBatchId(''); }}
-                    className={`p-3 rounded-lg border text-sm font-bold flex flex-col items-center gap-1
-                        ${viewMode === 'history' ? 'bg-white border-gray-600 text-gray-800 shadow-md ring-1 ring-gray-600' : 'bg-gray-100 text-gray-500 border-transparent hover:bg-white'}
-                    `}
-                >
-                    <span>∑ إجمالي كل ما تم صرفه</span>
-                </button>
-              </div>
 
               <div className="flex justify-between items-center gap-2 mt-4">
                  {viewMode === 'specific' && selectedBatchId && (
@@ -480,9 +516,11 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
 
             <div className="print:block" dir="rtl">
               <div className="text-center mb-8 border-b border-black pb-4">
-                 <h1 className="text-3xl font-bold mb-2">
-                    {viewMode === 'current' ? 'إذن صرف بضاعة' : (viewMode === 'specific' ? 'نسخة طبق الأصل (باتش سابق)' : 'تقرير إجمالي المسحوبات')}
-                 </h1>
+                <h1 className="text-3xl font-bold mb-2 text-center">
+                    {viewMode === 'current' ? 'إذن صرف بضاعة' : 
+                    viewMode === 'history' ? (archiveViewType === 'executed_only' ? 'كشف بضاعة منفذة' : 'كشف حساب أوردر (عام)') : 
+                    'نسخة طبق الأصل (باتش سابق)'}
+                </h1>
                  <p className="text-gray-600">
                      تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}
                      {viewMode === 'specific' && selectedBatchId && (

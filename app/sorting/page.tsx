@@ -116,12 +116,13 @@ async function getOrdersWithAllocation() {
       ? Math.round((totalItemsAllocated / totalItemsPending) * 100) 
       : (isCompletelyDone ? 100 : 0);
 
+    const totalFulfilledOverall = itemDetails.reduce((acc, item) => acc + item.alreadyFulfilled, 0);
+
     return {
       id: order.id,
       orderNo: order.orderNo,
       createdAt: order.createdAt,
       
-      // الحقول المالية الصريحة للفاتورة (تستخدم داخل إذن الصرف)
       orderSpecificDeposit: Number(order.deposit) || 0, 
       orderTotalAmount: Number(order.totalAmount) || 0,
       orderRemainingBalance: (Number(order.totalAmount) || 0) - (Number(order.deposit) || 0),
@@ -131,7 +132,6 @@ async function getOrdersWithAllocation() {
         phone: order.customer.phone,
         phone2: (order.customer as any).phone2 || null,
         address: order.customer.address,
-        // النص الذي سيظهر الآن بشكل مضمون على الكارت من الخارج
         historicalDepositsText: historicalDepositString 
       },
 
@@ -139,6 +139,7 @@ async function getOrdersWithAllocation() {
       itemsAllocatedNow: totalItemsAllocated,
       itemsPendingTotal: totalItemsPending,
       isCompletelyDone: isCompletelyDone,
+      totalFulfilledOverall: totalFulfilledOverall, // Add this field
       itemDetails: itemDetails
     };
   });
