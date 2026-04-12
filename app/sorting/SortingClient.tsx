@@ -5,8 +5,6 @@ import Link from 'next/link';
 import { processSortingBatchDirectly, undoOrderBatch } from './actions';
 import * as XLSX from 'xlsx';
 
-
-// All the type definitions remain the same...
 type LogItem = {
     batchId: string;
     quantity: number;
@@ -29,15 +27,18 @@ type ItemDetail = {
   logs: LogItem[];
 };
 
-
 type OrderType = {
   id: string;
   orderNo: number;
+  orderSpecificDeposit: number; 
+  orderTotalAmount: number;     
+  orderRemainingBalance: number; 
   customer: { 
     name: string; 
     phone?: string | null; 
-    address?: string | null;
-    depositsText: string; // أضف هذا السطر
+    phone2?: string | null; 
+    address?: string | null; 
+    historicalDepositsText: string; 
   };
   createdAt: Date;
   readinessPercentage: number;
@@ -47,7 +48,6 @@ type OrderType = {
   itemDetails: ItemDetail[];
 };
 
-// The main component
 export default function SortingClient({ initialOrders }: { initialOrders: OrderType[] }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('date-desc');
@@ -58,14 +58,11 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
   const [isPending, startTransition] = useTransition();
   const [isUndoPending, startUndoTransition] = useTransition();
 
-  // Memos for filtering, sorting, and display logic remain the same...
-    const filteredAndSortedOrders = useMemo(() => {
-    let result = [...initialOrders]; // نسخة جديدة لتجنب تعديل الأصل
+  const filteredAndSortedOrders = useMemo(() => {
+    let result = [...initialOrders];
 
-    // أ. فلترة حسب الحالة (منتهي / جاري)
     result = result.filter(o => showCompleted ? o.isCompletelyDone : !o.isCompletelyDone);
 
-    // ب. فلترة البحث
     if (searchTerm) {
       const lowerTerm = searchTerm.toLowerCase();
       result = result.filter(
@@ -75,7 +72,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
       );
     }
 
-    // ج. الترتيب (تمت إعادته)
     result.sort((a, b) => {
         switch (sortBy) {
           case 'ready-desc': return b.readinessPercentage - a.readinessPercentage;
@@ -88,8 +84,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     return result;
   }, [initialOrders, searchTerm, showCompleted, sortBy]);
 
-
-  // 2. استخراج قائمة الباتشات السابقة للأوردر المختار
   const pastBatches = useMemo(() => {
       if (!selectedOrder) return [];
       
@@ -102,7 +96,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
           });
       });
 
-      // تحويلها لمصفوفة وترتيبها الأحدث أولاً
       return Array.from(batchesMap.entries()).map(([id, date]) => ({
           id,
           date
@@ -110,42 +103,34 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
 
   }, [selectedOrder]);
 
-
-  // 3. تجميع الأصناف حسب وضع العرض
   const invoiceItems = useMemo(() => {
     if (!selectedOrder) return [];
 
     const groups: { [key: string]: any } = {};
 
     selectedOrder.itemDetails.forEach((item) => {
-      // تحديد الكمية المراد عرضها بناءً على الوضع المختار
       let quantityToShow = 0;
       let colorsToShow: {[key:string]: number} = {};
 
       if (viewMode === 'current') {
-          // عرض ما هو متاح للصرف الآن (Allocated)
           quantityToShow = item.qtyAllocatedPieces;
           if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
 
       } else if (viewMode === 'history') {
-          // عرض إجمالي ما تم تنفيذه سابقاً
           quantityToShow = item.alreadyFulfilled;
            if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
 
       } else if (viewMode === 'specific' && selectedBatchId) {
-          // عرض كمية الباتش المحدد فقط
           const batchLog = item.logs.find(log => log.batchId === selectedBatchId);
           quantityToShow = batchLog ? batchLog.quantity : 0;
           if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
       }
 
-      // التجميع
       if (!groups[item.modelNo]) {
         groups[item.modelNo] = {
           ...item,
           displayQty: quantityToShow,
           colorsCount: colorsToShow,
-          
           totalQtyPieces: item.totalQtyPieces,
           totalRemaining: item.remainingNeeded,
         };
@@ -168,16 +153,15 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
         return {
             ...group,
             colorsDisplay: colorsStr === '' ? '-' : colorsStr,
-            isCheck: group.displayQty > 0 // علامة الصح إذا كان هناك كمية في هذا العرض
+            isCheck: group.displayQty > 0,
+            lineTotal: group.displayQty * group.price
         };
     });
   }, [selectedOrder, viewMode, selectedBatchId]);
 
    const handleExportToExcel = (order: OrderType) => {
-    // 1. تجميع البيانات (barcode هو موديل الصنف و qty هو الكمية المنفذة)
-    // قمنا بعمل reduce هنا لجمع الكميات إذا كان الموديل متكرر بألوان مختلفة
     const dataForExcel = order.itemDetails
-        .filter(item => item.alreadyFulfilled > 0) // فقط الأصناف التي تم صرفها
+        .filter(item => item.alreadyFulfilled > 0)
         .reduce((acc: any[], item) => {
             const existing = acc.find(x => x.barcode === item.modelNo);
             if (existing) {
@@ -191,21 +175,15 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
             return acc;
         }, []);
 
-    // 2. إنشاء ورقة العمل (Worksheet)
     const ws = XLSX.utils.json_to_sheet(dataForExcel);
-    
-    // 3. إنشاء كتاب العمل (Workbook) وتسمية الورقة Sheet1 كما طلبت
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-
-    // 4. تنزيل الملف باسم العميل
     XLSX.writeFile(wb, `${order.customer.name}.xlsx`);
 };
 
   const handleQueueAndPrint = async () => {
     if (!selectedOrder) return;
 
-    // إذا لم نكن في وضع "الصرف الحالي"، نقوم بالطباعة فقط (لأنها بيانات قديمة)
     if (viewMode !== 'current') {
       window.print();
       return;
@@ -226,23 +204,20 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     if (!confirm('سيتم الآن خصم الكميات المتاحة من المخزن وطباعة الإذن. هل أنت متأكد؟')) return;
 
     startTransition(async () => {
-      // استدعاء المعالجة المباشرة
       const result = await processSortingBatchDirectly(selectedOrder.id, itemsToFulfill);
 
       if (result.success) {
-        // بمجرد نجاح الخصم في قاعدة البيانات، نفتح نافذة الطباعة فوراً
         setTimeout(() => {
             window.print();
             alert("✅ تمت المعالجة والطباعة بنجاح");
-            setSelectedOrder(null); // إغلاق النافذة
-        }, 500); // تأخير بسيط لضمان استقرار الواجهة
+            setSelectedOrder(null);
+        }, 500);
       } else {
         alert(`❌ فشل: ${result.error}`);
       }
     });
   };
 
-  // handleUndoBatch remains the same...
   const handleUndoBatch = async (batchId: string) => {
     if (!batchId) return;
 
@@ -252,7 +227,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
       const result = await undoOrderBatch(batchId);
       if (result.success) {
         alert('تم التراجع عن الدفعة بنجاح.');
-        setSelectedOrder(null); // أغلق النافذة الحالية
+        setSelectedOrder(null);
       } else {
         alert(`فشل التراجع: ${result.error}`);
       }
@@ -269,14 +244,10 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     setSelectedBatchId('');
   };
 
-  // The entire JSX render structure remains the same.
-  // I will only change the button handler and text.
-
   return (
     <div className="p-6 bg-slate-50 min-h-screen" dir="rtl">
       <div className="print:hidden">
-          {/* Header remains unchanged... */}
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold text-slate-800">📦 سجلات الفرز والتنفيذ</h1>
             <p className="text-slate-500 mt-1">متابعة صرف الأوردرات وطباعة الباتشات السابقة.</p>
@@ -288,9 +259,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
           </div>
         </div>
 
-        {/* Tabs & Search */}
         <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-slate-100 space-y-4">
-           {/* Tabs */}
            <div className="flex gap-2 border-b border-gray-100 pb-2">
               <button 
                 onClick={() => setShowCompleted(false)}
@@ -315,7 +284,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
                 
-                {/* 👈 قائمة الترتيب المضافة */}
                 <select 
                     className="w-full md:w-64 p-2 border border-slate-200 rounded-lg bg-white"
                     value={sortBy}
@@ -329,7 +297,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
            </div>
         </div>
 
-        {/* Orders Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredAndSortedOrders.map((order) => {
              let statusColor = "bg-red-500";
@@ -350,9 +317,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                     <h2 className="text-lg font-bold text-slate-800">{order.customer.name}</h2>
                     <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs text-slate-500">#{order.orderNo}</span>
-                        {/* سطر العرابين الجديد */}
                         <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-black border border-amber-200">
-                            💰 عربون: {order.customer.depositsText}
+                            💰 عربون: {order.customer.historicalDepositsText}
                         </span>
                     </div>
                   </div>
@@ -418,7 +384,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
           <div className="bg-white w-full max-w-4xl m-4 p-8 rounded-xl shadow-2xl relative print:shadow-none print:w-full print:max-w-none print:m-0 print:rounded-none">
             
             <div className="flex flex-col gap-4 mb-8 print:hidden border-b pb-4">
-               {/* Modal header and view options remain the same */}
                  <div className="flex justify-between items-center">
                   <h2 className="text-xl font-bold">
                       {selectedOrder.isCompletelyDone ? 'أرشيف التسليمات' : 'إدارة الصرف'}
@@ -426,10 +391,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                   <button onClick={() => setSelectedOrder(null)} className="text-gray-500 hover:text-red-500 text-2xl font-bold">&times;</button>
               </div>
               
-              {/* خيارات العرض */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
                 
-                {/* 1. الصرف الحالي */}
                 <button 
                     onClick={() => { setViewMode('current'); setSelectedBatchId(''); }}
                     disabled={selectedOrder.isCompletelyDone}
@@ -441,7 +404,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                     <span>⚡ دفعة جديدة (متاحة الآن)</span>
                 </button>
 
-                {/* 2. باتش سابق محدد */}
                 <div className={`p-3 rounded-lg border flex flex-col gap-2 ${viewMode === 'specific' ? 'bg-white border-purple-500 shadow-md ring-1 ring-purple-500' : 'bg-gray-100 border-transparent'}`}>
                     <label className={`text-sm font-bold text-center ${viewMode === 'specific' ? 'text-purple-600' : 'text-gray-500'}`}>📅 باتش سابق (أرشيف)</label>
                     <select 
@@ -461,7 +423,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                     </select>
                 </div>
 
-                {/* 3. الإجمالي */}
                 <button 
                     onClick={() => { setViewMode('history'); setSelectedBatchId(''); }}
                     className={`p-3 rounded-lg border text-sm font-bold flex flex-col items-center gap-1
@@ -473,7 +434,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
               </div>
 
               <div className="flex justify-between items-center gap-2 mt-4">
-                {/* Undo button remains the same */}
                  {viewMode === 'specific' && selectedBatchId && (
                     <button
                         onClick={() => handleUndoBatch(selectedBatchId)}
@@ -500,7 +460,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
               </div>
             </div>
 
-            {/* The print view remains exactly the same */}
             <div className="print:block" dir="rtl">
               <div className="text-center mb-8 border-b border-black pb-4">
                  <h1 className="text-3xl font-bold mb-2">
@@ -517,19 +476,34 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
               </div>
 
               <div className="grid grid-cols-2 gap-8 mb-8 bg-gray-50 p-4 rounded print:bg-transparent print:p-0 print:border print:border-gray-300">
-                <div>
-                  <p className="text-gray-500 text-sm">اسم العميل</p>
-                  <p className="font-bold text-lg">{selectedOrder.customer.name}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500 text-sm">رقم الأوردر</p>
-                  <p className="font-bold text-lg">#{selectedOrder.orderNo}</p>
-                </div>
-              </div>
+    <div className="space-y-1">
+        <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">بيانات العميل</p>
+        <p className="font-black text-xl text-slate-900">{selectedOrder.customer.name}</p>
+        
+        <p className="text-sm font-bold text-slate-700 flex items-center gap-2">
+            <span>📱 {selectedOrder.customer.phone}</span>
+            {selectedOrder.customer.phone2 && (
+                <span className="border-r border-gray-300 pr-2"> / {selectedOrder.customer.phone2}</span>
+            )}
+        </p>
+        
+        {selectedOrder.customer.address && (
+            <p className="text-sm text-gray-600 flex items-start gap-1">
+                <span className="shrink-0">📍</span>
+                <span>{selectedOrder.customer.address}</span>
+            </p>
+        )}
+    </div>
+    
+    <div className="text-left flex flex-col justify-center">
+        <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">رقم الأوردر</p>
+        <p className="font-black text-4xl text-blue-600">#{selectedOrder.orderNo}</p>
+        <p className="text-[10px] text-gray-400 mt-1">تاريخ الأوردر: {new Date(selectedOrder.createdAt).toLocaleDateString('ar-EG')}</p>
+    </div>
+</div>
 
-              {/* الجدول */}
               <table className="w-full border-collapse border border-gray-300 mb-8">
-                <thead className="print:table-header-group">
+                <thead>
                   <tr className="bg-gray-100 print:bg-gray-200 text-sm">
                     <th className="border border-gray-300 p-2 w-10">م</th>
                     <th className="border border-gray-300 p-2 w-10">حالة</th>
@@ -538,6 +512,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                     <th className="border border-gray-300 p-2 text-center w-20">المطلوب</th>
                     <th className="border border-gray-300 p-2 text-center w-24 bg-gray-200 print:bg-gray-300 font-bold">الكمية</th>
                     <th className="border border-gray-300 p-2 text-center w-20 text-gray-500">متبقي</th>
+                    <th className="border border-gray-300 p-2 text-center w-20">السعر</th>
+                    <th className="border border-gray-300 p-2 text-center w-24">إجمالي</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -563,21 +539,47 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         <td className="border border-gray-300 p-2 text-center text-gray-400">
                             {item.totalRemaining > 0 ? item.totalRemaining : '0'}
                         </td>
+                        <td className="border border-gray-300 p-2 text-center font-mono">{item.price.toFixed(2)}</td>
+                        <td className="border border-gray-300 p-2 text-center font-bold">
+                            {item.displayQty > 0 ? (item.displayQty * item.price).toFixed(2) : '-'}
+                        </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              
+              <div className="mt-8 border-t-2 border-black pt-4">
+                  <div className="flex justify-between items-start">
+                      <div className="text-right text-sm font-bold space-y-6">
+                         <p>توقيع المستلم: .......................................</p>
+                         <p>توقيع أمين المخزن: .......................................</p>
+                      </div>
 
-              <div className="flex justify-between items-center border-t border-black pt-4 mt-4">
-                <div>
-                   <p className="font-bold text-lg">الإجمالي: {invoiceItems.reduce((acc:number, cur:any) => acc + cur.displayQty, 0)} قطعة</p>
-                </div>
-                <div className="text-left text-base font-bold space-y-8 mt-4">
-                   <p>توقيع المستلم: .......................................</p>
-                   <p>توقيع أمين المخزن: .......................................</p>
-                </div>
+                      <div className="w-64 border border-black p-3 rounded-lg space-y-2">
+                          <div className="flex justify-between text-sm">
+                              <span>إجمالي هذه الدفعة:</span>
+                              <span className="font-bold">
+                                  {(invoiceItems.reduce((acc:number, cur:any) => acc + (cur.displayQty * cur.price), 0) || 0).toFixed(2)} ج.م
+                              </span>
+                          </div>
+                          <div className="flex justify-between text-sm border-t border-dashed pt-1">
+                              <span>إجمالي الفاتورة الكلي:</span>
+                              <span>{(selectedOrder?.orderTotalAmount || 0).toFixed(2)} ج.م</span>
+                          </div>
+                          <div className="flex justify-between text-sm text-blue-700 font-bold">
+                              <span>عربون الأوردر الحالي (-):</span>
+                              <span>{(selectedOrder?.orderSpecificDeposit || 0).toFixed(2)} ج.م</span>
+                          </div>
+                          <div className="flex justify-between text-lg font-black border-t-2 border-black pt-1 mt-1">
+                              <span>المتبقي من الفاتورة:</span>
+                              <span>{(selectedOrder?.orderRemainingBalance || 0).toFixed(2)} ج.م</span>
+                          </div>
+                      </div>
+                  </div>
+                  <div className="mt-4 text-[10px] text-gray-400 italic text-center">
+                        * الأسعار المعروضة هي أسعار القطعة الواحدة.
+                   </div>
               </div>
-
             </div>
           </div>
         </div>
