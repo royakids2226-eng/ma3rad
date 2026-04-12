@@ -1,3 +1,4 @@
+
 import { prisma } from '@/lib/prisma';
 import SortingClient from './SortingClient';
 
@@ -102,6 +103,7 @@ async function getOrdersWithAllocation() {
         remainingNeeded: remainingNeeded,
         qtyAllocatedPieces: qtyAllocatedNow,
         price: item.price, // سعر القطعة
+        isFullyReady: qtyAllocatedNow >= remainingNeeded && remainingNeeded > 0,
         logs: item.logs.map(log => ({
             batchId: log.batchId,
             quantity: log.quantity,
