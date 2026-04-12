@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useTransition } from 'react';
 import Link from 'next/link';
-import { processSortingBatchDirectly, undoOrderBatch } from './actions';
+import { processSortingBatchDirectly, undoOrderBatch, undoLastBatchByOrder } from './actions';
 import * as XLSX from 'xlsx';
 
 type LogItem = {
@@ -57,6 +57,20 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [isPending, startTransition] = useTransition();
   const [isUndoPending, startUndoTransition] = useTransition();
+  const [isQuickUndoPending, startQuickUndoTransition] = useTransition();
+
+  const handleQuickUndo = async (orderId: string) => {
+      if (!confirm('هل أنت متأكد من التراجع عن آخر عملية صرف؟ سيعود الأوردر لقائمة "قيد التنفيذ".')) return;
+
+      startQuickUndoTransition(async () => {
+          const result = await undoLastBatchByOrder(orderId);
+          if (result.success) {
+              alert('تم التراجع بنجاح وعاد الأوردر لقيد التنفيذ.');
+          } else {
+              alert(`خطأ: ${result.error}`);
+          }
+      });
+  };
 
   const filteredAndSortedOrders = useMemo(() => {
     let result = [...initialOrders];
@@ -343,21 +357,25 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
 
                 
                 {order.isCompletelyDone ? (
-                    <div className="flex items-stretch gap-2">
-                        <button
-                            onClick={() => openModal(order)}
-                            className="flex-grow py-2 text-white rounded-lg transition-colors font-bold flex justify-center items-center gap-2 bg-green-600 hover:bg-green-700"
-                        >
-                            📄 مراجعة الأرشيف
+                    <div className="flex gap-2 mt-4">
+                        {/* زر مراجعة الأرشيف */}
+                        <button onClick={() => openModal(order)} className="flex-1 py-2 text-white rounded-lg font-bold bg-green-600 hover:bg-green-700">
+                            📄 الأرشيف
                         </button>
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                handleExportToExcel(order);
-                            }}
-                            className="flex-grow py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-bold flex justify-center items-center gap-2"
+
+                        {/* زر التراجع الجديد */}
+                        <button 
+                            onClick={() => handleQuickUndo(order.id)}
+                            disabled={isQuickUndoPending}
+                            className="px-4 py-2 bg-red-100 text-red-700 border border-red-200 rounded-lg hover:bg-red-200 transition-all font-bold flex items-center gap-2 shadow-sm"
+                            title="تراجع وإعادة لقيد التنفيذ"
                         >
-                            📄 تحميل اكسيل
+                            {isQuickUndoPending ? '...' : '🔄 تراجع'}
+                        </button>
+
+                        {/* زر الإكسيل */}
+                        <button onClick={() => handleExportToExcel(order)} className="px-4 py-2 bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-bold flex items-center gap-2">
+                            📊 Excel
                         </button>
                     </div>
                 ) : (

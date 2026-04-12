@@ -124,3 +124,30 @@ export async function undoOrderBatch(batchId: string) {
     return { success: false, error: errorMessage };
   }
 }
+
+/**
+ * التراجع عن آخر عملية صرف تمت لأوردر معين
+ */
+export async function undoLastBatchByOrder(orderId: string) {
+  try {
+    // 1. البحث عن آخر سجل صرف لهذا الأوردر
+    const lastLog = await prisma.fulfillmentLog.findFirst({
+      where: {
+        orderItem: { orderId: orderId }
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { batchId: true }
+    });
+
+    if (!lastLog) {
+      return { success: false, error: 'لم يتم العثور على عمليات صرف سابقة لهذا الأوردر.' };
+    }
+
+    // 2. استخدام دالة undoOrderBatch الموجودة مسبقاً لإلغاء هذا الباتش
+    return await undoOrderBatch(lastLog.batchId);
+
+  } catch (error) {
+    console.error('Error undoing last batch:', error);
+    return { success: false, error: 'حدث خطأ أثناء محاولة التراجع.' };
+  }
+}
