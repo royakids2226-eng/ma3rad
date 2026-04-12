@@ -38,23 +38,37 @@ async function getOrdersWithAllocation() {
   });
 
 
-  // 3. جلب الأوردرات (بما فيها المنتهية)
-  // ⚠️ نضيف include: { logs: true } لجلب السجلات
-  const orders = await prisma.order.findMany({
-    orderBy: { createdAt: 'asc' }, 
-    include: {
-      customer: true,
-      items: {
-        include: { 
-            product: true,
-            logs: true // 👈 هام جداً
-        },
+  // 3. جلب الأوردرات مع تفاصيل العميل ومدفوعاته
+const orders = await prisma.order.findMany({
+  orderBy: { createdAt: 'asc' }, 
+  include: {
+    customer: {
+        include: {
+            // جلب كل المدفوعات من نوع "IN" (توريد) أو "PAYMENT_COLLECTION"
+            payments: {
+                where: {
+                    type: { in: ['IN', 'PAYMENT_COLLECTION'] }
+                },
+                orderBy: { createdAt: 'asc' }
+            }
+        }
+    },
+    items: {
+      include: { 
+          product: true,
+          logs: true 
       },
     },
-  });
+  },
+});
 
   // 4. الحسابات
   const processedOrders = orders.map((order) => {
+    // تجهيز نص العرابين: نجمع مبالغ المدفوعات ونفصل بينهم بـ +
+    const depositsList = order.customer.payments.map(p => p.amount);
+    const depositString = depositsList.length > 0 ? depositsList.join(' + ') : 'بدون عربون';
+
+
     let totalItemsPending = 0;
     let totalItemsAllocated = 0;
     let isCompletelyDone = true;
@@ -114,7 +128,8 @@ async function getOrdersWithAllocation() {
       customer: { 
         name: order.customer.name,
         phone: order.customer.phone,
-        address: order.customer.address 
+        address: order.customer.address,
+        depositsText: depositString
       },
       createdAt: order.createdAt,
       readinessPercentage: percentage,

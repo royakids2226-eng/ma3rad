@@ -33,7 +33,12 @@ type ItemDetail = {
 type OrderType = {
   id: string;
   orderNo: number;
-  customer: { name: string; phone?: string | null; address?: string | null };
+  customer: { 
+    name: string; 
+    phone?: string | null; 
+    address?: string | null;
+    depositsText: string; // أضف هذا السطر
+  };
   createdAt: Date;
   readinessPercentage: number;
   itemsAllocatedNow: number;
@@ -343,7 +348,13 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h2 className="text-lg font-bold text-slate-800">{order.customer.name}</h2>
-                    <span className="text-sm text-slate-500">#{order.orderNo}</span>
+                    <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-slate-500">#{order.orderNo}</span>
+                        {/* سطر العرابين الجديد */}
+                        <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-black border border-amber-200">
+                            💰 عربون: {order.customer.depositsText}
+                        </span>
+                    </div>
                   </div>
                   <div className={`text-xl font-bold ${statusText}`}>
                     {order.isCompletelyDone ? 'مكتمل ✅' : `${order.readinessPercentage}%`}
