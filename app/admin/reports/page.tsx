@@ -97,12 +97,18 @@ function InventoryReportView() {
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'COLOR' | 'MODEL'>('COLOR');
     const [showDetailedColors, setShowDetailedColors] = useState(false);
+    const [showInitialStock, setShowInitialStock] = useState(true); // التحكم في الأولي
     const [isLinkedStagesActive, setIsLinkedStagesActive] = useState(false);
-    const [showInitialStock, setShowInitialStock] = useState(true);
-
+    
     useEffect(() => {
         getInventoryReport().then(res => {
-            if(res.success) { setData(res.data); setSummary(res.summary); }
+            if(res.success && res.data) { 
+                setData(res.data); 
+                setSummary(res.summary || {}); 
+            } else {
+                setData([]);
+                setSummary({});
+            }
             setLoading(false);
         });
     }, []);
@@ -122,139 +128,101 @@ function InventoryReportView() {
             g.totalSold += item.totalSold;
             g.currentStock += item.currentStock;
             g.currentValue += item.currentValue;
-            g.history = [...g.history, ...item.history];
         });
         return Object.values(groups);
     };
 
-    let displayData = viewMode === 'COLOR' ? data : getGroupedData();
+    let displayData = viewMode === 'COLOR' ? [...data] : getGroupedData();
 
+    // 1. منطق البحث المطور (الربط بين 2100 و 2200)
     if (searchTerm.trim() !== '') {
         displayData = displayData.filter((item: any) => {
             const term = searchTerm.toLowerCase();
-            
             if (isLinkedStagesActive && !isNaN(Number(term))) {
                 const num = parseInt(term);
                 const suffix = (num % 100).toString().padStart(2, '0');
                 let linked: string[] = [];
-
-                if (num >= 300 && num <= 599) {
-                    linked = ["3", "4", "5"].map(p => p + suffix);
-                } 
-                else if (num >= 600 && num <= 899) {
-                    linked = ["6", "7", "8"].map(p => p + suffix);
-                } 
-                else if (num >= 1100 && num <= 1399) {
-                    linked = ["11", "12", "13"].map(p => p + suffix);
-                }
-                else if (num >= 2100 && num <= 2299) {
-                    linked = ["21", "22"].map(p => p + suffix);
-                }
-                else {
-                    linked = [term];
-                }
-
+                if (num >= 300 && num <= 599) linked = ["3", "4", "5"].map(p => p + suffix);
+                else if (num >= 600 && num <= 899) linked = ["6", "7", "8"].map(p => p + suffix);
+                else if (num >= 1100 && num <= 1399) linked = ["11", "12", "13"].map(p => p + suffix);
+                else if (num >= 2100 && num <= 2299) linked = ["21", "22"].map(p => p + suffix);
+                else linked = [term];
                 return linked.includes(item.modelNo.toString());
             }
-
-            const matchesModel = item.modelNo.toLowerCase().includes(term);
-            const matchesMaterial = item.material?.toLowerCase().includes(term);
-            const matchesColor = viewMode === 'COLOR' 
-                ? item.color.toLowerCase().includes(term) 
-                : item.colors.some((c: any) => c.name.toLowerCase().includes(term));
-            return matchesModel || matchesMaterial || matchesColor;
+            return item.modelNo.toLowerCase().includes(term) || item.material?.toLowerCase().includes(term);
         });
     }
 
+    // 2. منطق الترتيب (حسب الموديل ثم الخامة)
     displayData.sort((a: any, b: any) => {
         const modelA = parseInt(a.modelNo) || 0;
         const modelB = parseInt(b.modelNo) || 0;
         if (modelA !== modelB) return modelA - modelB;
-
+        
         const matA = a.material || "";
         const matB = b.material || "";
-        return matA.localeCompare(matB, undefined, { numeric: true, sensitivity: 'base' });
+        return matA.localeCompare(matB, undefined, { numeric: true });
     });
 
     return (
         <div className="space-y-8">
-            <div className="flex flex-wrap gap-4 items-center justify-between">
+            <div className="flex flex-wrap gap-4 items-center justify-between print:hidden">
                 <div className="flex gap-2 items-center flex-1 min-w-[300px]">
                     <input 
-                        type="text" placeholder="بحث بالموديل، الخامة أو اللون..." 
+                        type="text" placeholder="ابحث بالموديل أو الخامة..." 
                         value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-                        className="flex-1 p-4 border rounded-2xl outline-none focus:ring-2 focus:ring-blue-500"
+                        className="flex-1 p-4 border rounded-2xl outline-none"
                     />
                     <button 
                         onClick={() => setIsLinkedStagesActive(!isLinkedStagesActive)}
-                        className={`px-4 py-4 rounded-2xl font-black border transition-all ${isLinkedStagesActive ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-white text-gray-400'}`}
+                        className={`px-4 py-4 rounded-2xl font-black border ${isLinkedStagesActive ? 'bg-indigo-600 text-white' : 'bg-white text-gray-400'}`}
                     >
                         {isLinkedStagesActive ? '🔗 الربط مفعل' : '⛓️ ربط المراحل'}
                     </button>
                 </div>
 
-                <div className="bg-gray-100 p-2 rounded-2xl flex flex-wrap gap-2 items-center shadow-inner print:hidden">
+                <div className="bg-gray-100 p-2 rounded-2xl flex gap-2">
                     <button onClick={() => setViewMode('COLOR')} className={`px-6 py-3 rounded-xl ${viewMode === 'COLOR' ? 'bg-white shadow text-blue-700 font-bold' : ''}`}>الألوان</button>
                     <button onClick={() => setViewMode('MODEL')} className={`px-6 py-3 rounded-xl ${viewMode === 'MODEL' ? 'bg-white shadow text-blue-700 font-bold' : ''}`}>الموديلات</button>
-                    {viewMode === 'MODEL' && (
-                        <button onClick={() => setShowDetailedColors(!showDetailedColors)} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-bold text-xs border border-blue-100">
-                            {showDetailedColors ? '📉 إخفاء المتاح' : '📈 إظهار المتاح'}
-                        </button>
-                    )}
-                    <button 
-                        onClick={() => setShowInitialStock(!showInitialStock)} 
-                        className={`px-4 py-3 rounded-xl text-xs font-black border transition-all ${showInitialStock ? 'bg-white shadow text-blue-700 border-blue-100' : 'bg-transparent text-gray-400 border-transparent'}`}
-                    >
-                        {showInitialStock ? '👁️ إخفاء الأولي' : '🙈 إظهار الأولي'}
+                    <button onClick={() => setShowInitialStock(!showInitialStock)} className="px-4 py-2 bg-white rounded-xl text-[10px] font-bold shadow-sm">
+                        {showInitialStock ? '👁️ إخفاء الأولي' : '👁️ إظهار الأولي'}
                     </button>
                 </div>
             </div>
 
-            <div className="overflow-x-auto rounded-[2rem] border border-gray-100 shadow-sm">
-                <table className="w-full text-right">
+            <div className="overflow-x-auto rounded-[2rem] border border-gray-100">
+                <table className="w-full text-right border-collapse">
                     <thead className="bg-slate-900 text-white text-[10px] uppercase tracking-widest">
                         <tr>
                             <th className="p-5">كود الموديل</th>
                             <th className="p-5">الخامة</th>
                             <th className="p-5">{viewMode === 'COLOR' ? 'اللون' : 'الألوان'}</th>
-                            {showInitialStock && <th className="p-5 border-b border-slate-800">أولي (قطعة)</th>}
+                            {showInitialStock && <th className="p-5">أولي (قطعة)</th>}
                             <th className="p-5 text-yellow-500">المباع (سرية)</th>
                             <th className="p-5">حالي (قطعة)</th>
-                            <th className="p-5">الحالة</th>
                         </tr>
                     </thead>
                     <tbody>
                         {displayData.map((item: any) => (
-                            <tr key={item.id} className="border-b hover:bg-gray-50 transition-colors">
-                                <td className="p-5 font-black text-lg">{item.modelNo}</td>
-                                <td className="p-5 text-gray-400 font-bold">{item.material || '-'}</td>
+                            <tr key={item.id + item.color} className="border-b hover:bg-gray-50 transition-colors">
+                                <td className="p-5 font-black text-xl">{item.modelNo}</td>
+                                <td className="p-5 text-gray-400 font-bold text-sm">{item.material || '-'}</td>
                                 <td className="p-5">
-                                    {viewMode === 'COLOR' ? item.color : (
+                                    {viewMode === 'COLOR' ? (
+                                        <span className="font-bold text-gray-600">{item.color}</span>
+                                    ) : (
                                         <div className="flex flex-wrap gap-1.5">
                                             {item.colors.map((c:any, i:number) => (
-                                                <div key={i} className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-lg border text-[10px]">
-                                                    <span className="font-bold">{c.name}</span>
-                                                    <span className="text-blue-600 font-black">{c.sold/4} سرية</span>
-                                                    {showDetailedColors && <span className="text-green-600 border-r pr-1">متاح: {c.stock/4}</span>}
+                                                <div key={i} className="bg-gray-50 border px-2 py-1 rounded-lg text-[10px] font-bold">
+                                                    {c.name} ({c.sold/4} سرية)
                                                 </div>
                                             ))}
                                         </div>
                                     )}
                                 </td>
-                                {showInitialStock && (
-                                    <td className="p-5 font-bold text-gray-400">
-                                        {item.initialStock}
-                                    </td>
-                                )}
-                                <td className="p-5 text-yellow-600 font-black text-lg">
-                                    {item.totalSold / 4} <span className="text-[10px] font-normal">سرية</span>
-                                </td>
-                                <td className={`p-5 font-black ${item.currentStock < 0 ? 'text-red-500' : 'text-green-600'}`}>{item.currentStock}</td>
-                                <td className="p-5">
-                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black ${item.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                        {item.status === 'OPEN' ? 'مفتوح' : 'مغلق'}
-                                    </span>
-                                </td>
+                                {showInitialStock && <td className="p-5 font-bold text-gray-400">{item.initialStock}</td>}
+                                <td className="p-5 text-yellow-600 font-black text-lg">{item.totalSold / 4} <small className="font-normal text-[10px]">سرية</small></td>
+                                <td className={`p-5 font-black text-xl ${item.currentStock < 0 ? 'text-red-500' : 'text-green-600'}`}>{item.currentStock}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -263,6 +231,7 @@ function InventoryReportView() {
         </div>
     );
 }
+
 
 function SafeLedgerView() {
     const getTodayDateString = () => new Date().toISOString().split('T')[0];
