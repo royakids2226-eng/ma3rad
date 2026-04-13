@@ -613,7 +613,7 @@ export async function getUserOrders(userId: string) {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: 5000,
     })
     return { orders: JSON.parse(JSON.stringify(orders)), userRole: user?.role }
   } catch (error) {

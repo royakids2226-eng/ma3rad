@@ -2,7 +2,6 @@
 
 import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
-const PIECES_PER_UNIT = 4;
 
 export async function getInventoryReport() {
   try {
@@ -17,37 +16,26 @@ export async function getInventoryReport() {
 
     const report = products.map(p => {
         const initial = p.stockQty || 0;
-        
-        // حساب المباع الفعلي من واقع الفواتير المسجلة فقط
-        const totalSoldPieces = p.orderItems.reduce((acc, item) => {
-            return acc + ((item.quantity || 0) * PIECES_PER_UNIT);
-        }, 0);
-
-        // الرصيد الحالي "المنطقي" = الأولي - المباع
-        // هذا الرقم سيتجاهل أي أخطاء تراكمت في قاعدة البيانات
+        const totalSoldPieces = p.orderItems.reduce((acc, item) => acc + ((item.quantity || 0) * 4), 0);
         const logicalCurrentStock = initial - totalSoldPieces;
-
-        const soldValue = p.orderItems.reduce((acc, item) => {
-            return acc + ((item.quantity || 0) * PIECES_PER_UNIT * (item.price || 0));
-        }, 0);
 
         return {
             id: p.id,
             modelNo: p.modelNo,
+            material: p.material,
             color: p.color,
             initialStock: initial,
             totalSold: totalSoldPieces,
-            currentStock: logicalCurrentStock, // نستخدم الحساب المنطقي هنا
-            totalSoldValue: soldValue,
+            currentStock: logicalCurrentStock,
+            totalSoldValue: p.orderItems.reduce((acc, item) => acc + ((item.quantity || 0) * 4 * (item.price || 0)), 0),
             currentValue: logicalCurrentStock * (p.price || 0),
             price: p.price,
             status: p.status,
             history: p.orderItems.map(item => ({
-                orderId: item.orderId,
                 orderNo: item.order.orderNo,
                 date: item.order.createdAt,
                 customer: item.order.customer.name,
-                quantity: (item.quantity || 0) * PIECES_PER_UNIT,
+                quantity: (item.quantity || 0) * 4,
                 price: item.price
             }))
         };
@@ -64,8 +52,7 @@ export async function getInventoryReport() {
 
     return { success: true, data: report, summary };
   } catch (e) {
-    console.error("Inventory Report Error:", e);
-    return { success: false, error: 'فشل جلب بيانات المخزون' };
+    return { success: false, error: 'فشل جلب البيانات' };
   }
 }
 
@@ -84,12 +71,10 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         dateFilter.lte = end;
     }
 
-    // 1. جلب المدفوعات مع استثناء دفعات الأوردة لتجنب التكرار
     const payments = await prisma.payment.findMany({
       where: {
         OR: [ { safeId: safeId }, { targetSafeId: safeId } ],
         createdAt: startDate || endDate ? dateFilter : undefined,
-        // تم التعديل هنا: استثناء نوع PAYMENT_COLLECTION تماماً لأنه يُجلب من جدول الأوردات بالأسفل
         type: {
           notIn: ['PAYMENT_COLLECTION']
         }
@@ -97,7 +82,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
       include: { customer: true, user: true, safe: true, targetSafe: true }
     });
 
-    // 2. جلب الأوردات (التي تمثل العربون الوارد للخزنة)
     const orders = await prisma.order.findMany({
       where: { 
           safeId, 
@@ -109,7 +93,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
 
     let transactions: any[] = [];
 
-    // معالجة المدفوعات (سندات القبض والصرف والتحويلات اليدوية)
     payments.forEach((p: any) => {
         let desc = '';
         let inAmt = 0;
@@ -139,7 +122,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
              }
         }
 
-        // إضافة الحركة فقط إذا كان لها نوع (لتجنب الأسطر الفارغة)
         if (typeLabel) {
             transactions.push({
                 id: p.id, 
@@ -154,7 +136,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         }
     });
 
-    // معالجة الأوردات (العربون)
     orders.forEach(o => {
         transactions.push({
             id: o.id, 
@@ -168,7 +149,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
         });
     });
 
-    // ترتيب الحركات حسب التاريخ
     transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     const summaryByCurrency: any = {};
@@ -216,7 +196,7 @@ export async function getEmployeePerformance() {
                         const discountPct = item.discountPercent;
                         const originalPrice = finalPrice / (1 - (discountPct / 100));
                         const discountPerPiece = originalPrice - finalPrice;
-                        totalDiscountValue += (discountPerPiece * item.quantity * PIECES_PER_UNIT);
+                        totalDiscountValue += (discountPerPiece * (item.quantity || 0) * 4);
                     }
                 });
                 totalDiscountValue += (order.discount || 0);
