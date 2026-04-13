@@ -436,7 +436,7 @@ export async function deleteOrder(orderId: string) {
 
 
 export async function updateOrder(orderId: string, data: any) {
-  const { items, total, deposit, safeId, currency, notes } = data // Added notes
+  const { customerId, items, total, deposit, safeId, currency, notes } = data 
 
   try {
     await prisma.$transaction(
@@ -568,6 +568,7 @@ export async function updateOrder(orderId: string, data: any) {
         await tx.order.update({
           where: { id: orderId },
           data: {
+            customerId: customerId,
             totalAmount: total,
             deposit: deposit || 0,
             currency: currency || 'EGP',

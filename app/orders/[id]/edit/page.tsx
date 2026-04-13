@@ -24,6 +24,13 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
   const [safes, setSafes] = useState<Safe[]>([]);
   const [order, setOrder] = useState<any>(null);
   
+  // Customer Search
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [customerResults, setCustomerResults] = useState<any[]>([]);
+  const [showCustomerList, setShowCustomerList] = useState(false);
+  const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
+
   // Product Search
   const [searchTerm, setSearchTerm] = useState('');
   const [showScanner, setShowScanner] = useState(false);
@@ -49,6 +56,8 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
         getOrderById(id).then(res => {
             if (!res) return router.push('/orders/list');
             setOrder(res);
+            setSelectedCustomer(res.customer);
+            setCustomerSearchTerm(res.customer.name);
             setDeposit(res.deposit.toString());
 
             if (res.safeId) {
@@ -100,6 +109,20 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
         });
     });
   }, [id, router]);
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+        if (customerSearchTerm.length > 0 && customerSearchTerm !== selectedCustomer.name) {
+            setIsSearchingCustomer(true);
+            const results = await searchCustomers(customerSearchTerm); // تأكد من استيراد هذه الدالة من actions
+            setCustomerResults(results);
+            setIsSearchingCustomer(false);
+            setShowCustomerList(true);
+        }
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+}, [customerSearchTerm, selectedCustomer]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
@@ -230,16 +253,21 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
 
   const handleUpdateOrder = async () => {
     setIsSaving(true);
-    const cleanCart = getProcessedCart();
-    const total = cleanCart.reduce((acc, item) => acc + item.totalLinePrice, 0);
-    const res = await updateOrder(id, {
-      items: cleanCart, total, deposit: parseFloat(deposit) || 0, safeId: selectedSafeId, currency: order.currency
+    const processedItems = getProcessedCart();
+    const currentTotal = processedItems.reduce((acc, item) => acc + item.totalLinePrice, 0);
+    
+    const result = await updateOrder(id, {
+        customerId: selectedCustomer.id, // نرسل الـ ID للعميل الجديد المختار
+        items: processedItems,
+        total: currentTotal,
+        deposit: parseFloat(deposit),
+        safeId: selectedSafeId,
+        currency: order.currency
     });
-    if (res.success) {
-        router.push(`/orders/${id}/print`);
-    } else {
-        alert(`فشل الحفظ: ${res.error}`);
-        setIsSaving(false);
+    
+    if (result.success) {
+        alert("تم تحديث الأوردر والعميل بنجاح ✅");
+        router.push('/orders/list');
     }
   };
 
@@ -285,9 +313,41 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
       <div className="p-4 max-w-2xl mx-auto">
         {step === 1 && (
           <>
-            <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-gray-100">
-              <label className="text-xs text-gray-400 block font-bold mb-1">العميل الحالي:</label>
-              <div className="font-bold text-blue-900">{order.customer.name}</div>
+            <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-gray-100 relative">
+              <label className="text-sm text-gray-500 font-bold block mb-2">تعديل العميل المختص:</label>
+              <div className="relative">
+                  <input 
+                    type="text" 
+                    placeholder="ابحث باسم العميل الجديد أو الهاتف..." 
+                    value={customerSearchTerm} 
+                    onChange={(e) => { 
+                        setCustomerSearchTerm(e.target.value);
+                        setShowCustomerList(true); 
+                    }} 
+                    onFocus={() => setShowCustomerList(true)} 
+                    className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-800" 
+                  />
+                  {isSearchingCustomer && <span className="absolute left-3 top-3 text-gray-400 text-xs">جاري البحث...</span>}
+              </div>
+
+              {showCustomerList && customerResults.length > 0 && (
+                <div className="absolute top-full left-0 right-0 bg-white border rounded-b-lg shadow-xl z-50 max-h-60 overflow-y-auto">
+                  {customerResults.map(c => (
+                    <div 
+                      key={c.id} 
+                      onClick={() => { 
+                          setSelectedCustomer(c); 
+                          setCustomerSearchTerm(c.name); 
+                          setShowCustomerList(false); 
+                      }} 
+                      className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0"
+                    >
+                      <div className="font-bold text-gray-800">{c.name}</div>
+                      <div className="text-xs text-gray-500">{c.phone} | {c.code}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="relative mb-4 flex gap-2">
