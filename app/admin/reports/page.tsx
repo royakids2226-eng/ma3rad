@@ -135,12 +135,25 @@ function InventoryReportView() {
             
             if (isLinkedStagesActive && !isNaN(Number(term))) {
                 const num = parseInt(term);
-                const suffix = num % 100;
+                const suffix = (num % 100).toString().padStart(2, '0');
                 let linked: string[] = [];
-                if (num >= 300 && num <= 599) linked = [(300+suffix).toString(), (400+suffix).toString(), (500+suffix).toString()];
-                else if (num >= 600 && num <= 899) linked = [(600+suffix).toString(), (700+suffix).toString(), (800+suffix).toString()];
-                else if (num >= 1100 && num <= 1399) linked = [(1100+suffix).toString(), (1200+suffix).toString()];
-                else linked = [term];
+
+                if (num >= 300 && num <= 599) {
+                    linked = ["3", "4", "5"].map(p => p + suffix);
+                } 
+                else if (num >= 600 && num <= 899) {
+                    linked = ["6", "7", "8"].map(p => p + suffix);
+                } 
+                else if (num >= 1100 && num <= 1399) {
+                    linked = ["11", "12", "13"].map(p => p + suffix);
+                }
+                else if (num >= 2100 && num <= 2299) {
+                    linked = ["21", "22"].map(p => p + suffix);
+                }
+                else {
+                    linked = [term];
+                }
+
                 return linked.includes(item.modelNo.toString());
             }
 
