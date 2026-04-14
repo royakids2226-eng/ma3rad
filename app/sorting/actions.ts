@@ -4,10 +4,17 @@ import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 
+// Add this definition at the top of the file to unify responses
+type ActionResponse = {
+    success: boolean;
+    error?: string;
+    batchId?: string;
+};
+
 /**
  * Process the sorting and fulfillment directly.
  */
-export async function processSortingBatchDirectly(orderId: string, items: any[]) {
+export async function processSortingBatchDirectly(orderId: string, items: any[]): Promise<ActionResponse> {
   if (!items || items.length === 0) return { success: false, error: 'No items provided' };
   const batchId = randomUUID();
   try {
@@ -37,7 +44,7 @@ export async function processSortingBatchDirectly(orderId: string, items: any[])
 /**
  * Postpone a collection of items at once.
  */
-export async function bulkPostponeItems(orderItemIds: string[]) {
+export async function bulkPostponeItems(orderItemIds: string[]): Promise<ActionResponse> {
   try {
     await prisma.orderItem.updateMany({
       where: { id: { in: orderItemIds } },
@@ -53,7 +60,7 @@ export async function bulkPostponeItems(orderItemIds: string[]) {
 /**
  * Toggle the postponement status for a group of items (the entire model).
  */
-export async function toggleBulkPostpone(orderItemIds: string[], status: boolean) {
+export async function toggleBulkPostpone(orderItemIds: string[], status: boolean): Promise<ActionResponse> {
   try {
     await prisma.orderItem.updateMany({
       where: { id: { in: orderItemIds } },
@@ -69,11 +76,11 @@ export async function toggleBulkPostpone(orderItemIds: string[], status: boolean
 /**
  * Undo a specific fulfillment batch (stably and safely).
  */
-export async function undoOrderBatch(batchId: string) {
+export async function undoOrderBatch(batchId: string): Promise<ActionResponse> {
   if (!batchId) return { success: false, error: 'Batch ID not provided' };
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // 1. Fetch all logs associated with this batch
       const logs = await tx.fulfillmentLog.findMany({ 
         where: { batchId: batchId } 
@@ -103,8 +110,9 @@ export async function undoOrderBatch(batchId: string) {
       return { success: true };
     }, {
         maxWait: 15000, 
-        timeout: 30000 // Increased timeout for large orders
+        timeout: 30000 // Increase timeout to ensure processing of large orders
     });
+    return result;
 
   } catch (error: any) {
     console.error('Undo Error:', error);
@@ -120,7 +128,7 @@ export async function undoOrderBatch(batchId: string) {
 /**
  * Undo the last fulfillment batch for an entire order.
  */
-export async function undoLastBatchByOrder(orderId: string) {
+export async function undoLastBatchByOrder(orderId: string): Promise<ActionResponse> {
   try {
     // Find the most recent fulfillment log for this specific order
     const lastLog = await prisma.fulfillmentLog.findFirst({

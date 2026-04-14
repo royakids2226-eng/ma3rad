@@ -71,7 +71,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
           if (result.success) {
               alert('تم التراجع بنجاح وعاد الأوردر لقيد التنفيذ.');
           } else {
-              alert(`خطأ: ${result.error}`);
+              const errorMessage = (result as any).error || "حدث خطأ غير معروف";
+              alert(`خطأ: ${errorMessage}`);
           }
       });
   };
@@ -267,7 +268,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
             setSelectedOrder(null);
         }, 500);
       } else {
-        alert(`❌ فشل: ${result.error}`);
+        const errorMessage = (result as any).error || "حدث خطأ غير معروف";
+        alert(`❌ فشل: ${errorMessage}`);
       }
     });
   };
@@ -283,7 +285,8 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
         alert('تم التراجع عن الدفعة بنجاح.');
         setSelectedOrder(null);
       } else {
-        alert(`فشل التراجع: ${result.error}`);
+        const errorMessage = (result as any).error || "حدث خطأ غير معروف";
+        alert(`فشل التراجع: ${errorMessage}`);
       }
     });
   };
