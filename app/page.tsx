@@ -54,7 +54,7 @@ export default async function Home() {
       </header>
 
       {/* Main Actions */}
-      <div className="grid grid-cols-1 gap-4 max-w-2xl mx-auto">
+      <div className="grid grid-cols-1 gap-4 max-w-4xl mx-auto">
         <Link href="/orders/new" className="bg-blue-600 text-white p-8 rounded-3xl shadow-xl shadow-blue-200 flex items-center justify-between hover:bg-blue-700 transition-all transform hover:scale-[1.02] active:scale-95 group">
           <div className="flex flex-col items-start">
             <span className="text-3xl font-black mb-1">أوردر جديد</span>
@@ -75,16 +75,30 @@ export default async function Home() {
                 <span>إدارة النقدية</span>
             </Link>
           )}
-
-          <Link href="/sorting" className={`${user?.role === 'EMPLOYEE' ? 'col-span-1' : 'col-span-2'} bg-white p-6 rounded-3xl shadow-sm text-emerald-700 font-bold border border-emerald-100 text-center hover:bg-emerald-50 flex flex-row justify-center items-center gap-4 transition-all hover:shadow-emerald-100 hover:shadow-lg`}>
-             <span className="text-4xl">📦</span>
-             <span className="text-xl">فرز المخزن (جاهزية الأوردرات)</span>
-          </Link>
         </div>
+        
+        {/* Sorting Section */}
+        <div className="mt-4 pt-4 border-t-2 border-dashed">
+            <h2 className="text-center font-bold text-gray-500 mb-4">أدوات فرز المخزون</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Link href="/sorting" className="bg-emerald-600 text-white p-6 rounded-2xl shadow-xl flex flex-col items-center gap-3 hover:bg-emerald-700 transition-all">
+                    <span className="text-4xl">📦</span>
+                    <span className="font-black">فرز المخزن (عام)</span>
+                    <span className="text-[10px] opacity-80 text-center">يعتمد على إيصالات الاستلام (للبضاعة الجاهزة)</span>
+                </Link>
+
+                <Link href="/sorting-cut" className="bg-indigo-600 text-white p-6 rounded-2xl shadow-xl flex flex-col items-center gap-3 hover:bg-indigo-700 transition-all">
+                    <span className="text-4xl">✂️</span>
+                    <span className="font-black">فرز بالقص (دقيق)</span>
+                    <span className="text-[10px] opacity-80 text-center">يعتمد على رصيد الخامة والألوان الفعلي</span>
+                </Link>
+            </div>
+        </div>
+
       </div>
       
       <div className="mt-12 text-center text-gray-300 text-xs font-mono">
-        نظام إدارة المبيعات v1.8 • Royakids
+        نظام إدارة المبيعات v1.9 • Royakids
       </div>
     </div>
   );
