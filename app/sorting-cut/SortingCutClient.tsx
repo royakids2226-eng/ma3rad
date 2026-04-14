@@ -3,14 +3,18 @@ import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 
 // Represents the structure of an allocated item
-interface AllocatedItem {
-    orderItemId: string;
-    modelNo: string;
-    color: string;
-    material: string;
-    qtyAllocatedPieces: number;
-    isPostponed: boolean;
-}
+type AllocatedItem = {
+  orderItemId: string;
+  modelNo: string;
+  color: string;
+  material?: string | null; // إضافة الخامة
+  qtyAllocatedPieces: number;
+  isPostponed: boolean;
+  // أضف هذه الحقول الثلاثة لحل خطأ الـ Build
+  orderId: string;
+  orderNo: number;
+  customerName: string;
+};
 
 // Structure for the final dispatch note
 interface DispatchNote {
@@ -33,15 +37,27 @@ export default function SortingCutClient({ initialOrders }: { initialOrders: any
         return orders;
     }, [orders, activeTab]);
 
-    const handleSelectItem = (item: AllocatedItem, orderId: string, orderNo: number, customerName: string) => {
-        const isSelected = selectedItems.some(i => i.orderItemId === item.orderItemId);
-        let newSelectedItems: AllocatedItem[];
-        if (isSelected) {
-            newSelectedItems = selectedItems.filter(i => i.orderItemId !== item.orderItemId);
-        } else {
-            newSelectedItems = [...selectedItems, { ...item, orderId, orderNo, customerName }];
-        }
-        setSelectedItems(newSelectedItems);
+    const handleSelectItem = (orderId: string, orderNo: number, customerName: string, item: any) => {
+        setSelectedItems(prev => {
+            const isAlreadySelected = prev.some(i => i.orderItemId === item.orderItemId);
+
+            if (isAlreadySelected) {
+                return prev.filter(i => i.orderItemId !== item.orderItemId);
+            } else {
+                const newItem: AllocatedItem = {
+                    orderItemId: item.orderItemId,
+                    modelNo: item.modelNo,
+                    color: item.color,
+                    material: item.material,
+                    qtyAllocatedPieces: item.qtyAllocatedPieces,
+                    isPostponed: item.isPostponed,
+                    orderId: orderId,
+                    orderNo: orderNo,
+                    customerName: customerName
+                };
+                return [...prev, newItem];
+            }
+        });
     };
 
     const handleGenerateDispatchNotes = () => {
@@ -162,7 +178,7 @@ export default function SortingCutClient({ initialOrders }: { initialOrders: any
                                             <div className="flex items-center">
                                                 <input type="checkbox" className="form-checkbox h-5 w-5 text-indigo-600 rounded disabled:opacity-50" 
                                                        checked={isSelected} 
-                                                       onChange={() => handleSelectItem(item, order.id, order.orderNo, order.customer.name)} 
+                                                       onChange={() => handleSelectItem(order.id, order.orderNo, order.customer.name, item)} 
                                                        disabled={!isReady} />
                                                 <div className="mr-3">
                                                     <p className="font-bold text-gray-900">{item.modelNo} - <span className="text-indigo-700">{item.color}</span></p>
