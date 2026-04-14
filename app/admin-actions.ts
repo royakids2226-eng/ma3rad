@@ -199,16 +199,19 @@ export async function syncFromGoogleSheets(startDateStr: string) {
       // 2. شرط التصنيف "اساسي"
       if (data["tasneef"] !== "اساسي") continue;
 
-      // 3. منع التكرار
-      const existingReceipt = await prisma.warehouseReceipt.findUnique({
-        where: { uniqueid: data["id"] }
-      });
-      if (existingReceipt) { skippedCount++; continue; }
-
       const modelCodes = data["model code"].split("-").map((m: string) => m.trim()).filter((m: string) => m !== "");
       const totalPieces = (parseInt(data["raqty"]) || 0) * 4;
 
       for (const modelNo of modelCodes) {
+        // 1. تكوين ID فريد يجمع بين إذن جوجل شيت وكود الموديل
+        const compositeId = `${data["id"]}-${modelNo}`;
+
+        // 2. التحقق: هل هذا الموديل من هذا السطر تم سحبه مسبقاً؟
+        const existingReceipt = await prisma.warehouseReceipt.findUnique({
+            where: { uniqueid: compositeId }
+        });
+        if (existingReceipt) continue;
+
         const product = await prisma.product.findFirst({
             where: { modelNo: modelNo, material: data["khcode"] }
         });
@@ -221,7 +224,7 @@ export async function syncFromGoogleSheets(startDateStr: string) {
 
           await prisma.warehouseReceipt.create({
             data: {
-                uniqueid: data["id"],
+                uniqueid: compositeId, // الـ ID الجديد المدمج
                 date: rowDate,
                 empName: data["bank"] || "جوجل شيت",
                 modelNo: modelNo,
