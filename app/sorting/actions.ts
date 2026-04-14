@@ -58,6 +58,22 @@ export async function bulkPostponeItems(orderItemIds: string[]): Promise<ActionR
 }
 
 /**
+ * Reactivate a collection of items at once.
+ */
+export async function bulkReactivateItems(orderItemIds: string[]): Promise<ActionResponse> {
+  try {
+    await (prisma.orderItem as any).updateMany({
+      where: { id: { in: orderItemIds } },
+      data: { isPostponed: false }
+    });
+    revalidatePath('/sorting');
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: 'Failed to reactivate items' };
+  }
+}
+
+/**
  * Toggle the postponement status for a group of items (the entire model).
  */
 export async function toggleBulkPostpone(orderItemIds: string[], status: boolean): Promise<ActionResponse> {

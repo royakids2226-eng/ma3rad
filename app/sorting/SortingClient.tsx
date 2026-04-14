@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useTransition } from 'react';
 import Link from 'next/link';
-import { processSortingBatchDirectly, undoOrderBatch, undoLastBatchByOrder, toggleBulkPostpone, bulkPostponeItems } from './actions';
+import { processSortingBatchDirectly, undoOrderBatch, undoLastBatchByOrder, toggleBulkPostpone, bulkPostponeItems, bulkReactivateItems } from './actions';
 import * as XLSX from 'xlsx';
 
 type LogItem = {
@@ -209,10 +209,11 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
         };
     }).filter(item => {
         if (viewMode === 'current') return !item.isPostponed;
+        if (viewTab === 'POSTPONED') return item.isPostponed;
         if (viewMode === 'history' && archiveViewType === 'executed_only') return item.displayQty > 0;
         return true;
     });
-}, [selectedOrder, viewMode, selectedBatchId, archiveViewType]);
+}, [selectedOrder, viewMode, selectedBatchId, archiveViewType, viewTab]);
 
    const handleExportToExcel = (order: OrderType) => {
     const dataForExcel = order.itemDetails
@@ -468,25 +469,35 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         {selectedOrder.isCompletelyDone ? 'أرشيف التسليمات' : 'إدارة الصرف'}
                     </h2>
                     <div className="flex items-center gap-2">
+                        {/* زر التأجيل (يظهر في وضع الفرز الحالي) */}
                         {viewMode === 'current' && selectedRows.length > 0 && (
                             <button 
                                 onClick={async () => {
-                                    const modelsSelectedCount = invoiceItems.filter(item => 
-                                        item.variantIds.some((id: string) => selectedRows.includes(id))
-                                    ).length;
-
-                                    if(confirm(`هل أنت متأكد من تأجيل ${modelsSelectedCount} موديل؟ سيتم إخفاؤهم من الفرز الحالي.`)) {
+                                    const count = invoiceItems.filter(item => item.variantIds.some((id: string) => selectedRows.includes(id))).length;
+                                    if(confirm(`تأجيل ${count} موديل؟`)) {
                                         await bulkPostponeItems(selectedRows);
                                         setSelectedRows([]);
                                     }
                                 }}
-                                className="bg-orange-600 text-white px-4 py-2 rounded-lg font-black shadow-xl flex items-center gap-2"
+                                className="bg-orange-600 text-white px-4 py-2 rounded-lg font-black animate-bounce shadow-xl flex items-center gap-2"
                             >
-                                📦 تأجيل الموديلات المختارة ({
-                                    invoiceItems.filter(item => 
-                                        item.variantIds.some((id: string) => selectedRows.includes(id))
-                                    ).length
-                                })
+                                📦 تأجيل الموديلات المختارة ({invoiceItems.filter(item => item.variantIds.some((id: string) => selectedRows.includes(id))).length})
+                            </button>
+                        )}
+
+                        {/* زر إعادة التفعيل الجديد (يظهر فقط عند مراجعة "المؤجلات") */}
+                        {viewMode === 'history' && archiveViewType === 'executed_only' && selectedRows.length > 0 && viewTab === 'POSTPONED' && (
+                            <button 
+                                onClick={async () => {
+                                    const count = invoiceItems.filter(item => item.variantIds.some((id: string) => selectedRows.includes(id))).length;
+                                    if(confirm(`هل تريد إعادة ${count} موديل لقائمة الفرز النشطة؟`)) {
+                                        await bulkReactivateItems(selectedRows);
+                                        setSelectedRows([]);
+                                    }
+                                }}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-black animate-pulse shadow-xl flex items-center gap-2"
+                            >
+                                🚀 إعادة للفرز النشط ({invoiceItems.filter(item => item.variantIds.some((id: string) => selectedRows.includes(id))).length})
                             </button>
                         )}
                         <button onClick={() => setSelectedOrder(null)} className="text-gray-500 hover:text-red-500 text-2xl font-bold">&times;</button>
