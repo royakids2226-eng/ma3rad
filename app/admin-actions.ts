@@ -48,8 +48,24 @@ export async function getUsers() {
 export async function addProduct(data: any) {
   try {
     for (const item of data.colors) {
-        await prisma.product.create({
-            data: {
+        // نستخدم upsert للبحث عن الموديل واللون معاً
+        await prisma.product.upsert({
+            where: {
+                modelNo_color: {
+                    modelNo: data.modelNo,
+                    color: item.color
+                }
+            },
+            update: {
+                // استخدام increment للجمع التراكمي للكميات
+                stockQty: { increment: parseInt(item.stock) },
+                currentStock: { increment: parseInt(item.stock) },
+                // تحديث السعر والخامة لأحدث قيم مدخلة
+                price: parseFloat(data.price),
+                material: data.material,
+                description: data.description,
+            },
+            create: {
                 modelNo: data.modelNo,
                 description: data.description,
                 material: data.material,
@@ -64,9 +80,11 @@ export async function addProduct(data: any) {
     }
     revalidatePath('/admin/products');
     revalidatePath('/admin/notifications');
+    revalidatePath('/admin/reports'); // تحديث التقارير
     return { success: true };
   } catch (e) {
-    return { success: false, error: 'حدث خطأ، ربما البيانات مكررة' };
+    console.error(e);
+    return { success: false, error: 'حدث خطأ أثناء الإضافة التراكمية' };
   }
 }
 
@@ -109,8 +127,9 @@ export async function addBulkProducts(products: any[]) {
                         }
                     },
                     update: {
-                        stockQty: parseInt(p.stockQty) || 0,
-                        currentStock: parseInt(p.stockQty) || 0, // تم التعديل هنا
+                        // جمع الكمية الجديدة على الموجودة مسبقاً
+                        stockQty: { increment: parseInt(p.stockQty) || 0 },
+                        currentStock: { increment: parseInt(p.stockQty) || 0 },
                         price: parseFloat(p.price) || 0,
                         discount: parseFloat(p.discount) || 0,
                         description: p.description || '',
@@ -132,10 +151,10 @@ export async function addBulkProducts(products: any[]) {
             }
         }
         revalidatePath('/admin/products');
-        revalidatePath('/admin/notifications');
+        revalidatePath('/admin/reports');
         return { success: true, count };
     } catch (e) {
-        return { success: false, error: 'حدث خطأ أثناء الاستيراد' };
+        return { success: false, error: 'حدث خطأ أثناء الاستيراد التراكمي' };
     }
 }
 
