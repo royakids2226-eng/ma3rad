@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useTransition } from 'react';
 import Link from 'next/link';
-import { processSortingBatchDirectly, undoOrderBatch, undoLastBatchByOrder } from './actions';
+import { processSortingBatchDirectly, undoOrderBatch, undoLastBatchByOrder, toggleBulkPostpone, bulkPostponeItems } from './actions';
 import * as XLSX from 'xlsx';
 
 type LogItem = {
@@ -23,6 +23,7 @@ type ItemDetail = {
   remainingNeeded: number;
   qtyAllocatedPieces: number;
   isFullyReady: boolean;
+  isPostponed: boolean;
   price: number;
   logs: LogItem[];
 };
@@ -52,11 +53,12 @@ type OrderType = {
 export default function SortingClient({ initialOrders }: { initialOrders: OrderType[] }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('date-desc');
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [viewTab, setViewTab] = useState<'PENDING' | 'ARCHIVE' | 'POSTPONED'>('PENDING');
   const [selectedOrder, setSelectedOrder] = useState<OrderType | null>(null);
   const [viewMode, setViewMode] = useState<'current' | 'history' | 'specific'>('current');
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [archiveViewType, setArchiveViewType] = useState<'executed_only' | 'full_statement'>('executed_only');
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
   const [isUndoPending, startUndoTransition] = useTransition();
   const [isQuickUndoPending, startQuickUndoTransition] = useTransition();
@@ -111,11 +113,11 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
   const filteredAndSortedOrders = useMemo(() => {
     let result = [...initialOrders];
 
-    if (showCompleted) {
-        result = result.filter(o => o.totalFulfilledOverall > 0);
-    } else {
-        result = result.filter(o => !o.isCompletelyDone);
-    }
+    result = result.filter(o => {
+        if (viewTab === 'POSTPONED') return o.itemDetails.some(i => i.isPostponed);
+        if (viewTab === 'ARCHIVE') return o.totalFulfilledOverall > 0 || o.isCompletelyDone;
+        return !o.isCompletelyDone && !o.itemDetails.every(i => i.isPostponed);
+    });
 
     if (searchTerm) {
       const lowerTerm = searchTerm.toLowerCase();
@@ -136,7 +138,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     });
 
     return result;
-  }, [initialOrders, searchTerm, showCompleted, sortBy]);
+  }, [initialOrders, searchTerm, viewTab, sortBy]);
 
   const pastBatches = useMemo(() => {
       if (!selectedOrder) return [];
@@ -157,64 +159,58 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
 
   }, [selectedOrder]);
 
-  const invoiceItems = useMemo(() => {
+ const invoiceItems = useMemo(() => {
     if (!selectedOrder) return [];
-
     const groups: { [key: string]: any } = {};
 
     selectedOrder.itemDetails.forEach((item) => {
-        let quantityToShow = 0;
-        let colorsToShow: {[key:string]: number} = {};
-
-        if (viewMode === 'current') {
-            quantityToShow = item.qtyAllocatedPieces;
-            if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
-        } else if (viewMode === 'history') {
-            quantityToShow = item.alreadyFulfilled;
-            if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
-        } else if (viewMode === 'specific' && selectedBatchId) {
-            const batchLog = item.logs.find(log => log.batchId === selectedBatchId);
-            quantityToShow = batchLog ? batchLog.quantity : 0;
-            if (quantityToShow > 0) colorsToShow[item.color] = quantityToShow;
+        let qtyToShow = 0;
+        if (viewMode === 'current') qtyToShow = item.qtyAllocatedPieces;
+        else if (viewMode === 'history') qtyToShow = item.alreadyFulfilled;
+        else if (viewMode === 'specific' && selectedBatchId) {
+            const log = item.logs.find(l => l.batchId === selectedBatchId);
+            qtyToShow = log ? log.quantity : 0;
         }
 
         if (!groups[item.modelNo]) {
             groups[item.modelNo] = {
-                ...item,
-                displayQty: quantityToShow,
-                colorsCount: colorsToShow,
-                totalQtyPieces: item.totalQtyPieces,
-                totalRemaining: item.remainingNeeded,
+                modelNo: item.modelNo,
+                description: item.description,
+                price: item.price,
+                displayQty: 0,
+                totalQtyPieces: 0,
+                totalRemaining: 0,
+                isPostponed: item.isPostponed,
+                variantIds: [item.orderItemId],
+                colorsMap: {}
             };
         } else {
-            groups[item.modelNo].totalQtyPieces += item.totalQtyPieces;
-            groups[item.modelNo].totalRemaining += item.remainingNeeded;
-            groups[item.modelNo].displayQty += quantityToShow;
-            if (quantityToShow > 0) {
-                groups[item.modelNo].colorsCount[item.color] = (groups[item.modelNo].colorsCount[item.color] || 0) + quantityToShow;
-            }
+            groups[item.modelNo].variantIds.push(item.orderItemId);
+        }
+
+        const g = groups[item.modelNo];
+        g.displayQty += qtyToShow;
+        g.totalQtyPieces += item.totalQtyPieces;
+        g.totalRemaining += item.remainingNeeded;
+        if (qtyToShow > 0) {
+            g.colorsMap[item.color] = (g.colorsMap[item.color] || 0) + qtyToShow;
         }
     });
 
-    return Object.values(groups)
-        .map((group: any) => {
-            const colorsStr = Object.entries(group.colorsCount)
-              .map(([color, qty]) => `${color} (${qty})`)
-              .join(' + ');
-
-            return {
-                ...group,
-                colorsDisplay: colorsStr === '' ? '-' : colorsStr,
-                isCheck: group.displayQty > 0 
-            };
-        })
-        .filter(item => {
-            if (viewMode === 'history') {
-                return archiveViewType === 'executed_only' ? item.displayQty > 0 : true;
-            }
-            if (viewMode === 'specific') return item.displayQty > 0;
-            return true;
-        });
+    return Object.values(groups).map((g: any) => {
+        const colorsStr = Object.entries(g.colorsMap)
+            .map(([color, qty]) => `${color} (${qty})`)
+            .join(' + ');
+        return {
+            ...g,
+            colorsDisplay: colorsStr || '-',
+            isCheck: g.displayQty > 0
+        };
+    }).filter(item => {
+        if (viewMode === 'current') return !item.isPostponed;
+        if (viewMode === 'history' && archiveViewType === 'executed_only') return item.displayQty > 0;
+        return true;
+    });
 }, [selectedOrder, viewMode, selectedBatchId, archiveViewType]);
 
    const handleExportToExcel = (order: OrderType) => {
@@ -248,7 +244,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
     }
 
     const itemsToFulfill = selectedOrder.itemDetails
-      .filter(item => item.qtyAllocatedPieces > 0)
+      .filter(item => item.qtyAllocatedPieces > 0 && !item.isPostponed)
       .map(item => ({
         orderItemId: item.orderItemId,
         qtyToFulfill: item.qtyAllocatedPieces
@@ -294,6 +290,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
 
   const openModal = (order: OrderType) => {
     setSelectedOrder(order);
+    setSelectedRows([]); // Reset selection when opening a new order
     if (order.isCompletelyDone) {
       setViewMode('history');
     } else {
@@ -320,17 +317,23 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
         <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-slate-100 space-y-4">
            <div className="flex gap-2 border-b border-gray-100 pb-2">
               <button 
-                onClick={() => setShowCompleted(false)}
-                className={`px-6 py-2 rounded-lg font-bold transition-all ${!showCompleted ? 'bg-slate-800 text-white shadow-lg' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                onClick={() => setViewTab('PENDING')}
+                className={`px-6 py-2 rounded-lg font-bold transition-all ${viewTab === 'PENDING' ? 'bg-slate-800 text-white shadow-lg' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
               >
                  ⏳ قيد التنفيذ
               </button>
               <button 
-                onClick={() => setShowCompleted(true)}
-                className={`px-6 py-2 rounded-lg font-bold transition-all ${showCompleted ? 'bg-green-600 text-white shadow-lg' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                onClick={() => setViewTab('ARCHIVE')}
+                className={`px-6 py-2 rounded-lg font-bold transition-all ${viewTab === 'ARCHIVE' ? 'bg-green-600 text-white shadow-lg' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
               >
-                 ✅ تم الانتهاء (الأرشيف)
+                 ✅ الأرشيف
               </button>
+              <button 
+                onClick={() => setViewTab('POSTPONED')}
+                className={`px-6 py-2 rounded-lg font-bold transition-all ${viewTab === 'POSTPONED' ? 'bg-orange-600 text-white' : 'bg-white text-slate-500'}`}
+              >
+                📦 المؤجل تسليمه
+            </button>
            </div>
 
            <div className="flex flex-col md:flex-row gap-4">
@@ -365,6 +368,10 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                 statusText = "مكتمل ✅";
                 statusColor = "text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-200";
                 progressBarColor = "bg-green-500";
+            } else if (order.itemDetails.some(i => i.isPostponed)) {
+                statusText = "مؤجل 📦";
+                statusColor = "text-orange-600 bg-orange-50 px-3 py-1 rounded-full border border-orange-200";
+                progressBarColor = "bg-orange-500";
             } else if (order.totalFulfilledOverall > 0) {
                 statusText = "تنفيذ جزئي ⏳";
                 statusColor = "text-orange-600 bg-orange-50 px-3 py-1 rounded-full border border-orange-200";
@@ -409,8 +416,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                 <div className="flex flex-wrap gap-2 mt-4">
                     <button 
                         onClick={() => openModal(order)} 
-                        className={`flex-1 py-2 text-white rounded-lg font-bold transition-colors ${order.isCompletelyDone ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-600 hover:bg-orange-700'}`}
-                    >
+                        className={`flex-1 py-2 text-white rounded-lg font-bold transition-colors ${order.isCompletelyDone ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-600 hover:bg-orange-700'}`}>
                         📄 {order.isCompletelyDone ? 'الأرشيف' : 'متابعة الصرف'}
                     </button>
 
@@ -420,24 +426,19 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                                 onClick={() => handleQuickUndo(order.id)}
                                 disabled={isQuickUndoPending}
                                 className="px-3 py-2 bg-red-100 text-red-700 border border-red-200 rounded-lg hover:bg-red-200 font-bold shadow-sm"
-                                title="تراجع عن آخر دفعة صرف"
-                            >
+                                title="تراجع عن آخر دفعة صرف">
                                 {isQuickUndoPending ? '...' : '🔄 تراجع'}
                             </button>
-
                             <button 
                                 onClick={() => handleExportLastBatchExcel(order)}
                                 className="px-3 py-2 bg-blue-100 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-200 font-bold shadow-sm"
-                                title="تحميل إكسيل لآخر دفعة فقط"
-                            >
+                                title="تحميل إكسيل لآخر دفعة فقط">
                                 📊 آخر دفعة
                             </button>
-                            
                             <button 
                                 onClick={() => handleExportToExcel(order)}
                                 className="px-3 py-2 bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-200 font-bold shadow-sm"
-                                title="تحميل إكسيل لكل المنصرف"
-                            >
+                                title="تحميل إكسيل لكل المنصرف">
                                 📁 إجمالي
                             </button>
                         </>
@@ -460,27 +461,50 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
             
             <div className="flex flex-col gap-4 mb-8 print:hidden border-b pb-4">
                  <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-bold">
-                      {selectedOrder.isCompletelyDone ? 'أرشيف التسليمات' : 'إدارة الصرف'}
-                  </h2>
-                  <button onClick={() => setSelectedOrder(null)} className="text-gray-500 hover:text-red-500 text-2xl font-bold">&times;</button>
-              </div>
+                    <h2 className="text-xl font-bold">
+                        {selectedOrder.isCompletelyDone ? 'أرشيف التسليمات' : 'إدارة الصرف'}
+                    </h2>
+                    <div className="flex items-center gap-2">
+                        {viewMode === 'current' && selectedRows.length > 0 && (
+                            <button 
+                                onClick={async () => {
+                                    const modelsSelectedCount = invoiceItems.filter(item => 
+                                        item.variantIds.some(id => selectedRows.includes(id))
+                                    ).length;
+
+                                    if(confirm(`هل أنت متأكد من تأجيل ${modelsSelectedCount} موديل؟ سيتم إخفاؤهم من الفرز الحالي.`)) {
+                                        await bulkPostponeItems(selectedRows);
+                                        setSelectedRows([]);
+                                    }
+                                }}
+                                className="bg-orange-600 text-white px-4 py-2 rounded-lg font-black shadow-xl flex items-center gap-2"
+                            >
+                                📦 تأجيل الموديلات المختارة ({
+                                    invoiceItems.filter(item => 
+                                        item.variantIds.some(id => selectedRows.includes(id))
+                                    ).length
+                                })
+                            </button>
+                        )}
+                        <button onClick={() => setSelectedOrder(null)} className="text-gray-500 hover:text-red-500 text-2xl font-bold">&times;</button>
+                    </div>
+                 </div>
               
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-2 bg-gray-50 p-3 rounded-lg print:hidden">
-                    <button onClick={() => { setViewMode('current'); }} className={`p-2 rounded-lg border text-xs font-bold ${viewMode === 'current' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500'}`}>
+                    <button onClick={() => { setViewMode('current'); setSelectedRows([]); }} className={`p-2 rounded-lg border text-xs font-bold ${viewMode === 'current' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500'}`}>
                         ⚡ دفعة جديدة
                     </button>
 
-                    <button onClick={() => { setViewMode('history'); setArchiveViewType('executed_only'); }} className={`p-2 rounded-lg border text-xs font-bold ${viewMode === 'history' && archiveViewType === 'executed_only' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500'}`}>
+                    <button onClick={() => { setViewMode('history'); setArchiveViewType('executed_only'); setSelectedRows([]); }} className={`p-2 rounded-lg border text-xs font-bold ${viewMode === 'history' && archiveViewType === 'executed_only' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500'}`}>
                         🚚 كشف المنفذ فقط
                     </button>
 
-                    <button onClick={() => { setViewMode('history'); setArchiveViewType('full_statement'); }} className={`p-2 rounded-lg border text-xs font-bold ${viewMode === 'history' && archiveViewType === 'full_statement' ? 'bg-slate-800 text-white' : 'bg-white text-gray-500'}`}>
+                    <button onClick={() => { setViewMode('history'); setArchiveViewType('full_statement'); setSelectedRows([]); }} className={`p-2 rounded-lg border text-xs font-bold ${viewMode === 'history' && archiveViewType === 'full_statement' ? 'bg-slate-800 text-white' : 'bg-white text-gray-500'}`}>
                         📊 الفاتورة العامة
                     </button>
 
                     <div className="p-1 border rounded bg-white flex flex-col">
-                        <select value={selectedBatchId} onChange={(e) => { setSelectedBatchId(e.target.value); setViewMode('specific'); }} className="text-[10px] outline-none">
+                        <select value={selectedBatchId} onChange={(e) => { setSelectedBatchId(e.target.value); setViewMode('specific'); setSelectedRows([]); }} className="text-[10px] outline-none">
                             <option value="">📅 باتش سابق</option>
                             {pastBatches.map(b => <option key={b.id} value={b.id}>{new Date(b.date).toLocaleDateString()}</option>)}
                         </select>
@@ -492,8 +516,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                     <button
                         onClick={() => handleUndoBatch(selectedBatchId)}
                         disabled={isUndoPending}
-                        className="px-4 py-2 rounded text-white bg-red-600 hover:bg-red-700 font-bold shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed"
-                    >
+                        className="px-4 py-2 rounded text-white bg-red-600 hover:bg-red-700 font-bold shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed">
                         {isUndoPending ? 'جاري التراجع...' : '🗑️ تراجع عن تنفيذ الباتش'}
                     </button>
                 )}
@@ -505,8 +528,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                             ${isPending || (viewMode === 'current' && selectedOrder.itemsAllocatedNow === 0) 
                                 ? 'bg-gray-400 cursor-not-allowed' 
                                 : viewMode === 'current' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-800 hover:bg-slate-900'
-                            }`}
-                    >
+                            }`}>
                         {isPending ? '⏳ جاري المعالجة...' : (viewMode === 'current' ? '🚀 تنفيذ وطباعة فورية' : '🖨️ طباعة السجل المعروض')}
                     </button>
                     <button onClick={() => setSelectedOrder(null)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">إغلاق</button>
@@ -514,6 +536,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
               </div>
             </div>
 
+            {/* Print section below... */}
             <div className="print:block" dir="rtl">
               <div className="text-center mb-8 border-b border-black pb-4">
                 <h1 className="text-3xl font-bold mb-2 text-center">
@@ -532,77 +555,89 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
               </div>
 
               <div className="grid grid-cols-2 gap-8 mb-8 bg-gray-50 p-4 rounded print:bg-transparent print:p-0 print:border print:border-gray-300">
-    <div className="space-y-1">
-        <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">بيانات العميل</p>
-        <p className="font-black text-xl text-slate-900">{selectedOrder.customer.name}</p>
-        
-        <p className="text-sm font-bold text-slate-700 flex items-center gap-2">
-            <span>📱 {selectedOrder.customer.phone}</span>
-            {selectedOrder.customer.phone2 && (
-                <span className="border-r border-gray-300 pr-2"> / {selectedOrder.customer.phone2}</span>
-            )}
-        </p>
-        
-        {selectedOrder.customer.address && (
-            <p className="text-sm text-gray-600 flex items-start gap-1">
-                <span className="shrink-0">📍</span>
-                <span>{selectedOrder.customer.address}</span>
-            </p>
-        )}
-    </div>
-    
-    <div className="text-left flex flex-col justify-center">
-        <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">رقم الأوردر</p>
-        <p className="font-black text-4xl text-blue-600">#{selectedOrder.orderNo}</p>
-        <p className="text-[10px] text-gray-400 mt-1">تاريخ الأوردر: {new Date(selectedOrder.createdAt).toLocaleDateString('ar-EG')}</p>
-    </div>
-</div>
+                <div className="space-y-1">
+                    <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">بيانات العميل</p>
+                    <p className="font-black text-xl text-slate-900">{selectedOrder.customer.name}</p>
+                    <p className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                        <span>📱 {selectedOrder.customer.phone}</span>
+                        {selectedOrder.customer.phone2 && (
+                            <span className="border-r border-gray-300 pr-2"> / {selectedOrder.customer.phone2}</span>
+                        )}
+                    </p>
+                    {selectedOrder.customer.address && (
+                        <p className="text-sm text-gray-600 flex items-start gap-1">
+                            <span className="shrink-0">📍</span>
+                            <span>{selectedOrder.customer.address}</span>
+                        </p>
+                    )}
+                </div>
+                <div className="text-left flex flex-col justify-center">
+                    <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">رقم الأوردر</p>
+                    <p className="font-black text-4xl text-blue-600">#{selectedOrder.orderNo}</p>
+                    <p className="text-[10px] text-gray-400 mt-1">تاريخ الأوردر: {new Date(selectedOrder.createdAt).toLocaleDateString('ar-EG')}</p>
+                </div>
+              </div>
 
               <table className="w-full border-collapse border border-gray-300 mb-8">
-                <thead>
-                  <tr className="bg-gray-100 print:bg-gray-200 text-sm">
-                    <th className="border border-gray-300 p-2 w-10">م</th>
-                    <th className="border border-gray-300 p-2 w-10">حالة</th>
-                    <th className="border border-gray-300 p-2 text-right">الموديل</th>
-                    <th className="border border-gray-300 p-2 text-right">الألوان</th>
-                    <th className="border border-gray-300 p-2 text-center w-20">المطلوب</th>
-                    <th className="border border-gray-300 p-2 text-center w-24 bg-gray-200 print:bg-gray-300 font-bold">الكمية</th>
-                    <th className="border border-gray-300 p-2 text-center w-20 text-gray-500">متبقي</th>
-                    <th className="border border-gray-300 p-2 text-center w-20">السعر</th>
-                    <th className="border border-gray-300 p-2 text-center w-24">إجمالي</th>
-                  </tr>
+                <thead className="print:table-header-group">
+                    <tr className="bg-gray-100 print:bg-gray-200 text-sm">
+                        <th className="p-2 w-10 print:hidden text-center">
+                            <input type="checkbox" onChange={(e) => {
+                                if(e.target.checked) setSelectedRows(invoiceItems.flatMap(i => i.variantIds));
+                                else setSelectedRows([]);
+                            }} />
+                        </th>
+                        <th className="border border-gray-300 p-2 w-10">م</th>
+                        <th className="border border-gray-300 p-2 w-12 print:hidden">تأجيل</th>
+                        <th className="border border-gray-300 p-2 w-10">حالة</th>
+                        <th className="border border-gray-300 p-2 text-right">الموديل</th>
+                        <th className="border border-gray-300 p-2 text-right">الألوان</th>
+                        <th className="border border-gray-300 p-2 text-center w-20">المطلوب</th>
+                        <th className="border border-gray-300 p-2 text-center w-24 bg-gray-200 font-bold">الكمية</th>
+                        <th className="border border-gray-300 p-2 text-center w-20 text-gray-500">متبقي</th>
+                        <th className="border border-gray-300 p-2 text-center w-20">السعر</th>
+                        <th className="border border-gray-300 p-2 text-center w-24">إجمالي</th>
+                    </tr>
                 </thead>
                 <tbody>
-                  {invoiceItems.map((item: any, index: number) => (
-                    <tr key={index} className="text-sm print:break-inside-avoid">
+                    {invoiceItems.map((item: any, index: number) => (
+                    <tr key={index} className={`text-sm print:break-inside-avoid ${item.isPostponed ? 'bg-orange-50' : ''}`}>
+                        <td className="p-2 text-center print:hidden">
+                            <input 
+                                type="checkbox" 
+                                checked={item.variantIds.every(id => selectedRows.includes(id))}
+                                onChange={() => {
+                                    setSelectedRows(prev => {
+                                        const allIn = item.variantIds.every(id => prev.includes(id));
+                                        if (allIn) return prev.filter(id => !item.variantIds.includes(id));
+                                        return [...prev, ...item.variantIds];
+                                    });
+                                }}
+                            />
+                        </td>
                         <td className="border border-gray-300 p-2 text-center">{index + 1}</td>
-                        <td className="border border-gray-300 p-2 text-center text-lg">
-                            {item.isCheck ? '✅' : '❌'}
+                        
+                        <td className="border border-gray-300 p-2 text-center print:hidden">
+                            <button 
+                                onClick={() => startTransition(() => toggleBulkPostpone(item.variantIds, !item.isPostponed))}
+                                className={`p-1 rounded ${item.isPostponed ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-400'}`}
+                            >
+                                {item.isPostponed ? '🔒' : '🔓'}
+                            </button>
                         </td>
-                        <td className="border border-gray-300 p-2">
-                            <span className="font-bold text-base block">{item.modelNo}</span>
-                            {item.description && <span className="text-gray-500 text-xs">{item.description}</span>} 
-                        </td>
-                        <td className="border border-gray-300 p-2 font-medium text-xs">
-                            {item.colorsDisplay}
-                        </td>
-                        <td className="border border-gray-300 p-2 text-center text-gray-600">
-                            {item.totalQtyPieces}
-                        </td>
-                        <td className={`border border-gray-300 p-2 text-center font-bold text-lg ${item.isCheck ? 'bg-gray-50 print:bg-gray-100' : ''}`}>
-                            {item.displayQty > 0 ? item.displayQty : '-'}
-                        </td>
-                        <td className="border border-gray-300 p-2 text-center text-gray-400">
-                            {item.totalRemaining > 0 ? item.totalRemaining : '0'}
-                        </td>
-                        <td className="border border-gray-300 p-2 text-center font-mono">{item.price.toFixed(2)}</td>
-                        <td className="border border-gray-300 p-2 text-center font-bold">
-                            {item.displayQty > 0 ? (item.displayQty * item.price).toFixed(2) : '-'}
-                        </td>
+
+                        <td className="border border-gray-300 p-2 text-center text-lg">{item.isCheck ? '✅' : '❌'}</td>
+                        <td className="border border-gray-300 p-2 font-bold">{item.modelNo}</td>
+                        <td className="border border-gray-300 p-2 text-xs">{item.colorsDisplay}</td>
+                        <td className="border border-gray-300 p-2 text-center">{item.totalQtyPieces}</td>
+                        <td className="border border-gray-300 p-2 text-center font-bold text-lg">{item.displayQty || '-'}</td>
+                        <td className="border border-gray-300 p-2 text-center text-gray-400">{item.totalRemaining}</td>
+                        <td className="border border-gray-300 p-2 text-center">{item.price.toFixed(2)}</td>
+                        <td className="border border-gray-300 p-2 text-center font-bold">{(item.displayQty * item.price).toFixed(2)}</td>
                     </tr>
-                  ))}
+                    ))}
                 </tbody>
-              </table>
+                </table>
               
               <div className="mt-8 border-t-2 border-black pt-4">
                   <div className="flex justify-between items-start">
@@ -610,7 +645,6 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                          <p>توقيع المستلم: .......................................</p>
                          <p>توقيع أمين المخزن: .......................................</p>
                       </div>
-
                       <div className="w-64 border border-black p-3 rounded-lg space-y-2">
                           <div className="flex justify-between text-sm">
                               <span>إجمالي هذه الدفعة:</span>
@@ -637,6 +671,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                    </div>
               </div>
             </div>
+
           </div>
         </div>
       )}
