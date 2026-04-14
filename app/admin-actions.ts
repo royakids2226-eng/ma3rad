@@ -158,6 +158,110 @@ export async function addBulkProducts(products: any[]) {
     }
 }
 
+export async function syncFromGoogleSheets() {
+  try {
+    // 1. تحديد تاريخ بداية العمل بهذه الميزة (مثلاً من اليوم)
+    // أي حركة في الشيت قبل هذا التاريخ سيتم تجاهلها نهائياً
+    const SYNC_START_DATE = new Date("2025-06-01"); 
+
+    // 1. رابط تصدير الشيت بصيغة CSV (تبويب tahweel - gid=2110927030)
+    const SHEET_ID = "1EhPqEOYOzoLREVC3IMsjmXiPP5WXTjhF5_DJxVOcI2M";
+    const GID = "2110927030";
+    const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
+
+    const response = await fetch(CSV_URL);
+    if (!response.ok) throw new Error("فشل الاتصال بجوجل شيت");
+    const csvText = await response.text();
+
+    // 2. تحويل الـ CSV إلى مصفوفة بيانات
+    const lines = csvText.split("\n");
+    const headers = lines[0].split(",").map(h => h.trim());
+    const rows = lines.slice(1);
+
+    let processedCount = 0;
+    let skippedCount = 0;
+
+    for (const row of rows) {
+      const values = row.split(",").map(v => v.trim());
+      if (values.length < headers.length) continue;
+
+      // تحويل السطر إلى كائن (Object) لسهولة الوصول
+      const data: any = {};
+      headers.forEach((header, index) => {
+        data[header] = values[index];
+      });
+
+      // --- تطبيق الشروط ---
+      // أ. شرط التصنيف "اساسي"
+      if (data["tasneef"] !== "اساسي") continue;
+
+      const rowDate = new Date(data["datetime"]);
+      if (rowDate < SYNC_START_DATE) continue; // تجاهل القديم جداً
+
+      // ب. منع التكرار باستخدام الـ ID
+      const existingReceipt = await prisma.warehouseReceipt.findUnique({
+        where: { uniqueid: data["id"] }
+      });
+      if (existingReceipt) {
+        skippedCount++;
+        continue;
+      }
+
+      // ج. تفكيك الموديلات (مثل 3716 -4716)
+      const modelCodes = data["model code"].split("-").map((m: string) => m.trim()).filter((m: string) => m !== "");
+
+      const raQty = parseInt(data["raqty"]) || 0;
+      const totalPieces = raQty * 4; // تحويل السريات لقطع
+
+      for (const modelNo of modelCodes) {
+        // د. البحث عن الصنف باستخدام كود الخام (material)
+        const product = await prisma.product.findFirst({
+            where: {
+                modelNo: modelNo,
+                material: data["khcode"]
+            }
+        });
+
+        if (product) {
+          // هـ. تحديث الكمية بشكل تراكمي
+          await prisma.product.update({
+            where: { id: product.id },
+            data: {
+                stockQty: { increment: totalPieces },
+                currentStock: { increment: totalPieces }
+            }
+          });
+
+          // و. تسجيل الحركة في WarehouseReceipt لمنع تكرارها للأبد
+          // سنستخدم uniqueid كـ primary key لضمان عدم دخول نفس السطر مرتين
+          await prisma.warehouseReceipt.create({
+            data: {
+                uniqueid: data["id"],
+                date: new Date(data["datetime"]),
+                empName: data["bank"] || "جوجل شيت",
+                modelNo: modelNo,
+                most: totalPieces
+            }
+          });
+          processedCount++;
+        }
+      }
+    }
+
+    revalidatePath('/admin/products');
+    revalidatePath('/admin/reports');
+    
+    return { 
+        success: true, 
+        message: `تمت المزامنة بنجاح. أسطر جديدة: ${processedCount} | أسطر مكررة تم تخطيها: ${skippedCount}` 
+    };
+
+  } catch (error: any) {
+    console.error("Sync Error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
 export async function deleteProduct(id: string) {
   try {
     await prisma.product.delete({ where: { id } });

@@ -7,7 +7,8 @@ import {
     addBulkProducts, 
     deleteBulkProducts, 
     deleteAllProducts,
-    updateProduct 
+    updateProduct, 
+    syncFromGoogleSheets
 } from '@/app/admin-actions';
 import * as XLSX from 'xlsx';
 
@@ -36,10 +37,22 @@ export default function ProductsPage() {
 
   // Deleting State
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     refreshProducts();
   }, []);
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    const result = await syncFromGoogleSheets();
+    if (result.success) {
+        alert(result.message);
+    } else {
+        alert("خطأ: " + result.error);
+    }
+    setIsSyncing(false);
+  };
 
   const refreshProducts = () => {
     getProducts().then(res => {
@@ -294,6 +307,17 @@ export default function ProductsPage() {
                 </div>
              </div>
           )}
+      </div>
+
+      {/* Sync Section */}
+      <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+          <button 
+              onClick={handleSync}
+              disabled={isSyncing}
+              className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 disabled:opacity-50"
+          >
+              {isSyncing ? "⏳ جاري المزامنة..." : "🔄 مزامنة من جوجل شيت"}
+          </button>
       </div>
 
       {/* Form Adding */}
