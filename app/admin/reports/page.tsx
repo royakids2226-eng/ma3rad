@@ -1,4 +1,5 @@
 'use client'
+
 import { useState, useEffect, useCallback } from 'react';
 import { getInventoryReport, getSafesList, getSafeLedger, getEmployeePerformance } from '@/app/report-actions';
 import { useSession } from 'next-auth/react';
@@ -21,6 +22,23 @@ export default function ReportsPage() {
   
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-6" dir="rtl">
+      <style jsx global>{`
+        @media print {
+          @page { margin: 0; size: auto; }
+          body * { visibility: hidden; }
+          #printable-area, #printable-area * { visibility: visible; }
+          #printable-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            padding: 20px;
+            background: white !important;
+          }
+          nav, aside, header, footer, .print\:hidden { display: none !important; }
+        }
+      `}</style>
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 print:hidden">
         <div className="flex items-center gap-4">
           <div className="bg-blue-600 p-4 rounded-2xl shadow-lg shadow-blue-200 text-white">
@@ -96,9 +114,16 @@ function InventoryReportView() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'COLOR' | 'MODEL'>('COLOR');
-    const [showDetailedColors, setShowDetailedColors] = useState(false);
-    const [showInitialStock, setShowInitialStock] = useState(true); // التحكم في الأولي
+    const [showInitialStock, setShowInitialStock] = useState(true);
+    const [showCurrentStock, setShowCurrentStock] = useState(true);
     const [isLinkedStagesActive, setIsLinkedStagesActive] = useState(false);
+    const [selectedHistory, setSelectedHistory] = useState<any[] | null>(null);
+    const [selectedItemName, setSelectedItemName] = useState('');
+
+    const openHistory = (item: any) => {
+        setSelectedHistory(item.history || []);
+        setSelectedItemName(`${item.modelNo} (${item.color || 'تجميعي'})`);
+    };
     
     useEffect(() => {
         getInventoryReport().then(res => {
@@ -128,13 +153,15 @@ function InventoryReportView() {
             g.totalSold += item.totalSold;
             g.currentStock += item.currentStock;
             g.currentValue += item.currentValue;
+            if (item.history) {
+                g.history.push(...item.history)
+            }
         });
         return Object.values(groups);
     };
 
     let displayData = viewMode === 'COLOR' ? [...data] : getGroupedData();
 
-    // 1. منطق البحث المطور (الربط بين 2100 و 2200)
     if (searchTerm.trim() !== '') {
         displayData = displayData.filter((item: any) => {
             const term = searchTerm.toLowerCase();
@@ -153,7 +180,6 @@ function InventoryReportView() {
         });
     }
 
-    // 2. منطق الترتيب (حسب الموديل ثم الخامة)
     displayData.sort((a: any, b: any) => {
         const modelA = parseInt(a.modelNo) || 0;
         const modelB = parseInt(b.modelNo) || 0;
@@ -181,11 +207,14 @@ function InventoryReportView() {
                     </button>
                 </div>
 
-                <div className="bg-gray-100 p-2 rounded-2xl flex gap-2">
+                <div className="bg-gray-100 p-2 rounded-2xl flex flex-wrap gap-2 items-center shadow-inner print:hidden">
                     <button onClick={() => setViewMode('COLOR')} className={`px-6 py-3 rounded-xl ${viewMode === 'COLOR' ? 'bg-white shadow text-blue-700 font-bold' : ''}`}>الألوان</button>
                     <button onClick={() => setViewMode('MODEL')} className={`px-6 py-3 rounded-xl ${viewMode === 'MODEL' ? 'bg-white shadow text-blue-700 font-bold' : ''}`}>الموديلات</button>
-                    <button onClick={() => setShowInitialStock(!showInitialStock)} className="px-4 py-2 bg-white rounded-xl text-[10px] font-bold shadow-sm">
-                        {showInitialStock ? '👁️ إخفاء الأولي' : '👁️ إظهار الأولي'}
+                    <button onClick={() => setShowInitialStock(!showInitialStock)} className={`px-4 py-3 rounded-xl text-xs font-black border transition-all ${showInitialStock ? 'bg-white shadow text-blue-700 border-blue-100' : 'bg-transparent text-gray-400 border-transparent'}`}>
+                        {showInitialStock ? '👁️ إخفاء الأولي' : '🙈 إظهار الأولي'}
+                    </button>
+                    <button onClick={() => setShowCurrentStock(!showCurrentStock)} className={`px-4 py-3 rounded-xl text-xs font-black border transition-all ${showCurrentStock ? 'bg-white shadow text-blue-700 border-blue-100' : 'bg-transparent text-gray-400 border-transparent'}`}>
+                        {showCurrentStock ? '👁️ إخفاء الحالي' : '🙈 إظهار الحالي'}
                     </button>
                 </div>
             </div>
@@ -199,7 +228,7 @@ function InventoryReportView() {
                             <th className="p-5">{viewMode === 'COLOR' ? 'اللون' : 'الألوان'}</th>
                             {showInitialStock && <th className="p-5">أولي (قطعة)</th>}
                             <th className="p-5 text-yellow-500">المباع (سرية)</th>
-                            <th className="p-5">حالي (قطعة)</th>
+                            {showCurrentStock && <th className="p-5">حالي (قطعة)</th>}
                         </tr>
                     </thead>
                     <tbody>
@@ -221,13 +250,59 @@ function InventoryReportView() {
                                     )}
                                 </td>
                                 {showInitialStock && <td className="p-5 font-bold text-gray-400">{item.initialStock}</td>}
-                                <td className="p-5 text-yellow-600 font-black text-lg">{item.totalSold / 4} <small className="font-normal text-[10px]">سرية</small></td>
-                                <td className={`p-5 font-black text-xl ${item.currentStock < 0 ? 'text-red-500' : 'text-green-600'}`}>{item.currentStock}</td>
+                                <td className="p-5 text-yellow-600 font-black text-lg">
+                                    {item.totalSold > 0 ? (
+                                        <button 
+                                            onClick={() => openHistory(item)} 
+                                            className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded-xl shadow-lg transition-all active:scale-95 flex flex-col items-center"
+                                            title="اضغط لعرض تفاصيل البيع بالقطع"
+                                        >
+                                            <span className="text-lg leading-none">{item.totalSold / 4}</span>
+                                            <span className="text-[9px] font-bold">سرية</span>
+                                        </button>
+                                    ) : (
+                                        <span className="text-gray-300">0</span>
+                                    )}
+                                </td>
+                                {showCurrentStock && <td className={`p-5 font-black text-xl ${item.currentStock < 0 ? 'text-red-500' : 'text-green-600'}`}>{item.currentStock}</td>}
                             </tr>
                         ))}
                     </tbody>
                 </table>
             </div>
+
+            {selectedHistory && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center items-center p-4" onClick={() => setSelectedHistory(null)}>
+                    <div className="bg-white rounded-[2rem] w-full max-w-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
+                            <h3 className="font-black text-xl">سجل حركة البيع: {selectedItemName}</h3>
+                            <button onClick={() => setSelectedHistory(null)} className="text-2xl">✕</button>
+                        </div>
+                        <div className="p-6 max-h-[60vh] overflow-y-auto font-sans">
+                            <table className="w-full text-right">
+                                <thead className="bg-gray-50 text-gray-500 text-[10px] uppercase">
+                                    <tr>
+                                        <th className="p-3 border-b">التاريخ</th>
+                                        <th className="p-3 border-b text-center">العميل</th>
+                                        <th className="p-3 border-b text-center bg-blue-50 text-blue-600 font-black">الكمية (قطعة)</th>
+                                        <th className="p-3 border-b text-left">السعر</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {selectedHistory.map((h: any, idx: number) => (
+                                        <tr key={idx} className="hover:bg-gray-50">
+                                            <td className="p-3 text-xs text-gray-400">{new Date(h.date).toLocaleDateString('ar-EG')}</td>
+                                            <td className="p-3 font-bold text-gray-700 text-center">{h.customer}</td>
+                                            <td className="p-3 text-center font-black text-xl text-blue-800 bg-blue-50/30">{h.quantity}</td>
+                                            <td className="p-3 text-left font-mono font-bold text-green-600">{h.price}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
