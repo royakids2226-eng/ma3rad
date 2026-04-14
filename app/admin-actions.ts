@@ -158,13 +158,14 @@ export async function addBulkProducts(products: any[]) {
     }
 }
 
-export async function syncFromGoogleSheets() {
+export async function syncFromGoogleSheets(startDateStr: string) {
   try {
-    // 1. تحديد تاريخ بداية العمل بهذه الميزة (مثلاً من اليوم)
-    // أي حركة في الشيت قبل هذا التاريخ سيتم تجاهلها نهائياً
-    const SYNC_START_DATE = new Date("2025-06-01"); 
+    // تحويل التاريخ القادم من الواجهة إلى كائن Date
+    const SYNC_START_DATE = new Date(startDateStr);
+    
+    // التأكد من صحة التاريخ
+    if (isNaN(SYNC_START_DATE.getTime())) throw new Error("التاريخ المختار غير صحيح");
 
-    // 1. رابط تصدير الشيت بصيغة CSV (تبويب tahweel - gid=2110927030)
     const SHEET_ID = "1EhPqEOYOzoLREVC3IMsjmXiPP5WXTjhF5_DJxVOcI2M";
     const GID = "2110927030";
     const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
@@ -173,7 +174,6 @@ export async function syncFromGoogleSheets() {
     if (!response.ok) throw new Error("فشل الاتصال بجوجل شيت");
     const csvText = await response.text();
 
-    // 2. تحويل الـ CSV إلى مصفوفة بيانات
     const lines = csvText.split("\n");
     const headers = lines[0].split(",").map(h => h.trim());
     const rows = lines.slice(1);
@@ -182,62 +182,47 @@ export async function syncFromGoogleSheets() {
     let skippedCount = 0;
 
     for (const row of rows) {
-      const values = row.split(",").map(v => v.trim());
+      // معالجة السطر مع مراعاة الفواصل داخل علامات التنصيص
+      const values = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.replace(/^"|"$/g, '').trim());
       if (values.length < headers.length) continue;
 
-      // تحويل السطر إلى كائن (Object) لسهولة الوصول
       const data: any = {};
-      headers.forEach((header, index) => {
-        data[header] = values[index];
-      });
+      headers.forEach((header, index) => { data[header] = values[index]; });
 
-      // --- تطبيق الشروط ---
-      // أ. شرط التصنيف "اساسي"
+      // 1. فحص التاريخ: هل الحركة تابعة للفترة المختارة؟
+      const rowDate = new Date(data["datetime"]);
+      if (rowDate < SYNC_START_DATE) {
+          skippedCount++;
+          continue; 
+      }
+
+      // 2. شرط التصنيف "اساسي"
       if (data["tasneef"] !== "اساسي") continue;
 
-      const rowDate = new Date(data["datetime"]);
-      if (rowDate < SYNC_START_DATE) continue; // تجاهل القديم جداً
-
-      // ب. منع التكرار باستخدام الـ ID
+      // 3. منع التكرار
       const existingReceipt = await prisma.warehouseReceipt.findUnique({
         where: { uniqueid: data["id"] }
       });
-      if (existingReceipt) {
-        skippedCount++;
-        continue;
-      }
+      if (existingReceipt) { skippedCount++; continue; }
 
-      // ج. تفكيك الموديلات (مثل 3716 -4716)
       const modelCodes = data["model code"].split("-").map((m: string) => m.trim()).filter((m: string) => m !== "");
-
-      const raQty = parseInt(data["raqty"]) || 0;
-      const totalPieces = raQty * 4; // تحويل السريات لقطع
+      const totalPieces = (parseInt(data["raqty"]) || 0) * 4;
 
       for (const modelNo of modelCodes) {
-        // د. البحث عن الصنف باستخدام كود الخام (material)
         const product = await prisma.product.findFirst({
-            where: {
-                modelNo: modelNo,
-                material: data["khcode"]
-            }
+            where: { modelNo: modelNo, material: data["khcode"] }
         });
 
         if (product) {
-          // هـ. تحديث الكمية بشكل تراكمي
           await prisma.product.update({
             where: { id: product.id },
-            data: {
-                stockQty: { increment: totalPieces },
-                currentStock: { increment: totalPieces }
-            }
+            data: { stockQty: { increment: totalPieces }, currentStock: { increment: totalPieces } }
           });
 
-          // و. تسجيل الحركة في WarehouseReceipt لمنع تكرارها للأبد
-          // سنستخدم uniqueid كـ primary key لضمان عدم دخول نفس السطر مرتين
           await prisma.warehouseReceipt.create({
             data: {
                 uniqueid: data["id"],
-                date: new Date(data["datetime"]),
+                date: rowDate,
                 empName: data["bank"] || "جوجل شيت",
                 modelNo: modelNo,
                 most: totalPieces
@@ -253,11 +238,10 @@ export async function syncFromGoogleSheets() {
     
     return { 
         success: true, 
-        message: `تمت المزامنة بنجاح. أسطر جديدة: ${processedCount} | أسطر مكررة تم تخطيها: ${skippedCount}` 
+        message: `تم سحب ${processedCount} حركة جديدة تبدأ من تاريخ ${SYNC_START_DATE.toLocaleDateString('ar-EG')}` 
     };
 
   } catch (error: any) {
-    console.error("Sync Error:", error);
     return { success: false, error: error.message };
   }
 }

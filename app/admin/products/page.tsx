@@ -12,6 +12,60 @@ import {
 } from '@/app/admin-actions';
 import * as XLSX from 'xlsx';
 
+function AdminSyncControl() {
+    const [startDate, setStartDate] = useState("2025-06-01"); // قيمة افتراضية
+    const [isSyncing, setIsSyncing] = useState(false);
+
+    const handleSync = async () => {
+        if (!confirm(`سيتم سحب كافة البيانات المضافة في جوجل شيت منذ يوم ${startDate}، هل أنت متأكد؟`)) return;
+        
+        setIsSyncing(true);
+        const result = await syncFromGoogleSheets(startDate);
+        
+        if (result.success) {
+            alert(result.message);
+        } else {
+            alert("فشل المزامنة: " + result.error);
+        }
+        setIsSyncing(false);
+    };
+
+    return (
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-green-100 flex flex-wrap items-center gap-4">
+            <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-500 mr-1">بدء المزامنة من تاريخ:</label>
+                <input 
+                    type="date" 
+                    value={startDate} 
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="p-2 border rounded-xl outline-none focus:ring-2 focus:ring-green-500 font-bold text-gray-700"
+                />
+            </div>
+
+            <button 
+                onClick={handleSync}
+                disabled={isSyncing}
+                className={`mt-5 bg-green-600 text-white px-8 py-2.5 rounded-xl font-black shadow-lg shadow-green-100 transition-all active:scale-95 flex items-center gap-2 ${isSyncing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`}
+            >
+                {isSyncing ? (
+                    <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        جاري السحب...
+                    </>
+                ) : (
+                    <>
+                        <span>🔄 مزامنة جوجل شيت</span>
+                    </>
+                )}
+            </button>
+            
+            <div className="mt-5 text-[10px] text-gray-400 max-w-[200px]">
+                * النظام سيتجاهل أي "إذن" تم سحبه مسبقاً تلقائياً حتى لو دخل في نطاق التاريخ.
+            </div>
+        </div>
+    );
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -37,22 +91,10 @@ export default function ProductsPage() {
 
   // Deleting State
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     refreshProducts();
   }, []);
-
-  const handleSync = async () => {
-    setIsSyncing(true);
-    const result = await syncFromGoogleSheets();
-    if (result.success) {
-        alert(result.message);
-    } else {
-        alert("خطأ: " + result.error);
-    }
-    setIsSyncing(false);
-  };
 
   const refreshProducts = () => {
     getProducts().then(res => {
@@ -284,6 +326,9 @@ export default function ProductsPage() {
         </div>
       </div>
 
+      {/* Sync Section */}
+      <AdminSyncControl />
+
       {/* Upload Section */}
       <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-2">
@@ -307,17 +352,6 @@ export default function ProductsPage() {
                 </div>
              </div>
           )}
-      </div>
-
-      {/* Sync Section */}
-      <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-          <button 
-              onClick={handleSync}
-              disabled={isSyncing}
-              className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 disabled:opacity-50"
-          >
-              {isSyncing ? "⏳ جاري المزامنة..." : "🔄 مزامنة من جوجل شيت"}
-          </button>
       </div>
 
       {/* Form Adding */}
