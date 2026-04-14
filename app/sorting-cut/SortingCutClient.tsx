@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 // --- التعريفات البرمجية ---
 type LogItem = { batchId: string; quantity: number; createdAt: Date; };
 type ItemDetail = {
-    id: string; orderItemId: string; modelNo: string; material: string; color: string;
+    id: string; orderItemId: string; modelNo: string; material?: string | null; color: string;
     totalQtyPieces: number; alreadyFulfilled: number; remainingNeeded: number;
     qtyAllocatedPieces: number; isFullyReady: boolean; price: number; logs: LogItem[]; isPostponed: boolean;
 };

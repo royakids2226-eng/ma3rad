@@ -60,17 +60,18 @@ async function getOrdersWithMaterialAllocation() {
         id: item.id,
         orderItemId: item.id,
         modelNo: item.product.modelNo,
-        material: item.product.material,
+        material: item.product.material, // سيقبله الآن لأنه أصبح null-safe في الواجهة
         color: item.product.color,
         qtyAllocatedPieces: qtyAllocatedNow,
-        isPostponed: isItemPostponed,
+        // التعديل هنا: نضمن أنها قيمة Boolean حقيقية
+        isPostponed: Boolean(isItemPostponed), 
         remainingNeeded,
         alreadyFulfilled,
         totalQtyPieces,
         price: item.price,
-        isFullyReady: qtyAllocatedNow >= remainingNeeded && remainingNeeded > 0 && !isItemPostponed,
+        isFullyReady: Boolean(qtyAllocatedNow >= remainingNeeded && remainingNeeded > 0 && !isItemPostponed),
         logs: item.logs.map(log => ({ batchId: log.batchId, quantity: log.quantity, createdAt: log.createdAt }))
-      };
+    };
     });
 
     // معالجة العرابين (نفس منطق الفرز العام)
