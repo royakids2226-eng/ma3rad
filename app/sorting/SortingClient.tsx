@@ -622,7 +622,12 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         
                         <td className="border border-gray-300 p-2 text-center print:hidden">
                             <button 
-                                onClick={() => startTransition(() => toggleBulkPostpone(item.variantIds, !item.isPostponed))}
+                                onClick={() => {
+                                    startTransition(async () => {
+                                        const res = await toggleBulkPostpone(item.variantIds, !item.isPostponed);
+                                        if (!res.success) alert(res.error);
+                                    });
+                                }}
                                 className={`p-1 rounded ${item.isPostponed ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-400'}`}
                             >
                                 {item.isPostponed ? '🔒' : '🔓'}

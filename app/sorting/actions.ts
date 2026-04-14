@@ -46,7 +46,7 @@ export async function processSortingBatchDirectly(orderId: string, items: any[])
  */
 export async function bulkPostponeItems(orderItemIds: string[]): Promise<ActionResponse> {
   try {
-    await prisma.orderItem.updateMany({
+    await (prisma.orderItem as any).updateMany({
       where: { id: { in: orderItemIds } },
       data: { isPostponed: true }
     });
@@ -62,7 +62,7 @@ export async function bulkPostponeItems(orderItemIds: string[]): Promise<ActionR
  */
 export async function toggleBulkPostpone(orderItemIds: string[], status: boolean): Promise<ActionResponse> {
   try {
-    await prisma.orderItem.updateMany({
+    await (prisma.orderItem as any).updateMany({
       where: { id: { in: orderItemIds } },
       data: { isPostponed: status }
     });

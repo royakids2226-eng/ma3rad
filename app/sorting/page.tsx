@@ -89,7 +89,7 @@ async function getOrdersWithAllocation() {
     const itemDetails = order.items.map((item) => {
       const modelNo = item.product.modelNo;
       const color = item.product.color;
-      const isItemPostponed = item.isPostponed; // Read status from DB
+      const isItemPostponed = (item as any).isPostponed || false;
 
       const totalQtyPieces = item.quantity * 4;
       const alreadyFulfilled = item.fulfilledQty;

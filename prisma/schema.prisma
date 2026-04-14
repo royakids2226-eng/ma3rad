@@ -91,6 +91,7 @@ model OrderItem {
   fulfilledQty    Int     @default(0) 
   price           Float
   discountPercent Int     @default(0)
+  isPostponed     Boolean @default(false)
 
   logs            FulfillmentLog[]
 }
