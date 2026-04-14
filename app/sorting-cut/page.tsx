@@ -1,9 +1,8 @@
-// app/sorting-cut/page.tsx
 import { prisma } from '@/lib/prisma';
 import SortingCutClient from './SortingCutClient';
 
 async function getOrdersWithMaterialAllocation() {
-  // 1. جلب كافة المنتجات (لرؤية الرصيد الأولي والخامة)
+  // 1. حساب الرصيد الفعلي لكل منتج (ID المنتج هو المفتاح)
   const allProducts = await prisma.product.findMany({
     include: {
       orderItems: {
@@ -13,27 +12,23 @@ async function getOrdersWithMaterialAllocation() {
     }
   });
 
-  // 2. بناء خريطة "المتاح الفعلي" لكل صنف (ID المنتج هو المفتاح)
-  // الرصيد الفعلي = (stockQty من جدول Product) - (إجمالي ما صُرف fulfilledQty)
   let actualStockMap: { [productId: string]: number } = {};
-  
   allProducts.forEach(p => {
     const totalFulfilled = p.orderItems.reduce((sum, item) => sum + item.fulfilledQty, 0);
+    // الرصيد المتاح = الأولي من جدول Product - ما صُرف فعلياً
     actualStockMap[p.id] = (p.stockQty || 0) - totalFulfilled;
   });
 
-  // 3. جلب الأوردرات ومعالجتها بنظام الطابور (FIFO)
+  // 2. جلب الأوردرات ومعالجتها
   const orders = await prisma.order.findMany({
     orderBy: { createdAt: 'asc' },
     include: {
       customer: {
         include: {
-          payments: { where: { type: { in: ['IN', 'PAYMENT_COLLECTION'] } } }
+          payments: { where: { type: { in: ['IN', 'PAYMENT_COLLECTION'] } }, orderBy: { createdAt: 'asc' } }
         }
       },
-      items: {
-        include: { product: true, logs: true }
-      }
+      items: { include: { product: true, logs: true } }
     }
   });
 
@@ -43,9 +38,7 @@ async function getOrdersWithMaterialAllocation() {
     let isCompletelyDone = true;
 
     const itemDetails = order.items.map((item) => {
-      const productId = item.productId;
       const isItemPostponed = (item as any).isPostponed || false;
-
       const totalQtyPieces = item.quantity * 4;
       const alreadyFulfilled = item.fulfilledQty;
       const remainingNeeded = Math.max(0, totalQtyPieces - alreadyFulfilled);
@@ -53,14 +46,11 @@ async function getOrdersWithMaterialAllocation() {
       if (remainingNeeded > 0) isCompletelyDone = false;
 
       let qtyAllocatedNow = 0;
-
-      // التوزيع هنا يعتمد على "ID المنتج" (أي اللون والخامة بدقة)
+      // التوزيع الدقيق بناءً على ID المنتج (الخامة واللون)
       if (!isItemPostponed && remainingNeeded > 0) {
-        const availableForThisProduct = actualStockMap[productId] || 0;
-        qtyAllocatedNow = Math.min(remainingNeeded, Math.max(0, availableForThisProduct));
-        
-        // خصم المخصص من الحصالة المؤقتة للون
-        actualStockMap[productId] -= qtyAllocatedNow;
+        const available = actualStockMap[item.productId] || 0;
+        qtyAllocatedNow = Math.min(remainingNeeded, Math.max(0, available));
+        actualStockMap[item.productId] -= qtyAllocatedNow;
       }
 
       totalItemsPending += remainingNeeded;
@@ -70,7 +60,7 @@ async function getOrdersWithMaterialAllocation() {
         id: item.id,
         orderItemId: item.id,
         modelNo: item.product.modelNo,
-        material: item.product.material, // كود الخام
+        material: item.product.material,
         color: item.product.color,
         qtyAllocatedPieces: qtyAllocatedNow,
         isPostponed: isItemPostponed,
@@ -83,8 +73,9 @@ async function getOrdersWithMaterialAllocation() {
       };
     });
 
-    const depositsList = order.customer.payments.map(p => p.amount);
-    if (depositsList.length === 0 && order.deposit > 0) depositsList.push(order.deposit);
+    // معالجة العرابين (نفس منطق الفرز العام)
+    let depositsList = order.customer.payments.map(p => p.amount);
+    if (depositsList.length === 0 && order.deposit > 0) depositsList = [order.deposit];
 
     return {
       id: order.id,
@@ -96,6 +87,7 @@ async function getOrdersWithMaterialAllocation() {
       customer: {
         name: order.customer.name,
         phone: order.customer.phone,
+        phone2: (order.customer as any).phone2 || null,
         address: order.customer.address,
         historicalDepositsText: depositsList.join(' + ') || '0'
       },
@@ -115,5 +107,4 @@ export default async function SortingCutPage() {
   const orders = await getOrdersWithMaterialAllocation();
   return <SortingCutClient initialOrders={orders} />;
 }
-
 export const dynamic = 'force-dynamic';

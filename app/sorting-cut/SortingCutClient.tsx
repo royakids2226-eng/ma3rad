@@ -1,204 +1,88 @@
-'use client'
-import { useState, useMemo, useEffect } from 'react';
+'use client';
+import { useState, useMemo, useTransition } from 'react';
 import Link from 'next/link';
+import { processSortingBatchDirectly, undoLastBatchByOrder, bulkPostponeItems, bulkReactivateItems } from '@/app/sorting/actions';
+import * as XLSX from 'xlsx';
 
-// Represents the structure of an allocated item
-type AllocatedItem = {
-  orderItemId: string;
-  modelNo: string;
-  color: string;
-  material?: string | null; // إضافة الخامة
-  qtyAllocatedPieces: number;
-  isPostponed: boolean;
-  // أضف هذه الحقول الثلاثة لحل خطأ الـ Build
-  orderId: string;
-  orderNo: number;
-  customerName: string;
-};
-
-// Structure for the final dispatch note
-interface DispatchNote {
-    orderId: string;
-    orderNo: number;
-    customerName: string;
-    items: { model: string; color: string; qty: number; material: string; }[];
-}
+// ... (نفس تعريفات الـ Types من الفرز العام)
 
 export default function SortingCutClient({ initialOrders }: { initialOrders: any[] }) {
-    const [orders, setOrders] = useState(initialOrders);
-    const [activeTab, setActiveTab] = useState('pending');
-    const [selectedItems, setSelectedItems] = useState<AllocatedItem[]>([]);
-    const [dispatchNotes, setDispatchNotes] = useState<DispatchNote[]>([]);
-    const [isProcessing, setIsProcessing] = useState(false);
+    const [viewTab, setViewTab] = useState<'PENDING' | 'ARCHIVE' | 'POSTPONED'>('PENDING');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+    const [selectedRows, setSelectedRows] = useState<string[]>([]);
+    const [isPending, startTransition] = useTransition();
 
+    // 1. منطق الفلترة الموحد
     const filteredOrders = useMemo(() => {
-        if (activeTab === 'pending') return orders.filter(o => !o.isCompletelyDone);
-        if (activeTab === 'done') return orders.filter(o => o.isCompletelyDone);
-        return orders;
-    }, [orders, activeTab]);
+        return initialOrders.filter(o => {
+            const matchesSearch = o.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) || o.orderNo.toString().includes(searchTerm);
+            if (!matchesSearch) return false;
 
-    const handleSelectItem = (orderId: string, orderNo: number, customerName: string, item: any) => {
-        setSelectedItems(prev => {
-            const isAlreadySelected = prev.some(i => i.orderItemId === item.orderItemId);
+            if (viewTab === 'POSTPONED') return o.itemDetails.some((i:any) => i.isPostponed);
+            if (viewTab === 'ARCHIVE') return o.totalFulfilledOverall > 0;
+            return !o.isCompletelyDone && !o.itemDetails.every((i:any) => i.isPostponed);
+        });
+    }, [initialOrders, searchTerm, viewTab]);
 
-            if (isAlreadySelected) {
-                return prev.filter(i => i.orderItemId !== item.orderItemId);
+    // 2. تجميع الأصناف داخل المودال (نفس شكل الصورة 2)
+    const invoiceItems = useMemo(() => {
+        if (!selectedOrder) return [];
+        const groups: { [key: string]: any } = {};
+        selectedOrder.itemDetails.forEach((item: any) => {
+            if (!groups[item.modelNo]) {
+                groups[item.modelNo] = { ...item, displayQty: item.qtyAllocatedPieces, variantIds: [item.orderItemId], colorsMap: { [item.color]: item.qtyAllocatedPieces } };
             } else {
-                const newItem: AllocatedItem = {
-                    orderItemId: item.orderItemId,
-                    modelNo: item.modelNo,
-                    color: item.color,
-                    material: item.material,
-                    qtyAllocatedPieces: item.qtyAllocatedPieces,
-                    isPostponed: item.isPostponed,
-                    orderId: orderId,
-                    orderNo: orderNo,
-                    customerName: customerName
-                };
-                return [...prev, newItem];
+                groups[item.modelNo].displayQty += item.qtyAllocatedPieces;
+                groups[item.modelNo].variantIds.push(item.orderItemId);
+                groups[item.modelNo].colorsMap[item.color] = (groups[item.modelNo].colorsMap[item.color] || 0) + item.qtyAllocatedPieces;
             }
         });
-    };
+        return Object.values(groups).map((g: any) => ({
+            ...g,
+            colorsDisplay: Object.entries(g.colorsMap).map(([c, q]) => `${c} (${q})`).join(' + '),
+            isCheck: g.displayQty > 0
+        })).filter(i => (viewTab === 'POSTPONED' ? i.isPostponed : (viewTab === 'ARCHIVE' ? i.displayQty > 0 : !i.isPostponed)));
+    }, [selectedOrder, viewTab]);
 
-    const handleGenerateDispatchNotes = () => {
-        const notes: { [orderId: string]: DispatchNote } = {};
-        selectedItems.forEach((item: any) => {
-            if (!notes[item.orderId]) {
-                notes[item.orderId] = {
-                    orderId: item.orderId,
-                    orderNo: item.orderNo,
-                    customerName: item.customerName,
-                    items: [],
-                };
-            }
-            notes[item.orderId].items.push({
-                model: item.modelNo,
-                color: item.color,
-                qty: item.qtyAllocatedPieces,
-                material: item.material,
-            });
-        });
-        setDispatchNotes(Object.values(notes));
-        setActiveTab('dispatch');
-    };
-
-    const handleConfirmDispatch = async () => {
-        if(!confirm("هل تريد تأكيد صرف الكميات المحددة؟ هذه العملية ستخصم من المخزون ولا يمكن التراجع عنها.")) return;
-        
-        setIsProcessing(true);
-        try {
-            const res = await fetch('/api/dispatch', { 
-                method: 'POST', 
-                body: JSON.stringify({ items: selectedItems }),
-                headers: { 'Content-Type': 'application/json' }
-            });
-
-            if(!res.ok) throw new Error('فشل في تحديث قاعدة البيانات');
-            
-            alert('تم تحديث المخزون بنجاح!');
-            window.location.reload(); // Reload to get fresh data
-
-        } catch (error: any) {
-            alert('خطأ: ' + error.message);
-        } finally {
-            setIsProcessing(false);
-        }
-    };
+    // ... (دوال handleQueueAndPrint, handleExportToExcel, handleQuickUndo و bulk actions)
 
     return (
-        <div className="p-4 md:p-8 bg-gray-50 min-h-screen" dir="rtl">
-            <div className="bg-white p-4 rounded-2xl shadow-lg border-r-8 border-indigo-600 mb-6">
-                <div className="flex justify-between items-center">
-                    <h1 className="text-2xl md:text-3xl font-black text-indigo-800">✂️ فرز بالقص (دقيق بالألوان)</h1>
-                    <Link href="/" className="text-sm text-indigo-600 font-bold">العودة للرئيسية</Link>
+        <div className="p-6 bg-slate-50 min-h-screen" dir="rtl">
+            <div className="print:hidden">
+                <h1 className="text-3xl font-black text-indigo-800 mb-6">✂️ فرز بالقص (دقيق بالخامة)</h1>
+                
+                {/* التبويبات */}
+                <div className="flex gap-2 mb-6 border-b border-gray-200">
+                    <button onClick={() => setViewTab('PENDING')} className={`px-6 py-3 rounded-t-xl font-bold ${viewTab === 'PENDING' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500'}`}>
+                        ⏳ قيد التنفيذ
+                    </button>
+                    <button onClick={() => setViewTab('POSTPONED')} className={`px-6 py-3 rounded-t-xl font-bold ${viewTab === 'POSTPONED' ? 'bg-orange-600 text-white' : 'bg-white text-gray-500'}`}>
+                        📦 المؤجل
+                    </button>
+                    <button onClick={() => setViewTab('ARCHIVE')} className={`px-6 py-3 rounded-t-xl font-bold ${viewTab === 'ARCHIVE' ? 'bg-green-600 text-white' : 'bg-white text-gray-500'}`}>
+                        ✅ الأرشيف
+                    </button>
                 </div>
-                <p className="text-xs text-gray-500 mt-1 font-bold">نظام توزيع دقيق يعتمد على رصيد كل "لون وخامة" على حدة.</p>
-            </div>
 
-            <div className="flex border-b mb-4">
-                <button onClick={() => setActiveTab('pending')} className={`py-2 px-4 font-bold ${activeTab === 'pending' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-gray-500'}`}>طلبات قيد الانتظار ({orders.filter(o => !o.isCompletelyDone).length})</button>
-                <button onClick={() => setActiveTab('done')} className={`py-2 px-4 font-bold ${activeTab === 'done' ? 'border-b-2 border-green-600 text-green-600' : 'text-gray-500'}`}>طلبات مكتملة ({orders.filter(o => o.isCompletelyDone).length})</button>
-                {selectedItems.length > 0 && <button onClick={handleGenerateDispatchNotes} className={`py-2 px-4 font-black text-white bg-indigo-600 rounded-t-lg ml-auto animate-pulse`}>معاينة إذن الصرف ({selectedItems.length})</button>}
-            </div>
-
-            {activeTab === 'dispatch' ? (
-                // Dispatch Notes View
-                <div className="bg-white p-6 rounded-2xl shadow-xl">
-                    <h2 className="font-extrabold text-2xl mb-4 text-center">إذن صرف مجمع</h2>
-                    {dispatchNotes.map(note => (
-                        <div key={note.orderId} className="mb-6 p-4 border rounded-lg print-section">
-                            <div className="flex justify-between items-center border-b pb-2 mb-2">
-                                <div>
-                                    <h3 className="font-bold">اوردر رقم: {note.orderNo}</h3>
-                                    <p className="text-sm text-gray-600">العميل: {note.customerName}</p>
-                                </div>
-                                <button onClick={() => window.print()} className="text-indigo-600 no-print">طباعة</button>
-                            </div>
-                            <table className="w-full text-sm">
-                                <thead><tr className="bg-gray-100"><th className="p-2">موديل</th><th className="p-2">لون</th><th className="p-2">خام</th><th className="p-2">الكمية</th></tr></thead>
-                                <tbody>
-                                    {note.items.map(item => <tr key={`${item.model}-${item.color}`}><td className="p-2 border-b">{item.model}</td><td className="p-2 border-b">{item.color}</td><td className="p-2 border-b text-xs">{item.material}</td><td className="p-2 border-b font-bold">{item.qty} قطعة</td></tr>)}
-                                </tbody>
-                            </table>
-                        </div>
-                    ))}
-                    <div className="text-center mt-6 no-print">
-                        <button onClick={handleConfirmDispatch} disabled={isProcessing} className="bg-green-600 text-white font-bold py-3 px-8 rounded-lg shadow-lg hover:bg-green-700 disabled:bg-gray-400">
-                            {isProcessing ? '...جاري التأكيد' : 'تأكيد الصرف النهائي وتحديث المخزون'}
-                        </button>
-                        <button onClick={() => setActiveTab('pending')} className="bg-gray-200 text-gray-800 py-3 px-6 rounded-lg ml-4">العودة</button>
-                    </div>
-                </div>
-            ) : (
-                // Orders View
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                {/* عرض الكروت (تأكد من وضع الحقول المالية وعربون العميل كما فعلنا في الفرز العام) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {filteredOrders.map(order => (
-                        <div key={order.id} className="bg-white rounded-2xl shadow-md overflow-hidden transition-all hover:shadow-xl">
-                            <div className={`p-4 border-b-8 ${order.isCompletelyDone ? 'border-green-400' : `border-yellow-400`}`}>
-                                <div className="flex justify-between items-center">
-                                    <h2 className="font-extrabold text-lg text-gray-800">اوردر #{order.orderNo}</h2>
-                                    <span className="text-xs text-gray-500 font-mono">{new Date(order.createdAt).toLocaleDateString()}</span>
-                                </div>
-                                <p className="font-bold text-indigo-700">{order.customer.name}</p>
-                                <p className="text-xs text-gray-600">{order.customer.address} - {order.customer.phone}</p>
-                                
-                                <div className="mt-2 text-xs bg-gray-100 p-2 rounded">
-                                    <p>اجمالي الاوردر: <span className="font-bold">{order.orderTotalAmount} ج</span></p>
-                                    <p>عربون: <span className="font-bold text-green-600">{order.orderSpecificDeposit} ج</span></p>
-                                    <p>رصيد سابق للعميل: <span className="font-bold text-blue-600">{order.customer.historicalDepositsText} ج</span></p>
-                                </div>
-                            </div>
-
-                            <div className="p-4">
-                                {order.itemDetails.map((item: any) => {
-                                    const isSelected = selectedItems.some(i => i.orderItemId === item.id);
-                                    const isReady = item.qtyAllocatedPieces > 0;
-                                    return (
-                                        <div key={item.id} className={`flex items-center justify-between p-3 rounded-lg mb-2 transition-all ${isSelected ? 'bg-indigo-100' : 'bg-gray-50'}`}>
-                                            <div className="flex items-center">
-                                                <input type="checkbox" className="form-checkbox h-5 w-5 text-indigo-600 rounded disabled:opacity-50" 
-                                                       checked={isSelected} 
-                                                       onChange={() => handleSelectItem(order.id, order.orderNo, order.customer.name, item)} 
-                                                       disabled={!isReady} />
-                                                <div className="mr-3">
-                                                    <p className="font-bold text-gray-900">{item.modelNo} - <span className="text-indigo-700">{item.color}</span></p>
-                                                    <p className="text-[10px] text-gray-500 font-mono">الخام: {item.material}</p>
-                                                    <p className={`text-xs font-bold ${item.isPostponed ? 'text-red-500' : 'text-gray-600'}`}>{item.isPostponed ? '(مؤجل)' : `مطلوب: ${item.totalQtyPieces} ق`}</p>
-                                                </div>
-                                            </div>
-                                            <div className="text-left">
-                                                <p className={`font-black text-lg ${isReady ? 'text-green-600' : 'text-red-500'}`}>{item.qtyAllocatedPieces} ق</p>
-                                                <p className="text-[10px] text-gray-500">جاهز للصرف</p>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                             <div className="bg-gray-100 p-2 text-center text-xs font-bold">
-                                جاهزية الاوردر: {order.readinessPercentage}%
-                            </div>
+                        <div key={order.id} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                             {/* ... كود كارت الأوردر المكتمل مع العرابين والبيانات ... */}
+                             <button onClick={() => setSelectedOrder(order)} className="w-full mt-4 bg-slate-900 text-white py-2 rounded-xl font-bold">📄 تنفيذ / مراجعة</button>
                         </div>
                     ))}
+                </div>
+            </div>
+
+            {/* المودال الخاص بالطباعة والتأجيل - مطابق تماماً للفرز العام */}
+            {selectedOrder && (
+                <div className="fixed inset-0 z-50 bg-black/50 overflow-y-auto p-4 print:static print:bg-white print:p-0">
+                    <div className="bg-white max-w-5xl mx-auto rounded-3xl p-8 shadow-2xl relative print:shadow-none">
+                         {/* ... الهيدر، أزرار التأجيل الجماعي، بيانات العميل، الجدول، والفوتر المالي ... */}
+                         {/* تأكد من استخدام selectedOrder.orderSpecificDeposit و orderTotalAmount */}
+                    </div>
                 </div>
             )}
         </div>
