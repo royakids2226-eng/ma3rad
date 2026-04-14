@@ -472,7 +472,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                             <button 
                                 onClick={async () => {
                                     const modelsSelectedCount = invoiceItems.filter(item => 
-                                        item.variantIds.some(id => selectedRows.includes(id))
+                                        item.variantIds.some((id: string) => selectedRows.includes(id))
                                     ).length;
 
                                     if(confirm(`هل أنت متأكد من تأجيل ${modelsSelectedCount} موديل؟ سيتم إخفاؤهم من الفرز الحالي.`)) {
@@ -484,7 +484,7 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                             >
                                 📦 تأجيل الموديلات المختارة ({
                                     invoiceItems.filter(item => 
-                                        item.variantIds.some(id => selectedRows.includes(id))
+                                        item.variantIds.some((id: string) => selectedRows.includes(id))
                                     ).length
                                 })
                             </button>
@@ -608,11 +608,11 @@ export default function SortingClient({ initialOrders }: { initialOrders: OrderT
                         <td className="p-2 text-center print:hidden">
                             <input 
                                 type="checkbox" 
-                                checked={item.variantIds.every(id => selectedRows.includes(id))}
+                                checked={item.variantIds.every((id: string) => selectedRows.includes(id))}
                                 onChange={() => {
                                     setSelectedRows(prev => {
-                                        const allIn = item.variantIds.every(id => prev.includes(id));
-                                        if (allIn) return prev.filter(id => !item.variantIds.includes(id));
+                                        const allIn = item.variantIds.every((id: string) => prev.includes(id));
+                                        if (allIn) return prev.filter((id: string) => !item.variantIds.includes(id));
                                         return [...prev, ...item.variantIds];
                                     });
                                 }}
