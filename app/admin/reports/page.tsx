@@ -119,6 +119,15 @@ function InventoryReportView() {
     const [isLinkedStagesActive, setIsLinkedStagesActive] = useState(false);
     const [selectedHistory, setSelectedHistory] = useState<any[] | null>(null);
     const [selectedItemName, setSelectedItemName] = useState('');
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'totalSold', direction: 'desc' });
+
+    const handleSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'desc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') {
+            direction = 'asc';
+        }
+        setSortConfig({ key, direction });
+    };
 
     const openHistory = (item: any) => {
         setSelectedHistory(item.history || []);
@@ -180,15 +189,16 @@ function InventoryReportView() {
         });
     }
 
-    displayData.sort((a: any, b: any) => {
-        const modelA = parseInt(a.modelNo) || 0;
-        const modelB = parseInt(b.modelNo) || 0;
-        if (modelA !== modelB) return modelA - modelB;
-        
-        const matA = a.material || "";
-        const matB = b.material || "";
-        return matA.localeCompare(matB, undefined, { numeric: true });
-    });
+    if (sortConfig !== null) {
+        displayData.sort((a: any, b: any) => {
+            const valA = a[sortConfig.key] || 0;
+            const valB = b[sortConfig.key] || 0;
+
+            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }
 
     return (
         <div className="space-y-8">
@@ -227,8 +237,20 @@ function InventoryReportView() {
                             <th className="p-5">الخامة</th>
                             <th className="p-5">{viewMode === 'COLOR' ? 'اللون' : 'الألوان'}</th>
                             {showInitialStock && <th className="p-5">أولي (قطعة)</th>}
-                            <th className="p-5 text-yellow-500">المباع (سرية)</th>
-                            {showCurrentStock && <th className="p-5">حالي (قطعة)</th>}
+                            <th 
+                                className="p-5 text-yellow-500 cursor-pointer hover:bg-slate-800 transition-colors select-none"
+                                onClick={() => handleSort('totalSold')}
+                            >
+                                المباع (سرية) {sortConfig?.key === 'totalSold' && (sortConfig.direction === 'asc' ? ' ↑' : ' ↓')}
+                            </th>
+                            {showCurrentStock && 
+                                <th 
+                                    className="p-5 cursor-pointer hover:bg-slate-800 transition-colors select-none"
+                                    onClick={() => handleSort('currentStock')}
+                                >
+                                    حالي (قطعة) {sortConfig?.key === 'currentStock' && (sortConfig.direction === 'asc' ? ' ↑' : ' ↓')}
+                                </th>
+                            }
                         </tr>
                     </thead>
                     <tbody>
