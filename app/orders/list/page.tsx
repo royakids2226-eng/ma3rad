@@ -12,7 +12,7 @@ const PIECES_PER_UNIT = 4;
 // دالة تجميع الأصناف (المحدثة للخصم)
 function groupOrderItems(items: any[]) {
     const grouped: any = {};
-    items?.forEach(item => {
+    items?.forEach((item: any) => {
         const key = `${item.product.modelNo}_${item.discountPercent}`;
         if (!grouped[key]) {
             const finalPrice = item.price;
@@ -45,6 +45,7 @@ export default function OrdersListPage() {
   const [userRole, setUserRole] = useState('EMPLOYEE');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [printRange, setPrintRange] = useState([0, 0]);
   const [newOrderAlert, setNewOrderAlert] = useState(false); // تنبيه الأوردر الجديد
   const [settings, setSettings] = useState<any>(null);
 
@@ -182,7 +183,7 @@ export default function OrdersListPage() {
       }
   };
 
-  const filteredOrders = orders.filter(o => 
+  const filteredOrders = orders.filter((o: any) => 
     o.orderNo.toString().includes(searchTerm) || 
     o.customer.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -193,13 +194,13 @@ export default function OrdersListPage() {
     <div className="min-h-screen bg-gray-50 pb-24 font-sans text-gray-800 overflow-x-hidden" dir="rtl">
       
       {newOrderAlert && (
-          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-green-600 text-white px-8 py-4 rounded-full shadow-2xl font-bold animate-bounce flex items-center gap-3">
+          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-green-600 text-white px-8 py-4 rounded-full shadow-2xl font-bold animate-bounce flex items-center gap-3 print:hidden">
               <span className="text-xl">🔔</span>
               <span>وصل أوردر جديد الآن! يتم التحديث...</span>
           </div>
       )}
 
-      <div className="bg-white p-4 shadow mb-4 sticky top-0 z-20 flex justify-between items-center">
+      <div className="bg-white p-4 shadow mb-4 sticky top-0 z-20 flex justify-between items-center print:hidden">
         <h2 className="font-bold text-lg text-gray-800 flex items-center gap-2">
             📋 سجل الأوردرات
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
@@ -211,22 +212,49 @@ export default function OrdersListPage() {
         <input 
             type="text" 
             placeholder="🔍 ابحث برقم الأوردر أو اسم العميل..." 
-            className="w-full p-3 border rounded-lg bg-white shadow-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full p-3 border rounded-lg bg-white shadow-sm focus:ring-2 focus:ring-blue-500 outline-none print:hidden"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
         />
 
+        {/* لوحة تحكم الطباعة الجماعية */}
+        <div className="bg-blue-50 p-4 rounded-2xl mb-6 border border-blue-100 flex flex-wrap items-center gap-4 print:hidden">
+            <span className="font-bold text-blue-800 text-sm">🖨️ طباعة النتائج الظاهرة:</span>
+            
+            <button 
+                onClick={() => { setPrintRange([0, filteredOrders.length]); setTimeout(() => window.print(), 500); }}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-md"
+            >
+                طباعة الكل ({filteredOrders.length})
+            </button>
+
+            <div className="flex flex-wrap gap-2">
+                {Array.from({ length: Math.ceil(filteredOrders.length / 20) }).map((_, i) => (
+                    <button 
+                        key={i}
+                        onClick={() => { 
+                            setPrintRange([i * 20, (i + 1) * 20]); 
+                            setTimeout(() => window.print(), 500); 
+                        }}
+                        className="bg-white border border-blue-200 text-blue-600 px-3 py-2 rounded-lg font-bold text-[10px] hover:bg-blue-100"
+                    >
+                        {i * 20 + 1} - {Math.min((i + 1) * 20, filteredOrders.length)}
+                    </button>
+                ))}
+            </div>
+        </div>
+
         {isGeneratingPdf && (
-            <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex flex-col justify-center items-center text-white">
+            <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex flex-col justify-center items-center text-white print:hidden">
                 <div className="text-2xl font-bold animate-pulse">⏳ جاري إنشاء ملف PDF...</div>
                 <p className="text-sm mt-2">يرجى الانتظار واختيار العميل من الواتساب</p>
             </div>
         )}
 
-        <div className="space-y-4">
+        <div className="space-y-4 print:hidden">
             {filteredOrders.length === 0 && <div className="text-center text-gray-500 mt-10">لا توجد أوردرات</div>}
             
-            {filteredOrders.map(order => (
+            {filteredOrders.map((order: any) => (
                 <div key={order.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:border-blue-200 transition-all transform hover:scale-[1.01]">
                     <div className="flex justify-between items-start border-b pb-2 mb-2">
                         <div>
@@ -282,6 +310,152 @@ export default function OrdersListPage() {
             ))}
         </div>
       </div>
+
+      {/* منطقة الطباعة الجماعية */}
+      <style jsx global>{`
+        @media print {
+          body * { visibility: hidden; }
+          .mass-print-container, .mass-print-container * { visibility: visible; }
+          .mass-print-container {
+              position: absolute;
+              left: 0; top: 0; width: 100%;
+          }
+          .invoice-page {
+              page-break-after: always;
+              break-after: page;
+              padding: 40px 20px;
+              width: 100%;
+              height: 100%;
+          }
+          .no-print { display: none !important; }
+        }
+      `}</style>
+
+    <div className="mass-print-container hidden print:block" dir="rtl">
+        {filteredOrders.slice(printRange[0], printRange[1]).map((order: any) => {
+            const groupedItems = groupOrderItems(order.items);
+            const totalDiscount = groupedItems.reduce((acc: number, item: any) => {
+                const totalOriginal = item.originalPrice * (item.totalQty * PIECES_PER_UNIT);
+                const totalFinal = item.finalPrice * (item.totalQty * PIECES_PER_UNIT);
+                return acc + (totalOriginal - totalFinal);
+            }, 0);
+
+            return (
+            <div key={order.id} className="invoice-page">
+                <header className="border-b-4 border-black pb-4 mb-6 grid grid-cols-3 items-start">
+                    <div className="text-left">
+                        <div className="text-md font-bold text-black">رقم: #{order.orderNo}</div>
+                        <div className="text-sm text-gray-500">{new Date(order.createdAt).toLocaleDateString('ar-EG')}</div>
+                    </div>
+                    <div className="text-center">
+                        <div className="text-lg md:text-xl font-bold bg-black text-white px-4 py-1 inline-block rounded">فاتورة مبيعات</div>
+                    </div>
+                    <div className="text-right">
+                        <h1 className="text-xl md:text-2xl font-bold text-black">{settings?.siteName || "اسم المعرض"}</h1>
+                    </div>
+                </header>
+
+                {settings?.header && (
+                    <div className="prose prose-sm max-w-none mb-4" dangerouslySetInnerHTML={{ __html: settings.header }}></div>
+                )}
+
+                <div className="bg-gray-50 border-2 border-gray-200 rounded-lg p-4 mb-8 print:border-gray-300">
+                    <table className="w-full text-base text-black">
+                        <tbody>
+                            <tr>
+                                <td className="font-bold whitespace-nowrap">العميل:</td>
+                                <td className="px-2">{order.customer.name}</td>
+                                <td className="font-bold whitespace-nowrap">الهاتف:</td>
+                                <td className="px-2 font-mono">
+                                    {order.customer.phone || '-'}
+                                    {order.customer.phone2 && ` / ${order.customer.phone2}`}
+                                </td>
+                                <td className="font-bold whitespace-nowrap">العنوان:</td>
+                                <td className="px-2">{order.customer.address || '-'}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <table className="w-full mb-8 border-collapse border border-black">
+                    <thead>
+                        <tr className="bg-gray-200 text-black text-sm font-bold">
+                            <th className="p-3 border border-black w-24">الموديل</th>
+                            <th className="p-3 border border-black text-right">التفاصيل</th>
+                            <th className="p-3 border border-black w-24">العدد</th>
+                            <th className="p-3 border border-black w-24">السعر</th>
+                            <th className="p-3 border border-black w-20">خصم</th>
+                            <th className="p-3 border border-black w-32">الإجمالي</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {groupedItems.map((item: any, idx: number) => (
+                            <tr key={idx} className="text-sm border-b border-black">
+                                <td className="p-3 border-x border-black text-center font-bold text-lg text-black">{item.modelNo}</td>
+                                <td className="p-3 border-x border-black">
+                                    <div className="font-bold text-black">{item.desc} <span className="text-xs text-gray-600">({item.details.join(' + ')})</span></div>
+                                </td>
+                                <td className="p-3 border-x border-black text-center text-lg font-bold text-black">{item.totalQty * 4}</td>
+                                
+                                <td className="p-3 border-x border-black text-center text-black">
+                                    {item.discountPercent > 0 ? (
+                                        <>
+                                            <div className="line-through text-gray-400 text-xs">{item.originalPrice.toFixed(2)}</div>
+                                            <div className="font-bold">{item.finalPrice.toFixed(2)}</div>
+                                        </>
+                                    ) : (
+                                        item.finalPrice.toFixed(2)
+                                    )}
+                                </td>
+
+                                <td className="p-3 border-x border-black text-center font-bold text-black">
+                                    {item.discountPercent > 0 ? (
+                                        <span className="bg-black text-white px-2 py-1 rounded text-xs">
+                                            {item.discountPercent}%
+                                        </span>
+                                    ) : '-'}
+                                </td>
+
+                                <td className="p-3 border-x border-black text-center font-bold text-lg text-black">{item.totalPrice.toFixed(0)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+
+                <div className="flex justify-end mb-16">
+                    <div className="w-1/2 border-2 border-black rounded-lg overflow-hidden">
+                        
+                        {totalDiscount > 0 && (
+                            <div className="flex justify-between p-3 border-b border-black bg-gray-50 text-red-600">
+                                <span className="font-bold">إجمالي الخصم:</span>
+                                <span className="font-bold">- {totalDiscount.toFixed(0)} ج.م</span>
+                            </div>
+                        )}
+
+                        <div className="flex justify-between p-3 border-b border-black bg-gray-100 font-bold text-lg text-black">
+                            <span>صافي الفاتورة:</span>
+                            <span>{order.totalAmount.toFixed(2)} ج.م</span>
+                        </div>
+                        {order.deposit > 0 && (
+                            <div className="flex justify-between p-3 border-b border-.black bg-white font-bold text-gray-700">
+                                <span>مدفوع:</span>
+                                <span className="text-red-600">- {order.deposit.toFixed(2)} ج.م</span>
+                            </div>
+                        )}
+                        <div className="flex justify-between p-4 bg-black text-white text-3xl font-bold">
+                            <span>{order.deposit > 0 ? 'المتبقي:' : 'المطلوب:'}</span>
+                            <span>{(order.totalAmount - order.deposit).toFixed(2)} ج.م</span>
+                        </div>
+                    </div>
+                </div>
+
+                {settings?.footer && (
+                    <div className="prose prose-sm max-w-none mt-4 text-center" dangerouslySetInnerHTML={{ __html: settings.footer }}></div>
+                )}
+            </div>
+            )}
+        )}
+    </div>
 
       <div style={{ position: 'fixed', top: 0, left: '-10000px', width: '210mm', zIndex: -100, visibility: 'hidden' }}>
          <div id="hidden-invoice-content" ref={hiddenInvoiceRef} className="bg-white p-10 text-right" style={{ width: '210mm', minHeight: '297mm', direction: 'rtl', visibility: 'visible' }}>
