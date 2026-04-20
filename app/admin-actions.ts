@@ -158,12 +158,13 @@ export async function addBulkProducts(products: any[]) {
     }
 }
 
+// ==========================================
+// قسم المزامنة مع جوجل شيت (Google Sheets Sync)
+// ==========================================
+
 export async function syncFromGoogleSheets(startDateStr: string) {
   try {
-    // تحويل التاريخ القادم من الواجهة إلى كائن Date
     const SYNC_START_DATE = new Date(startDateStr);
-    
-    // التأكد من صحة التاريخ
     if (isNaN(SYNC_START_DATE.getTime())) throw new Error("التاريخ المختار غير صحيح");
 
     const SHEET_ID = "1EhPqEOYOzoLREVC3IMsjmXiPP5WXTjhF5_DJxVOcI2M";
@@ -178,57 +179,55 @@ export async function syncFromGoogleSheets(startDateStr: string) {
     const headers = lines[0].split(",").map(h => h.trim());
     const rows = lines.slice(1);
 
+    // 1. إنشاء سجل لعملية المزامنة الجديدة
+    const syncOp = await prisma.syncOperation.create({
+        data: { startDate: SYNC_START_DATE }
+    });
+
     let processedCount = 0;
-    let skippedCount = 0;
 
     for (const row of rows) {
-      // معالجة السطر مع مراعاة الفواصل داخل علامات التنصيص
-      const values = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.replace(/^"|"$/g, '').trim());
+      const values = row.split(/,(?=(?:(?:[^\"]*\"){2})*[^\"]*$)/).map(v => v.replace(/^\"|\"$/g, '').trim());
       if (values.length < headers.length) continue;
 
       const data: any = {};
       headers.forEach((header, index) => { data[header] = values[index]; });
 
-      // 1. فحص التاريخ: هل الحركة تابعة للفترة المختارة؟
       const rowDate = new Date(data["datetime"]);
-      if (rowDate < SYNC_START_DATE) {
-          skippedCount++;
-          continue; 
-      }
-
-      // 2. شرط التصنيف "اساسي"
+      if (rowDate < SYNC_START_DATE) continue; 
       if (data["tasneef"] !== "اساسي") continue;
 
       const modelCodes = data["model code"].split("-").map((m: string) => m.trim()).filter((m: string) => m !== "");
       const totalPieces = (parseInt(data["raqty"]) || 0) * 4;
 
       for (const modelNo of modelCodes) {
-        // 1. تكوين ID فريد يجمع بين إذن جوجل شيت وكود الموديل
-        const compositeId = `${data["id"]}-${modelNo}`;
+        // مفتاح فريد لضمان عدم سحب نفس الصف لنفس الموديل مرتين
+        const compositeKey = `${data["id"]}-${modelNo}`;
 
-        // 2. التحقق: هل هذا الموديل من هذا السطر تم سحبه مسبقاً؟
-        const existingReceipt = await prisma.warehouseReceipt.findUnique({
-            where: { uniqueid: compositeId }
+        // البحث في الجدول الجديد الخاص بالمزامنة
+        const existingRecord = await prisma.syncRecord.findUnique({
+            where: { uniqueKey: compositeKey }
         });
-        if (existingReceipt) continue;
+        if (existingRecord) continue;
 
         const product = await prisma.product.findFirst({
             where: { modelNo: modelNo, material: data["khcode"] }
         });
 
         if (product) {
+          // تحديث الكمية
           await prisma.product.update({
             where: { id: product.id },
             data: { stockQty: { increment: totalPieces }, currentStock: { increment: totalPieces } }
           });
 
-          await prisma.warehouseReceipt.create({
+          // تسجيل الحركة لربطها بعملية المزامنة الحالية
+          await prisma.syncRecord.create({
             data: {
-                uniqueid: compositeId, // الـ ID الجديد المدمج
-                date: rowDate,
-                empName: data["bank"] || "جوجل شيت",
-                modelNo: modelNo,
-                most: totalPieces
+                syncOperationId: syncOp.id,
+                productId: product.id,
+                quantityAdded: totalPieces,
+                uniqueKey: compositeKey
             }
           });
           processedCount++;
@@ -236,17 +235,66 @@ export async function syncFromGoogleSheets(startDateStr: string) {
       }
     }
 
+    // تحديث عدد العناصر التي تم سحبها في العملية
+    if (processedCount > 0) {
+        await prisma.syncOperation.update({
+            where: { id: syncOp.id },
+            data: { itemsCount: processedCount }
+        });
+    } else {
+        // إذا لم يتم سحب أي شيء، نحذف العملية الفارغة
+        await prisma.syncOperation.delete({ where: { id: syncOp.id } });
+        return { success: true, message: `لم يتم العثور على حركات جديدة لسحبها.` };
+    }
+
     revalidatePath('/admin/products');
     revalidatePath('/admin/reports');
     
     return { 
         success: true, 
-        message: `تم سحب ${processedCount} حركة جديدة تبدأ من تاريخ ${SYNC_START_DATE.toLocaleDateString('ar-EG')}` 
+        message: `تم سحب ${processedCount} حركة جديدة بنجاح.` 
     };
 
   } catch (error: any) {
     return { success: false, error: error.message };
   }
+}
+
+export async function getSyncOperations() {
+    const ops = await prisma.syncOperation.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 10 // عرض آخر 10 عمليات فقط
+    });
+    return JSON.parse(JSON.stringify(ops));
+}
+
+export async function revertSyncOperation(operationId: string) {
+    try {
+        // 1. جلب جميع السجلات الخاصة بهذه العملية
+        const records = await prisma.syncRecord.findMany({
+            where: { syncOperationId: operationId }
+        });
+
+        // 2. خصم الكميات من الأصناف (تراجع)
+        for (const record of records) {
+            await prisma.product.update({
+                where: { id: record.productId },
+                data: {
+                    stockQty: { decrement: record.quantityAdded },
+                    currentStock: { decrement: record.quantityAdded }
+                }
+            });
+        }
+
+        // 3. حذف العملية (سيتم حذف السجلات المرتبطة تلقائياً بسبب onDelete: Cascade)
+        await prisma.syncOperation.delete({ where: { id: operationId } });
+
+        revalidatePath('/admin/products');
+        revalidatePath('/admin/reports');
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: 'حدث خطأ أثناء التراجع عن المزامنة.' };
+    }
 }
 
 export async function deleteProduct(id: string) {

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react';
+// ... (الاستيرادات السابقة)
 import { 
     addProduct, 
     getProducts, 
@@ -8,13 +8,27 @@ import {
     deleteBulkProducts, 
     deleteAllProducts,
     updateProduct, 
-    syncFromGoogleSheets
+    syncFromGoogleSheets,
+    getSyncOperations,      // <--- استيراد جديد
+    revertSyncOperation     // <--- استيراد جديد
 } from '@/app/admin-actions';
+import { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 
-function AdminSyncControl() {
-    const [startDate, setStartDate] = useState("2025-06-01"); // قيمة افتراضية
+function AdminSyncControl({ onRefresh }: { onRefresh: () => void }) {
+    const [startDate, setStartDate] = useState("2025-06-01");
     const [isSyncing, setIsSyncing] = useState(false);
+    const [syncHistory, setSyncHistory] = useState<any[]>([]);
+    const [isReverting, setIsReverting] = useState<string | null>(null);
+
+    useEffect(() => {
+        loadHistory();
+    }, []);
+
+    const loadHistory = async () => {
+        const history = await getSyncOperations();
+        setSyncHistory(history);
+    };
 
     const handleSync = async () => {
         if (!confirm(`سيتم سحب كافة البيانات المضافة في جوجل شيت منذ يوم ${startDate}، هل أنت متأكد؟`)) return;
@@ -24,44 +38,98 @@ function AdminSyncControl() {
         
         if (result.success) {
             alert(result.message);
+            loadHistory();
+            onRefresh(); // تحديث المنتجات في الصفحة الرئيسية
         } else {
             alert("فشل المزامنة: " + result.error);
         }
         setIsSyncing(false);
     };
 
+    const handleRevert = async (op: any) => {
+        if (!confirm(`تحذير: سيتم التراجع عن هذه العملية التي شملت ${op.itemsCount} صنف.\nسيتم خصم الكميات المضافة وإلغاء العملية.\nهل أنت متأكد؟`)) return;
+        
+        setIsReverting(op.id);
+        const res = await revertSyncOperation(op.id);
+        setIsReverting(null);
+
+        if (res.success) {
+            alert("تم التراجع بنجاح وإلغاء العملية.");
+            loadHistory();
+            onRefresh(); // تحديث المنتجات
+        } else {
+            alert("خطأ: " + res.error);
+        }
+    };
+
     return (
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-green-100 flex flex-wrap items-center gap-4">
-            <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-gray-500 mr-1">بدء المزامنة من تاريخ:</label>
-                <input 
-                    type="date" 
-                    value={startDate} 
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="p-2 border rounded-xl outline-none focus:ring-2 focus:ring-green-500 font-bold text-gray-700"
-                />
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-green-100 flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-4 border-b border-gray-100 pb-4">
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs font-bold text-gray-500 mr-1">بدء المزامنة من تاريخ:</label>
+                    <input 
+                        type="date" 
+                        value={startDate} 
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="p-2 border rounded-xl outline-none focus:ring-2 focus:ring-green-500 font-bold text-gray-700"
+                    />
+                </div>
+
+                <button 
+                    onClick={handleSync}
+                    disabled={isSyncing}
+                    className={`mt-5 bg-green-600 text-white px-8 py-2.5 rounded-xl font-black shadow-lg shadow-green-100 transition-all active:scale-95 flex items-center gap-2 ${isSyncing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`}
+                >
+                    {isSyncing ? (
+                        <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span> جاري السحب...</>
+                    ) : (
+                        <><span>🔄 مزامنة جوجل شيت</span></>
+                    )}
+                </button>
             </div>
 
-            <button 
-                onClick={handleSync}
-                disabled={isSyncing}
-                className={`mt-5 bg-green-600 text-white px-8 py-2.5 rounded-xl font-black shadow-lg shadow-green-100 transition-all active:scale-95 flex items-center gap-2 ${isSyncing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`}
-            >
-                {isSyncing ? (
-                    <>
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                        جاري السحب...
-                    </>
-                ) : (
-                    <>
-                        <span>🔄 مزامنة جوجل شيت</span>
-                    </>
-                )}
-            </button>
-            
-            <div className="mt-5 text-[10px] text-gray-400 max-w-[200px]">
-                * النظام سيتجاهل أي "إذن" تم سحبه مسبقاً تلقائياً حتى لو دخل في نطاق التاريخ.
-            </div>
+            {/* عرض سجل عمليات المزامنة */}
+            {syncHistory.length > 0 && (
+                <div className="w-full">
+                    <h4 className="text-xs font-bold text-gray-500 mb-2">أحدث عمليات المزامنة:</h4>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-right border-collapse">
+                            <thead>
+                                <tr className="bg-gray-50 text-gray-600">
+                                    <th className="p-2 border">وقت العملية</th>
+                                    <th className="p-2 border">تاريخ الاستهداف</th>
+                                    <th className="p-2 border">عدد الأصناف</th>
+                                    <th className="p-2 border text-center">إجراء</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {syncHistory.map((op) => (
+                                    <tr key={op.id} className="border-b hover:bg-gray-50">
+                                        <td className="p-2 border font-mono text-[10px]" dir="ltr">
+                                            {new Date(op.createdAt).toLocaleString('en-GB')}
+                                        </td>
+                                        <td className="p-2 border font-bold text-blue-600">
+                                            {new Date(op.startDate).toLocaleDateString('en-GB')}
+                                        </td>
+                                        <td className="p-2 border font-bold text-green-600">
+                                            {op.itemsCount} حركة
+                                        </td>
+                                        <td className="p-2 border text-center">
+                                            <button 
+                                                onClick={() => handleRevert(op)}
+                                                disabled={isReverting === op.id}
+                                                className="bg-red-50 text-red-600 px-3 py-1 rounded font-bold hover:bg-red-100 disabled:opacity-50"
+                                            >
+                                                {isReverting === op.id ? 'جاري الإلغاء...' : '↩️ تراجع'}
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -327,7 +395,7 @@ export default function ProductsPage() {
       </div>
 
       {/* Sync Section */}
-      <AdminSyncControl />
+      <AdminSyncControl onRefresh={refreshProducts} />
 
       {/* Upload Section */}
       <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
