@@ -21,42 +21,29 @@ export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<'INVENTORY' | 'SAFE' | 'EMPLOYEES'>('INVENTORY');
   
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6" dir="rtl">
+    <div className="min-h-screen print:min-h-0 bg-gray-50 p-4 md:p-6 print:p-0 print:bg-white" dir="rtl">
         <style jsx global>{`
         @media print {
-          @page { margin: 10mm; size: auto; }
+          /* تصغير الهوامش الرسمية للورقة */
+          @page { margin: 5mm; }
           
-          /* إخفاء كل العناصر بشكل افتراضي */
-          body * { 
-            visibility: hidden; 
-          }
-          
-          /* إعادة الإظهار للمنطقة المطبوعة فقط */
-          #printable-area, #printable-area * { 
-            visibility: visible; 
-          }
-          
-          /* تحويل المنطقة المطبوعة لتكون هي العنصر الأساسي بدون position absolute */
-          #printable-area {
-            position: relative !important;
-            left: auto !important;
-            top: auto !important;
-            width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white !important;
-          }
-
-          /* إزالة أي ارتفاعات دنيا تسبب امتداد الصفحة */
+          /* تصفير أي ارتفاعات وهمية تسبب الصفحة الفارغة */
           html, body, #__next, main {
-            height: auto !important;
+            height: max-content !important;
             min-height: 0 !important;
             background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
 
-          /* إخفاء العناصر التي لا نريدها (الأزرار والترويسات) نهائياً من الـ Layout */
+          /* إخفاء نهائي للعناصر غير المرغوبة بدون ترك مساحة فارغة */
           nav, aside, header, footer, .print\:hidden { 
             display: none !important; 
+          }
+
+          /* إزالة الظلال والحدود الدائرية في الطباعة لتوفير المساحة */
+          * {
+            box-shadow: none !important;
           }
         }
       `}</style>
@@ -246,7 +233,7 @@ function InventoryReportView() {
     }
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 print:space-y-0 print:mt-0">
             <div className="flex flex-wrap gap-4 items-center justify-between print:hidden">
                 <div className="flex gap-2 items-center flex-1 min-w-[300px]">
                     <input 
