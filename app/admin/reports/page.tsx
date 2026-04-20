@@ -24,49 +24,37 @@ export default function ReportsPage() {
     <div className="min-h-screen bg-gray-50 p-4 md:p-6" dir="rtl">
         <style jsx global>{`
         @media print {
-          /* تقليل الهوامش لأقصى حد لمنع تسريب المساحات */
           @page { margin: 10mm; size: auto; }
           
-          html, body {
-            height: 100%;
-            overflow: hidden !important; /* منع أي سكرول يسبب صفحة إضافية */
-            margin: 0 !important;
-            padding: 0 !important;
+          /* إخفاء كل العناصر بشكل افتراضي */
+          body * { 
+            visibility: hidden; 
           }
-
-          body * { visibility: hidden; }
           
+          /* إعادة الإظهار للمنطقة المطبوعة فقط */
           #printable-area, #printable-area * { 
             visibility: visible; 
           }
           
+          /* تحويل المنطقة المطبوعة لتكون هي العنصر الأساسي بدون position absolute */
           #printable-area {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            /* إجبار المحتوى على البقاء في صفحة واحدة ومنع التمدد غير المرغوب */
-            max-height: 100vh; 
-            overflow: hidden;
+            position: relative !important;
+            left: auto !important;
+            top: auto !important;
+            width: 100% !important;
             margin: 0 !important;
-            padding: 10px !important;
+            padding: 0 !important;
             background: white !important;
-            border: none !important;
-            box-shadow: none !important;
           }
 
-          /* إخفاء السكرول بار داخل الجدول عند الطباعة */
-          .overflow-x-auto {
-            overflow: visible !important;
+          /* إزالة أي ارتفاعات دنيا تسبب امتداد الصفحة */
+          html, body, #__next, main {
+            height: auto !important;
+            min-height: 0 !important;
+            background: white !important;
           }
 
-          /* منع كسر الصفحات داخل سطور الجدول */
-          tr {
-            page-break-inside: avoid !important;
-            page-break-after: auto !important;
-          }
-
-          /* إخفاء كل ما لا نحتاجه في الطباعة */
+          /* إخفاء العناصر التي لا نريدها (الأزرار والترويسات) نهائياً من الـ Layout */
           nav, aside, header, footer, .print\:hidden { 
             display: none !important; 
           }
@@ -130,7 +118,7 @@ export default function ReportsPage() {
         </button>
       </div>
 
-      <div id="printable-area" className="bg-white p-4 md:p-10 rounded-[2.5rem] shadow-sm min-h-[600px] border border-gray-50 print:p-0 print:m-0 print:border-none print:shadow-none print:rounded-none print:min-h-0">
+      <div id="printable-area" className="bg-white p-4 md:p-10 rounded-[2.5rem] shadow-sm border border-gray-50 print:min-h-0 print:border-none print:shadow-none print:p-0">
           {activeTab === 'INVENTORY' && <InventoryReportView />}
           {activeTab === 'SAFE' && <SafeLedgerView />}
           {activeTab === 'EMPLOYEES' && <EmployeePerformanceView />}
