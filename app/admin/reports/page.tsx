@@ -1,5 +1,3 @@
-'use client'
-
 import { useState, useEffect, useCallback } from 'react';
 import { getInventoryReport, getSafesList, getSafeLedger, getEmployeePerformance } from '@/app/report-actions';
 import { useSession } from 'next-auth/react';
@@ -119,7 +117,8 @@ function InventoryReportView() {
     const [isLinkedStagesActive, setIsLinkedStagesActive] = useState(false);
     const [selectedHistory, setSelectedHistory] = useState<any[] | null>(null);
     const [selectedItemName, setSelectedItemName] = useState('');
-    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'totalSold', direction: 'desc' });
+    // الترتيب الافتراضي أصبح بكود الموديل تصاعدياً
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'modelNo', direction: 'asc' });
 
     const handleSort = (key: string) => {
         let direction: 'asc' | 'desc' = 'desc';
@@ -191,11 +190,33 @@ function InventoryReportView() {
 
     if (sortConfig !== null) {
         displayData.sort((a: any, b: any) => {
-            const valA = a[sortConfig.key] || 0;
-            const valB = b[sortConfig.key] || 0;
+            // الترتيب الرقمي (للمبيعات والمخزون)
+            if (sortConfig.key === 'totalSold' || sortConfig.key === 'currentStock') {
+                const valA = Number(a[sortConfig.key]) || 0;
+                const valB = Number(b[sortConfig.key]) || 0;
+                if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+                return 0;
+            }
 
-            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
-            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+            // الترتيب النصي/الرقمي الطبيعي (لكود الموديل)
+            if (sortConfig.key === 'modelNo') {
+                const valA = String(a.modelNo || '');
+                const valB = String(b.modelNo || '');
+                
+                // الترتيب الطبيعي (مثلاً 2 تأتي قبل 10 وليس بعدها)
+                let comparison = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+                
+                // إذا تطابق كود الموديل، نقوم بالترتيب الفرعي حسب الخامة
+                if (comparison === 0) {
+                    const matA = String(a.material || '');
+                    const matB = String(b.material || '');
+                    comparison = matA.localeCompare(matB, undefined, { numeric: true, sensitivity: 'base' });
+                }
+
+                return sortConfig.direction === 'asc' ? comparison : -comparison;
+            }
+
             return 0;
         });
     }
@@ -233,7 +254,12 @@ function InventoryReportView() {
                 <table className="w-full text-right border-collapse">
                     <thead className="bg-slate-900 text-white text-[10px] uppercase tracking-widest">
                         <tr>
-                            <th className="p-5">كود الموديل</th>
+                            <th 
+                                className="p-5 cursor-pointer hover:bg-slate-800 transition-colors select-none"
+                                onClick={() => handleSort('modelNo')}
+                            >
+                                كود الموديل {sortConfig?.key === 'modelNo' && (sortConfig.direction === 'asc' ? ' ↓' : ' ↑')}
+                            </th>
                             <th className="p-5">الخامة</th>
                             <th className="p-5">{viewMode === 'COLOR' ? 'اللون' : 'الألوان'}</th>
                             {showInitialStock && <th className="p-5">أولي (قطعة)</th>}
@@ -432,8 +458,8 @@ function SafeLedgerView() {
                         ))}
                     </div>
 
-                    <div className="overflow-x-auto rounded-[3rem] border border-slate-100 shadow-2xl shadow-slate-200/50">
-                        <table className="w-full text-sm text-right border-collapse bg-white">
+                    <div className="overflow-x-auto rounded-[3rem] border border-slate-100 shadow-2xl shadow-slate-200/50 bg-white">
+                        <table className="w-full text-sm text-right border-collapse">
                             <thead className="bg-slate-50 text-slate-500 font-black uppercase text-[9px] tracking-widest">
                                 <tr>
                                     <th className="p-6 border-b border-slate-100">تاريخ السند</th>
