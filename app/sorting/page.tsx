@@ -1,10 +1,13 @@
+
+import { Suspense } from 'react';
 import { prisma } from '@/lib/prisma';
 import SortingClient from './SortingClient';
 import WarehouseSyncControl from './WarehouseSyncControl';
 import { revalidatePath } from 'next/cache';
+import { getJobs } from '../warehouse-actions'; // Import the function to get jobs
 
+// This function remains the same
 async function getOrdersWithAllocation() {
-  // 1. Fetch product list to determine color distribution for each model
   const productsList = await prisma.product.findMany({
     select: { modelNo: true, color: true },
   });
@@ -16,19 +19,16 @@ async function getOrdersWithAllocation() {
     }
   });
 
-  // 2. Fetch total incoming stock (pieces) for each model
   const warehouseIn = await prisma.warehouseReceipt.groupBy({
     by: ['modelNo'],
     _sum: { most: true },
   });
 
-  // 3. Fetch total fulfilled stock (pieces) for each color
   const fulfilledItems = await prisma.orderItem.findMany({
     where: { fulfilledQty: { gt: 0 } },
     include: { product: true },
   });
 
-  // 4. Build the available stock map with fair distribution for each color
   const availableStockByColor: { [model: string]: { [color: string]: number } } = {};
 
   warehouseIn.forEach((item) => {
@@ -58,7 +58,6 @@ async function getOrdersWithAllocation() {
     }
   });
 
-  // 5. Fetch all orders with required details
   const orders = await prisma.order.findMany({
     orderBy: { createdAt: 'asc' },
     include: {
@@ -76,7 +75,6 @@ async function getOrdersWithAllocation() {
     },
   });
 
-  // 6. Final calculations for orders and financial data
   const processedOrders = orders.map((order) => {
     let totalItemsPending = 0;
     let totalItemsAllocated = 0;
@@ -103,7 +101,6 @@ async function getOrdersWithAllocation() {
 
       let qtyAllocatedNow = 0;
 
-      // New Logic: If the item is postponed, do not reserve stock for it
       if (!isItemPostponed && remainingNeeded > 0) {
         const currentStockForThisColor =
           (availableStockByColor[modelNo] && availableStockByColor[modelNo][color]) || 0;
@@ -124,7 +121,7 @@ async function getOrdersWithAllocation() {
         color,
         description: item.product.description || '',
         qtyAllocatedPieces: qtyAllocatedNow,
-        isPostponed: isItemPostponed, // Send status to the UI
+        isPostponed: isItemPostponed, 
         remainingNeeded,
         alreadyFulfilled,
         originalQtyDozens: item.quantity,
@@ -174,9 +171,13 @@ async function getOrdersWithAllocation() {
  * The main React Component for the sorting page.
  */
 export default async function SortingPage() {
-  const orders = await getOrdersWithAllocation();
+  // Fetch all required data on the server in parallel
+  const [orders, jobs] = await Promise.all([
+    getOrdersWithAllocation(),
+    getJobs()
+  ]);
 
-  // Server Action to re-fetch data on the server
+  // Server Action to re-fetch data
   async function refreshData() {
     'use server'
     revalidatePath('/sorting');
@@ -187,12 +188,20 @@ export default async function SortingPage() {
       <div className="p-4 bg-gray-800 text-white flex justify-between items-center">
         <h1 className="text-2xl font-bold">فرز الطلبات</h1>
       </div>
+      
+      {/* Use Suspense to handle loading states gracefully */}
       <div className="px-4">
-        <WarehouseSyncControl onSyncComplete={refreshData} />
+        <Suspense fallback={<div className="text-center p-4">جاري تحميل لوحة التحكم...</div>}>
+          <WarehouseSyncControl onSyncComplete={refreshData} initialJobs={jobs} />
+        </Suspense>
       </div>
+
+      {/* Temporarily removed Suspense from here to debug */}
       <SortingClient initialOrders={orders} />
+
     </div>
   );
 }
 
 export const dynamic = 'force-dynamic';
+
