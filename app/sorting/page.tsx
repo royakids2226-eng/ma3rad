@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import SortingClient from './SortingClient';
+import WarehouseSyncControl from './WarehouseSyncControl';
+import { revalidatePath } from 'next/cache';
 
 async function getOrdersWithAllocation() {
   // 1. Fetch product list to determine color distribution for each model
@@ -173,7 +175,24 @@ async function getOrdersWithAllocation() {
  */
 export default async function SortingPage() {
   const orders = await getOrdersWithAllocation();
-  return <SortingClient initialOrders={orders} />;
+
+  // Server Action to re-fetch data on the server
+  async function refreshData() {
+    'use server'
+    revalidatePath('/sorting');
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="p-4 bg-gray-800 text-white flex justify-between items-center">
+        <h1 className="text-2xl font-bold">فرز الطلبات</h1>
+      </div>
+      <div className="px-4">
+        <WarehouseSyncControl onSyncComplete={refreshData} />
+      </div>
+      <SortingClient initialOrders={orders} />
+    </div>
+  );
 }
 
 export const dynamic = 'force-dynamic';

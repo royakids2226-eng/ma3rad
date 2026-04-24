@@ -136,6 +136,8 @@ model WarehouseReceipt {
   modelNo  String                   
   most     Int                      
 
+  warehouseSyncRecord WarehouseSyncRecord? // Relation to the sync record
+
   @@index([modelNo])                
   @@index([date])                   
 }
@@ -160,13 +162,13 @@ model Job {
   @@index([type, status])
 }
 
-// --- أضف هذه النماذج في نهاية الملف ---
+// --- Product Sync Models ---
 
 model SyncOperation {
   id          String       @id @default(cuid())
   createdAt   DateTime     @default(now())
-  startDate   DateTime     // التاريخ الذي اختاره المستخدم لبدء السحب
-  itemsCount  Int          @default(0) // عدد الحركات التي تم سحبها بنجاح
+  startDate   DateTime     // The date chosen by the user to start syncing from
+  itemsCount  Int          @default(0) // Number of successfully synced items
   status      String       @default("COMPLETED")
   records     SyncRecord[]
 }
@@ -179,8 +181,29 @@ model SyncRecord {
   productId        String
   product          Product       @relation(fields: [productId], references: [id])
   
-  quantityAdded    Int           // الكمية التي تمت إضافتها للتمكن من خصمها عند التراجع
-  uniqueKey        String        @unique // مفتاح فريد لمنع التكرار (رقم صف الشيت + كود الموديل)
+  quantityAdded    Int           // Quantity added to be able to decrement on revert
+  uniqueKey        String        @unique // Unique key to prevent duplicates (sheet row id + model code)
+
+  @@index([syncOperationId])
+}
+
+// --- Warehouse Sync Models ---
+
+model WarehouseSyncOperation {
+  id          String       @id @default(cuid())
+  createdAt   DateTime     @default(now())
+  startDate   DateTime
+  itemsCount  Int          @default(0)
+  records     WarehouseSyncRecord[]
+}
+
+model WarehouseSyncRecord {
+  id                String                 @id @default(cuid())
+  syncOperationId   String
+  operation         WarehouseSyncOperation @relation(fields: [syncOperationId], references: [id], onDelete: Cascade)
+  
+  warehouseReceiptId String                @unique // The uniqueid of the created WarehouseReceipt
+  receipt           WarehouseReceipt       @relation(fields: [warehouseReceiptId], references: [uniqueid])
 
   @@index([syncOperationId])
 }
