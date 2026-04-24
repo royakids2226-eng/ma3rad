@@ -3,7 +3,6 @@ import { prisma } from '@/lib/prisma';
 import SortingClient from './SortingClient';
 import WarehouseSyncControl from './WarehouseSyncControl';
 import { revalidatePath } from 'next/cache';
-import { getJobs } from '../warehouse-actions'; // Import the function to get jobs
 
 // This function remains the same
 async function getOrdersWithAllocation() {
@@ -170,11 +169,8 @@ async function getOrdersWithAllocation() {
  * The main React Component for the sorting page.
  */
 export default async function SortingPage() {
-  // Fetch all required data on the server in parallel
-  const [orders, jobs] = await Promise.all([
-    getOrdersWithAllocation(),
-    getJobs()
-  ]);
+  // Fetch only the orders data on the server.
+  const orders = await getOrdersWithAllocation();
 
   // Server Action to re-fetch data
   async function refreshData() {
@@ -184,18 +180,18 @@ export default async function SortingPage() {
 
   return (
     <div className="space-y-4">
-      <div className="p-4 bg-gray-800 text-white flex justify-between items-center">
+      {/* This top bar can be styled or removed as needed */}
+      <div className="p-4 bg-gray-800 text-white flex justify-between items-center print:hidden">
         <h1 className="text-2xl font-bold">فرز الطلبات</h1>
       </div>
       
-      {/* Use Suspense to handle loading states gracefully */}
-      <div className="px-4">
+      <div className="px-4 print:hidden">
         <Suspense fallback={<div className="text-center p-4">جاري تحميل لوحة التحكم...</div>}>
-          <WarehouseSyncControl onSyncComplete={refreshData} initialJobs={jobs} />
+          {/* The component now fetches its own history, so we just pass the revalidation function */}
+          <WarehouseSyncControl onSyncComplete={refreshData} />
         </Suspense>
       </div>
 
-      {/* Temporarily removed Suspense from here to debug */}
       <SortingClient initialOrders={orders} />
 
     </div>
