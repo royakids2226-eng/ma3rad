@@ -151,13 +151,17 @@ model Settings {
 }
 
 model Job {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  type      String
-  status    String   @default("PENDING")
-  payload   Json?
-  result    Json?
+  id           String    @id @default(cuid())
+  name         String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  completedAt  DateTime? // When the job was finished
+  type         String
+  status       String    @default("PENDING") // PENDING, RUNNING, COMPLETED, FAILED
+  progress     Int       @default(0)
+  logs         String?
+  payload      Json?
+  result       Json?
 
   @@index([type, status])
 }
