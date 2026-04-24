@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { markNotificationAsRead, resetNotifications } from './actions';
-import { useRouter } from 'next/navigation';
 
 type ItemType = {
     id: string;
@@ -15,7 +14,6 @@ type ItemType = {
 };
 
 export default function NotificationListClient({ initialItems }: { initialItems: ItemType[] }) {
-    const router = useRouter();
     const [optimisticReadIds, setOptimisticReadIds] = useState<string[]>([]);
     
     // حساب العناصر المقروءة (سواء من الداتا بيز أو اللي لسه دايس عليها حالا)
@@ -37,18 +35,16 @@ export default function NotificationListClient({ initialItems }: { initialItems:
         if (!optimisticReadIds.includes(id)) {
             setOptimisticReadIds(prev => [...prev, id]);
             
-            // تحديث قاعدة البيانات
-            await markNotificationAsRead(id);
-            
-            // تحديث الصفحة لجلب البيانات الجديدة
-            router.refresh();
+            // تحديث قاعدة البيانات في الخلفية "fire and forget"
+            // لا حاجة لـ router.refresh() الذي يستهلك الموارد
+            markNotificationAsRead(id);
         }
     };
 
     const handleReset = async () => {
         await resetNotifications();
+        // تحديث شكلي فقط، لا حاجة لـ router.refresh()
         setOptimisticReadIds([]);
-        router.refresh();
     };
 
     return (
@@ -135,7 +131,12 @@ export default function NotificationListClient({ initialItems }: { initialItems:
                                     ) : (
                                         <Link 
                                             href={`/admin/products?search=${item.modelNo}`} 
-                                            // هنا لا نوقف الانتشار لكي يسمح بالشطب عند الضغط على الزر أيضاً
+                                            onClick={(e) => {
+                                                // 1. إيقاف انتشار الحدث لمنع تفعيل الـ onClick الخاص بالـ Div الخارجي
+                                                e.stopPropagation();
+                                                // 2. تفعيل الشطب يدوياً عند الضغط على الرابط
+                                                handleItemClick(item.id);
+                                            }}
                                             className="block w-full bg-red-50 text-red-600 py-3 rounded-xl font-bold text-center hover:bg-red-600 hover:text-white transition-colors"
                                         >
                                             إدارة الصنف
