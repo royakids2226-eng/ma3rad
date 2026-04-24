@@ -1,4 +1,3 @@
-
 import { Suspense } from 'react';
 import { prisma } from '@/lib/prisma';
 import SortingClient from './SortingClient';
@@ -204,4 +203,3 @@ export default async function SortingPage() {
 }
 
 export const dynamic = 'force-dynamic';
-

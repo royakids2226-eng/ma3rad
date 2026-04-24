@@ -18,7 +18,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ar" dir="rtl">
+    <html lang="ar" dir="rtl" suppressHydrationWarning={true}>
       <body className={inter.className}>
         <NextAuthProvider>
           <ExitConfirmation /> {/* إضافة المكون هنا */}

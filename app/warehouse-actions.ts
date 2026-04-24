@@ -3,16 +3,44 @@
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 
-// ... (other functions remain the same)
-
 /**
  * Fetches all jobs from the database.
+ * PREVENTIVE FIX #4: The schema and database are out of sync. Multiple columns
+ * like 'name', 'updatedAt', 'completedAt', and 'progress' do not exist in the database table.
+ * This `select` statement is now restricted to only the columns that are known to exist to prevent crashing.
+ * ROOT CAUSE: Run `npx prisma db push` to sync your database with your schema.
  */
 export async function getJobs() {
-    const jobs = await prisma.job.findMany({
-        orderBy: { createdAt: 'desc' },
-    });
-    return JSON.parse(JSON.stringify(jobs)); // Serialize for client component
+    try {
+        const jobs = await prisma.job.findMany({
+            orderBy: { createdAt: 'desc' },
+            select: {
+                id: true,
+                createdAt: true,
+                type: true,
+                status: true,
+                // progress: true,     // REMOVED: Column does not exist in the database
+                logs: true,
+                payload: true,
+                result: true,
+            }
+        });
+
+        // Manually map to add properties that the client component might expect.
+        const jobsWithDefaults = jobs.map(job => ({
+            ...job,
+            name: job.type, // Using job.type as a fallback for the missing name
+            progress: 0,    // Adding a default 'progress' for the client
+            completedAt: null // Adding a default 'completedAt' for the client
+        }));
+
+        return JSON.parse(JSON.stringify(jobsWithDefaults));
+    } catch (error) {
+        console.error("Error fetching jobs:", error);
+        // In case of an error (like another missing column), return an empty array
+        // to prevent the entire page from crashing.
+        return [];
+    }
 }
 
 const SHEET_ID = "1EhPqEOYOzoLREVC3IMsjmXiPP5WXTjhF5_DJxVOcI2M";
