@@ -1,5 +1,4 @@
 'use client'
-
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 
@@ -11,8 +10,8 @@ export default function NotificationBell({ isDark = true }) {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-        audioRef.current = new Audio('/notification.mp3');
-        audioRef.current.volume = 0.8;
+      audioRef.current = new Audio('/notification.mp3');
+      audioRef.current.volume = 0.8;
     }
 
     const enableAudio = () => {
@@ -40,12 +39,11 @@ export default function NotificationBell({ isDark = true }) {
 
   const checkNotifications = async () => {
     try {
-      // الـ API الآن يعيد فقط العناصر التي isStockAlertRead = false
-      const res = await fetch(`/api/notifications/count?t=${Date.now()}`, {
-        cache: 'no-store'
-      });
+      // ✅ تم إزالة ?t=${Date.now()} و cache: 'no-store'
+      const res = await fetch('/api/notifications/count');
       
       if (!res.ok) return;
+      
       const data = await res.json();
       
       const serverIds: string[] = data.ids || [];
@@ -66,11 +64,12 @@ export default function NotificationBell({ isDark = true }) {
     }
   };
 
+  // ✅ تم إزالة setInterval تماماً - الآن تجلب البيانات مرة واحدة فقط عند تحميل الصفحة
   useEffect(() => {
     checkNotifications();
-    const interval = setInterval(checkNotifications, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    // ❌ تم حذف: const interval = setInterval(checkNotifications, 3000);
+    // ❌ تم حذف: return () => clearInterval(interval);
+  }, []); // ✅ الـ dependency array فارغ يعني يعمل مرة واحدة فقط
 
   return (
     <Link
@@ -82,7 +81,7 @@ export default function NotificationBell({ isDark = true }) {
       }`}
     >
       <span className="text-2xl">🔔</span>
-
+      
       {unreadCount > 0 && (
         <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold min-w-[20px] h-5 px-1 flex items-center justify-center rounded-full animate-pulse shadow-md border-2 border-white">
           {unreadCount}
