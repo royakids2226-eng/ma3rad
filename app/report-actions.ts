@@ -22,7 +22,7 @@ export async function getInventoryReport() {
         return {
             id: p.id,
             modelNo: p.modelNo,
-            material: p.material,
+            vendor: p.vendor,
             color: p.color,
             initialStock: initial,
             totalSold: totalSoldPieces,
