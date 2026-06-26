@@ -1,4 +1,3 @@
-
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { getSettings } from "@/app/actions";
@@ -8,8 +7,8 @@ import NewOrderButton from "./NewOrderButton";
 import SharePdfButton from "./SharePdfButton";
 import PrintStyles from "./PrintStyles";
 
-export default async function OrderPrintPage({ params }: { params: { id: string } }) {
-  const resolvedParams = await Promise.resolve(params);
+export default async function OrderPrintPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = await params;
   const order = await prisma.order.findUnique({
     where: { id: resolvedParams.id },
     include: {
@@ -24,51 +23,47 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
     notFound();
   }
 
-  const PIECE_MULTIPLIER = 4;
-
-  // --- CALCULATIONS -- -
+  // ✅ الحسابات على القطعة مباشرة (بدون ضرب في 4)
   const grossTotal = order.items.reduce((acc, item) => {
-    const quantityInPieces = item.quantity * PIECE_MULTIPLIER;
-    const originalPricePerDozen = item.product.price;
-    return acc + (quantityInPieces * originalPricePerDozen);
+    return acc + (item.quantity * item.product.price);
   }, 0);
 
   const totalItemsDiscount = order.items.reduce((acc, item) => {
-    const quantityInPieces = item.quantity * PIECE_MULTIPLIER;
-    const originalPricePerDozen = item.product.price;
-    const itemGrossTotal = quantityInPieces * originalPricePerDozen;
+    const itemGrossTotal = item.quantity * item.product.price;
     const discountAmount = itemGrossTotal * (item.discountPercent / 100);
     return acc + discountAmount;
   }, 0);
 
   const orderLevelDiscount = order.discount;
   const totalDiscount = totalItemsDiscount + orderLevelDiscount;
-
   const netTotal = grossTotal - totalDiscount;
 
   const depositPaid = order.deposit;
   const depositDeducted = order.currency === 'EGP' ? depositPaid : 0;
   const remainingAmount = netTotal - depositDeducted;
 
+  // ✅ تجميع الأصناف حسب الموديل
   const groupedItems = order.items.reduce((acc, item) => {
     const modelNo = item.product.modelNo;
     if (!acc[modelNo]) {
       acc[modelNo] = {
         items: [],
-        totalDozenQuantity: 0,
-        originalPricePerDozen: item.product.price,
+        totalQuantity: 0,
+        unitPrice: item.product.price,
         description: item.product.description || '',
         discountPercent: item.discountPercent,
       };
     }
     acc[modelNo].items.push(item);
-    acc[modelNo].totalDozenQuantity += item.quantity;
+    acc[modelNo].totalQuantity += item.quantity;
     return acc;
-  }, {} as Record<string, { items: any[], totalDozenQuantity: number, originalPricePerDozen: number, description: string, discountPercent: number }>);
+  }, {} as Record<string, { items: any[], totalQuantity: number, unitPrice: number, description: string, discountPercent: number }>);
 
   return (
     <div className="bg-gray-100 min-h-screen" dir="rtl">
       <PrintStyles siteName={settings?.siteName || ''} customerName={order.customer.name} />
+      
+      {/* أزرار التحكم - مخفية عند الطباعة */}
       <div className="no-print flex flex-wrap justify-center gap-2 md:gap-4 p-4 bg-white shadow-md mb-4 md:mb-8">
         <PrintButton />
         <HomeButton />
@@ -80,6 +75,7 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
         />
       </div>
 
+      {/* محتوى الفاتورة */}
       <div id="invoice-content" className="bg-white text-gray-800 p-4 md:p-8 font-sans text-sm max-w-4xl mx-auto my-4 md:my-8 shadow-lg border-t-8 border-blue-600">
 
         {/* --- Header --- */}
@@ -122,10 +118,10 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
             <tbody>
               {Object.keys(groupedItems).map((modelNo, index) => {
                 const group = groupedItems[modelNo];
-                const quantityInPieces = group.totalDozenQuantity * PIECE_MULTIPLIER;
-                const originalPricePerDozen = group.originalPricePerDozen;
-                const details = group.items.map(item => `${item.quantity * PIECE_MULTIPLIER} ${item.product.color}`).join(' + ');
-                const rowGrossTotal = quantityInPieces * originalPricePerDozen;
+                const totalQuantity = group.totalQuantity;
+                const unitPrice = group.unitPrice;
+                const details = group.items.map(item => `${item.quantity} ${item.product.color}`).join(' + ');
+                const rowGrossTotal = totalQuantity * unitPrice;
 
                 return (
                   <tr key={modelNo} className="hover:bg-gray-50">
@@ -134,8 +130,8 @@ export default async function OrderPrintPage({ params }: { params: { id: string 
                     <td className="p-3 border border-gray-300 text-right text-sm text-gray-600">
                       {group.description} ({details})
                     </td>
-                    <td className="p-3 border border-gray-300 text-center">{quantityInPieces}</td>
-                    <td className="p-3 border border-gray-300 text-center">{originalPricePerDozen.toFixed(2)}</td>
+                    <td className="p-3 border border-gray-300 text-center">{totalQuantity}</td>
+                    <td className="p-3 border border-gray-300 text-center">{unitPrice.toFixed(2)}</td>
                     <td className="p-3 border border-gray-300 text-center text-red-500">{group.discountPercent.toFixed(2)}</td>
                     <td className="p-3 border border-gray-300 text-center font-semibold">{rowGrossTotal.toFixed(2)}</td>
                   </tr>

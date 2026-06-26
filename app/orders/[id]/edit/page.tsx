@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import Link from 'next/link';
 
-const PIECES_PER_UNIT = 4;
+// ❌ حذف: const PIECES_PER_UNIT = 4;
 
 // Define the Safe type
 interface Safe {
@@ -114,7 +114,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     const delayDebounceFn = setTimeout(async () => {
         if (customerSearchTerm.length > 0 && customerSearchTerm !== selectedCustomer.name) {
             setIsSearchingCustomer(true);
-            const results = await searchCustomers(customerSearchTerm); // تأكد من استيراد هذه الدالة من actions
+            const results = await searchCustomers(customerSearchTerm);
             setCustomerResults(results);
             setIsSearchingCustomer(false);
             setShowCustomerList(true);
@@ -142,15 +142,16 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     });
   };
 
+  // ✅ تعديل updateQuantity - الكمية بالقطعة
   const updateQuantity = (productId: string, newQty: number) => {
     if (newQty < 1) return;
     const product = searchResults.find(p => p.id === productId);
     if (!product) return;
 
     if (product.status === 'CLOSED') {
-        const availableStock = Math.floor(product.currentStock / PIECES_PER_UNIT);
+        const availableStock = product.currentStock; // ✅ بدون قسمة
         if (newQty > availableStock) {
-          alert(`الكمية المتاحة من هذا الصنف المغلق هي ${availableStock} سرية فقط. لا يمكن بيع كمية أكبر.`);
+          alert(`الكمية المتاحة من هذا الصنف المغلق هي ${availableStock} قطعة فقط. لا يمكن بيع كمية أكبر.`);
           return;
         }
         if (newQty === availableStock) {
@@ -235,6 +236,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     setShowDiscountOptions(false);
   };
 
+  // ✅ تعديل getProcessedCart - بدون ضرب في 4
   const getProcessedCart = () => {
       let processed: any[] = [];
       let activeDiscount = 0;
@@ -243,7 +245,10 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
           else {
               const discountedPrice = item.unitPrice * (1 - activeDiscount / 100);
               processed.push({
-                  ...item, appliedDiscount: activeDiscount, finalPrice: discountedPrice, totalLinePrice: item.variants.reduce((sum: number, v: any) => sum + (v.quantity * PIECES_PER_UNIT * discountedPrice), 0),
+                  ...item, 
+                  appliedDiscount: activeDiscount, 
+                  finalPrice: discountedPrice, 
+                  totalLinePrice: item.variants.reduce((sum: number, v: any) => sum + (v.quantity * discountedPrice), 0), // ✅ بدون PIECES_PER_UNIT
                   variants: item.variants.map((v: any) => ({ ...v, price: discountedPrice, discountPercent: activeDiscount }))
               });
           }
@@ -257,7 +262,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     const currentTotal = processedItems.reduce((acc, item) => acc + item.totalLinePrice, 0);
     
     const result = await updateOrder(id, {
-        customerId: selectedCustomer.id, // نرسل الـ ID للعميل الجديد المختار
+        customerId: selectedCustomer.id,
         items: processedItems,
         total: currentTotal,
         deposit: parseFloat(deposit),
@@ -388,7 +393,8 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                           />
                           <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
                               <div className="font-bold">{prod.color}</div>
-                              <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {Math.floor(prod.currentStock / PIECES_PER_UNIT)} سرية</div>
+                              {/* ✅ تعديل: عرض الكمية بالقطعة */}
+                              <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.currentStock} قطعة</div>
                               {isSoldOut && <span className="text-[10px] text-red-600 font-bold block">نفذت الكمية</span>}
                           </div>
                         </div>
@@ -448,7 +454,8 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                                 ))}
                             </div>
                             <div className="flex justify-between items-center pt-2 border-t">
-                                <span className="text-xs font-bold text-gray-500">الإجمالي: {item.totalQty} سرية</span>
+                                {/* ✅ تعديل: عرض الكمية بالقطعة */}
+                                <span className="text-xs font-bold text-gray-500">الإجمالي: {item.totalQty} قطعة</span>
                                 <div className="flex gap-2">
                                     <button onClick={() => handleEditCartItem(item)} className="text-xs bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded font-bold">تعديل ✏️</button>
                                     <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded font-bold">حذف 🗑️</button>

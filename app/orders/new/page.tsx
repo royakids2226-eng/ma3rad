@@ -7,8 +7,6 @@ import { useRouter, usePathname } from 'next/navigation';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import Link from 'next/link';
 
-const PIECES_PER_UNIT = 4;
-
 // Define the Product type for TypeScript
 interface Product {
   id: string;
@@ -200,9 +198,9 @@ export default function NewOrderPage() {
     if (!product) return;
 
     if (product.status === 'CLOSED') {
-        const availableStock = Math.floor(product.currentStock / PIECES_PER_UNIT);
+        const availableStock = product.currentStock;
         if (newQty > availableStock) {
-          alert(`الكمية المتاحة من هذا الصنف المغلق هي ${availableStock} سرية فقط. لا يمكن بيع كمية أكبر.`);
+          alert(`الكمية المتاحة من هذا الصنف المغلق هي ${availableStock} قطعة فقط. لا يمكن بيع كمية أكبر.`);
           return;
         }
         if (newQty === availableStock) {
@@ -328,7 +326,7 @@ export default function NewOrderPage() {
           if (item.type === 'discount') activeDiscount = item.percent;
           else {
               const discountedPrice = item.unitPrice * (1 - activeDiscount / 100);
-              const totalPrice = item.variants.reduce((sum: number, v: any) => sum + (v.quantity * PIECES_PER_UNIT * discountedPrice), 0);
+              const totalPrice = item.variants.reduce((sum: number, v: any) => sum + (v.quantity * discountedPrice), 0);
               processedItems.push({
                   ...item, appliedDiscount: activeDiscount, finalPrice: discountedPrice, totalLinePrice: totalPrice,
                   variants: item.variants.map((v: any) => ({ ...v, price: discountedPrice, discountPercent: activeDiscount }))
@@ -548,8 +546,8 @@ export default function NewOrderPage() {
                     <div className="divide-y divide-gray-100">
                       {displayProducts.map(prod => {
                         const isSoldOut = prod.status !== 'OPEN' && prod.currentStock <= 0;
-                        const availableSeria = Math.floor(prod.currentStock / PIECES_PER_UNIT);
-                        const isLastOne = availableSeria === 1 && prod.status === 'CLOSED';
+                        const availableStock = prod.currentStock;
+                        const isLastOne = availableStock === 1 && prod.status === 'CLOSED';
                         const isSelected = !!selectionMap[prod.id];
                         const qty = selectionMap[prod.id] || 1;
                         
@@ -565,9 +563,9 @@ export default function NewOrderPage() {
                               />
                               <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
                                   <div className={`font-bold ${isLastOne ? 'text-red-700' : ''}`}>{prod.color}</div>
-                                  <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {availableSeria} سرية</div>
+                                  <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {availableStock} قطعة</div>
                                   {prod.discount > 0 && <div className="text-[10px] text-red-600 font-bold">خصم صنف: {prod.discount}%</div>}
-                                  {isLastOne && <div className="text-red-700 text-xs font-bold animate-pulse mt-1">🔥 آخر سرية!</div>}
+                                  {isLastOne && <div className="text-red-700 text-xs font-bold animate-pulse mt-1">🔥 آخر قطعة!</div>}
                                   {isSoldOut && <span className="text-[10px] text-red-600 font-bold block">نفذت الكمية</span>}
                               </div>
                             </div>
@@ -638,7 +636,7 @@ export default function NewOrderPage() {
                             <div className="flex justify-between mb-2">
                                 <div><span className="text-xl font-bold block">{item.modelNo}</span><span className="text-xs text-gray-500">{item.baseDescription}</span></div>
                                 <div className="text-left font-bold text-green-700">
-                                    {processedItem.appliedDiscount > 0 && <div className="text-xs text-gray-400 line-through">{(processedItem.unitPrice * PIECES_PER_UNIT * processedItem.totalQty).toFixed(0)}</div>}
+                                    {processedItem.appliedDiscount > 0 && <div className="text-xs text-gray-400 line-through">{(processedItem.unitPrice * processedItem.totalQty).toFixed(0)}</div>}
                                     <span>{processedItem.totalLinePrice?.toFixed(0)} ج.م</span>
                                 </div>
                             </div>
@@ -654,7 +652,7 @@ export default function NewOrderPage() {
                                 })}
                             </div>
                             <div className="flex justify-between items-center pt-2 border-t">
-                                <span className="text-xs font-bold text-gray-500">الكمية: {item.totalQty} سرية</span>
+                                <span className="text-xs font-bold text-gray-500">الكمية: {item.totalQty} قطعة</span>
                                 <div className="flex gap-2">
                                     <button onClick={() => handleEditItem(item)} className="text-xs bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded font-bold">تعديل ✏️</button>
                                     <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded font-bold">حذف 🗑️</button>
