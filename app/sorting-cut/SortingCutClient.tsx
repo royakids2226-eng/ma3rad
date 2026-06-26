@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 // --- التعريفات البرمجية ---
 type LogItem = { batchId: string; quantity: number; createdAt: Date; };
 type ItemDetail = {
-    id: string; orderItemId: string; modelNo: string; material?: string | null; color: string;
+    id: string; orderItemId: string; modelNo: string; vendor?: string | null; color: string;
     totalQtyPieces: number; alreadyFulfilled: number; remainingNeeded: number;
     qtyAllocatedPieces: number; isFullyReady: boolean; price: number; logs: LogItem[]; isPostponed: boolean;
 };
@@ -69,7 +69,7 @@ export default function SortingCutClient({ initialOrders }: { initialOrders: Ord
         <div className="p-6 bg-slate-50 min-h-screen" dir="rtl">
             <div className="print:hidden">
                 <div className="flex justify-between items-center mb-8">
-                    <h1 className="text-3xl font-black text-indigo-900">✂️ فرز بالقص (دقيق بالخامة)</h1>
+                    <h1 className="text-3xl font-black text-indigo-900">✂️ فرز بالقص (دقيق بالمورد)</h1>
                     <Link href="/" className="bg-white border px-4 py-2 rounded-xl shadow-sm font-bold text-gray-600">الرئيسية</Link>
                 </div>
 
@@ -152,7 +152,7 @@ export default function SortingCutClient({ initialOrders }: { initialOrders: Ord
                                 <tr className="bg-slate-100 border-b-2 border-slate-200 text-sm">
                                     <th className="p-3 w-10 print:hidden"><input type="checkbox" onChange={(e) => setSelectedRows(e.target.checked ? invoiceItems.flatMap(i => i.variantIds) : [])} /></th>
                                     <th className="p-3 w-10">م</th>
-                                    <th className="p-3 text-right">الموديل (الخامة)</th>
+                                    <th className="p-3 text-right">الموديل (المورد)</th>
                                     <th className="p-3 text-right">الألوان</th>
                                     <th className="p-3 text-center">المطلوب</th>
                                     <th className="p-3 text-center bg-indigo-50 font-black text-indigo-700">المتاح</th>
@@ -167,7 +167,7 @@ export default function SortingCutClient({ initialOrders }: { initialOrders: Ord
                                         <td className="p-3 text-center font-bold text-slate-300">{index + 1}</td>
                                         <td className="p-3">
                                             <div className="font-black text-lg text-slate-800">{item.modelNo}</div>
-                                            <div className="text-[10px] font-bold text-indigo-500 uppercase">{item.material || 'بدون كود خامة'}</div>
+                                            <div className="text-[10px] font-bold text-indigo-500 uppercase">{item.vendor || 'بدون كود مورد'}</div>
                                         </td>
                                         <td className="p-3 text-xs font-medium text-slate-500">{item.colorsDisplay}</td>
                                         <td className="p-3 text-center font-bold text-slate-400">{item.totalQtyPieces}</td>

@@ -1,5 +1,5 @@
 // app/sorting-cut/page.tsx
-import { PrismaClient } from '@prisma/client'; // التغيير هنا لضمان التوافق
+import { PrismaClient } from '@prisma/client';
 import SortingCutClient from './SortingCutClient';
 
 const prisma = new PrismaClient();
@@ -47,7 +47,7 @@ async function getOrdersWithColorStockAllocation() {
         totalItemsAllocated += qtyAllocatedNow;
 
         return {
-          id: item.id, orderItemId: item.id, modelNo: item.product.modelNo, color: item.product.color,
+          id: item.id, orderItemId: item.id, modelNo: item.product.modelNo, vendor: item.product.vendor, color: item.product.color,
           qtyAllocatedPieces: qtyAllocatedNow, isPostponed: isItemPostponed, remainingNeeded,
           alreadyFulfilled, totalQtyPieces, price: item.price,
           isFullyReady: Boolean(qtyAllocatedNow >= remainingNeeded && remainingNeeded > 0 && !isItemPostponed),
