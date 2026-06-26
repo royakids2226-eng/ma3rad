@@ -583,7 +583,7 @@ export default function NewOrderPage() {
                       })}
                     </div>
                     <div className="p-3 bg-gray-50 border-t text-center">
-                      <button onClick={handleAddToCart} disabled={Object.keys(selectionMap).length === 0} className="w-full bg-black text-white py-3 rounded-lg font-bold disabled:opacity-50"><span class="md:hidden">إضافة للسلة وفتح السكانر</span><span class="hidden md:inline">إضافة للسلة</span></button>
+                      <button onClick={handleAddToCart} disabled={Object.keys(selectionMap).length === 0} className="w-full bg-black text-white py-3 rounded-lg font-bold disabled:opacity-50"><span className="md:hidden">إضافة للسلة وفتح السكانر</span><span className="hidden md:inline">إضافة للسلة</span></button>
                     </div>
                   </div>
                 )}
