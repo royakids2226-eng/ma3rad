@@ -37,11 +37,12 @@ model Product {
   id               String      @id @default(cuid())
   modelNo          String
   description      String?
-  material         String?
+  vendor           String?
   color            String
   stockQty         Int         @default(0)
   currentStock     Int         @default(0)
   price            Float
+  cost             Float       @default(0.0)
   discount         Float       @default(0.0)
   status           String      @default("OPEN") 
 

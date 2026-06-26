@@ -142,8 +142,9 @@ export default function ProductsPage() {
   // Adding States
   const [modelNo, setModelNo] = useState('');
   const [description, setDescription] = useState('');
-  const [material, setMaterial] = useState('');
+  const [vendor, setVendor] = useState('');
   const [price, setPrice] = useState('');
+  const [cost, setCost] = useState('');
   const [discount, setDiscount] = useState('0'); // 👈 حقل الخصم الجديد
   const [status, setStatus] = useState('OPEN');
   const [colors, setColors] = useState([{ color: '', stock: '' }]);
@@ -195,12 +196,12 @@ export default function ProductsPage() {
     if (!modelNo || !price) return alert('أكمل البيانات');
 
     const res = await addProduct({
-        modelNo, description, material, price, discount, status, colors // 👈 إرسال الخصم
+        modelNo, description, vendor, price, cost, discount, status, colors // 👈 إرسال الخصم
     });
 
     if (res.success) {
         alert('تمت الإضافة');
-        setModelNo(''); setDescription(''); setMaterial(''); setPrice(''); setDiscount('0');
+        setModelNo(''); setDescription(''); setVendor(''); setPrice(''); setCost(''); setDiscount('0');
         setColors([{ color: '', stock: '' }]);
         refreshProducts();
     } else {
@@ -211,8 +212,8 @@ export default function ProductsPage() {
   // --- Excel Logic ---
   const downloadTemplate = () => {
     const templateData = [
-        { modelNo: "1001", description: "وصف", material: "قطن", color: "أحمر", price: 150, discount: 10, stockQty: 50, status: "OPEN" }, // 👈 إضافة عمود discount للنموذج
-        { modelNo: "1001", description: "نفس الموديل", material: "قطن", color: "أزرق", price: 150, discount: 10, stockQty: 30, status: "OPEN" }
+        { modelNo: "1001", description: "وصف", vendor: "مورد", color: "أحمر", price: 150, cost: 120, discount: 10, stockQty: 50, status: "OPEN" },
+        { modelNo: "1001", description: "نفس الموديل", vendor: "مورد", color: "أزرق", price: 150, cost: 120, discount: 10, stockQty: 30, status: "OPEN" }
     ];
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
@@ -425,12 +426,13 @@ export default function ProductsPage() {
       {/* Form Adding */}
       <form onSubmit={handleSubmit} className="bg-white p-4 rounded-lg shadow space-y-4 border-t-4 border-green-600">
         <h2 className="font-bold text-gray-700 text-sm border-b pb-2">إضافة صنف يدوياً</h2>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             <div className="col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">الموديل</label><input type="text" className="w-full border p-2 rounded bg-gray-50 focus:bg-white" value={modelNo} onChange={e => setModelNo(e.target.value)} required /></div>
+            <div className="col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">المورد</label><input type="text" className="w-full border p-2 rounded bg-gray-50 focus:bg-white" value={vendor} onChange={e => setVendor(e.target.value)} /></div>
+            <div className="col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">التكلفة</label><input type="number" className="w-full border p-2 rounded bg-gray-50 focus:bg-white" value={cost} onChange={e => setCost(e.target.value)} /></div>
             <div className="col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">السعر</label><input type="number" className="w-full border p-2 rounded font-bold focus:bg-white" value={price} onChange={e => setPrice(e.target.value)} required /></div>
-            {/* حقل الخصم التلقائي الجديد */}
             <div className="col-span-1"><label className="block text-xs font-bold text-red-600 mb-1">خصم تلقائي %</label><input type="number" className="w-full border p-2 rounded font-bold focus:bg-red-50" value={discount} onChange={e => setDiscount(e.target.value)} /></div>
-            <div className="col-span-2"><label className="block text-xs font-bold text-gray-500 mb-1">الوصف</label><input type="text" className="w-full border p-2 rounded focus:bg-white" value={description} onChange={e => setDescription(e.target.value)} /></div>
+            <div className="col-span-1"><label className="block text-xs font-bold text-gray-500 mb-1">الوصف</label><input type="text" className="w-full border p-2 rounded focus:bg-white" value={description} onChange={e => setDescription(e.target.value)} /></div>
         </div>
         
         <div className="flex gap-4 items-center bg-gray-50 p-2 rounded">
@@ -511,8 +513,10 @@ export default function ProductsPage() {
                 <th className="p-3 w-10 text-center"><input type="checkbox" onChange={handleSelectAll} checked={filteredProducts.length > 0 && selectedIds.length === filteredProducts.length} /></th>
                 <th className="p-3">الموديل</th>
                 <th className="p-3">اللون</th>
+                <th className="p-3">المورد</th>
                 <th className="p-3">الحالة</th>
                 <th className="p-3">المخزون</th>
+                <th className="p-3">التكلفة</th>
                 <th className="p-3">السعر</th>
                 <th className="p-3">خصم تلقائي</th>
                 <th className="p-3 text-center">تحكم</th>
@@ -524,8 +528,10 @@ export default function ProductsPage() {
                     <td className="p-3 text-center"><input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => handleSelectOne(p.id)} /></td>
                     <td className="p-3 font-bold">{p.modelNo}</td>
                     <td className="p-3">{p.color}</td>
+                    <td className="p-3">{p.vendor}</td>
                     <td className="p-3">{p.status === 'CLOSED' ? <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">مغلق</span> : <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">مفتوح</span>}</td>
                     <td className={`p-3 font-bold ${p.stockQty <= 0 ? 'text-red-500' : 'text-blue-600'}`}>{p.stockQty}</td>
+                    <td className="p-3 font-mono">{p.cost}</td>
                     <td className="p-3 font-mono">{p.price}</td>
                     <td className="p-3 font-bold text-red-600">{p.discount}%</td>
                     <td className="p-3 flex justify-center gap-2">
@@ -549,8 +555,10 @@ export default function ProductsPage() {
                       <div><label className="text-xs text-gray-500">اللون</label><input type="text" className="w-full border p-2 rounded bg-gray-100" value={editingProduct.color} readOnly /></div>
                   </div>
                   <div><label className="text-xs text-gray-500">الوصف</label><input type="text" className="w-full border p-2 rounded" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({...editingProduct, description: e.target.value})} /></div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div><label className="text-xs text-gray-500">المورد</label><input type="text" className="w-full border p-2 rounded" value={editingProduct.vendor || ''} onChange={(e) => setEditingProduct({...editingProduct, vendor: e.target.value})} /></div>
+                  <div className="grid grid-cols-4 gap-3">
                       <div><label className="text-xs text-gray-500">الكمية</label><input type="number" className="w-full border p-2 rounded font-bold" value={editingProduct.stockQty} onChange={(e) => setEditingProduct({...editingProduct, stockQty: e.target.value})} /></div>
+                      <div><label className="text-xs text-gray-500">التكلفة</label><input type="number" className="w-full border p-2 rounded font-bold" value={editingProduct.cost} onChange={(e) => setEditingProduct({...editingProduct, cost: e.target.value})} /></div>
                       <div><label className="text-xs text-gray-500">السعر</label><input type="number" className="w-full border p-2 rounded font-bold" value={editingProduct.price} onChange={(e) => setEditingProduct({...editingProduct, price: e.target.value})} /></div>
                       <div><label className="text-xs text-red-600">الخصم %</label><input type="number" className="w-full border p-2 rounded font-bold bg-red-50" value={editingProduct.discount} onChange={(e) => setEditingProduct({...editingProduct, discount: e.target.value})} /></div>
                   </div>

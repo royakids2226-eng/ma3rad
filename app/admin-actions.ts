@@ -48,7 +48,6 @@ export async function getUsers() {
 export async function addProduct(data: any) {
   try {
     for (const item of data.colors) {
-        // نستخدم upsert للبحث عن الموديل واللون معاً
         await prisma.product.upsert({
             where: {
                 modelNo_color: {
@@ -57,19 +56,19 @@ export async function addProduct(data: any) {
                 }
             },
             update: {
-                // استخدام increment للجمع التراكمي للكميات
                 stockQty: { increment: parseInt(item.stock) },
                 currentStock: { increment: parseInt(item.stock) },
-                // تحديث السعر والخامة لأحدث قيم مدخلة
                 price: parseFloat(data.price),
-                material: data.material,
+                vendor: data.vendor,
+                cost: parseFloat(data.cost) || 0,
                 description: data.description,
             },
             create: {
                 modelNo: data.modelNo,
                 description: data.description,
-                material: data.material,
+                vendor: data.vendor,
                 price: parseFloat(data.price),
+                cost: parseFloat(data.cost) || 0,
                 discount: parseFloat(data.discount) || 0, 
                 color: item.color,
                 stockQty: parseInt(item.stock),
@@ -80,11 +79,11 @@ export async function addProduct(data: any) {
     }
     revalidatePath('/admin/products');
     revalidatePath('/admin/notifications');
-    revalidatePath('/admin/reports'); // تحديث التقارير
+    revalidatePath('/admin/reports');
     return { success: true };
   } catch (e) {
     console.error(e);
-    return { success: false, error: 'حدث خطأ أثناء الإضافة التراكمية' };
+    return { success: false, error: 'حدث خطأ أثناء الإضافة' };
   }
 }
 
@@ -95,12 +94,13 @@ export async function updateProduct(id: string, data: any) {
             data: {
                 modelNo: data.modelNo,
                 description: data.description,
-                material: data.material,
+                vendor: data.vendor,
                 color: data.color,
                 price: parseFloat(data.price),
+                cost: parseFloat(data.cost) || 0,
                 discount: parseFloat(data.discount) || 0,
                 stockQty: parseInt(data.stockQty),
-                currentStock: parseInt(data.stockQty), // تم التعديل هنا أيضاً
+                currentStock: parseInt(data.stockQty),
                 status: data.status
             }
         });
@@ -127,20 +127,22 @@ export async function addBulkProducts(products: any[]) {
                         }
                     },
                     update: {
-                        // جمع الكمية الجديدة على الموجودة مسبقاً
                         stockQty: { increment: parseInt(p.stockQty) || 0 },
                         currentStock: { increment: parseInt(p.stockQty) || 0 },
                         price: parseFloat(p.price) || 0,
+                        cost: parseFloat(p.cost) || 0,
                         discount: parseFloat(p.discount) || 0,
                         description: p.description || '',
+                        vendor: p.vendor || '',
                         status: productStatus
                     },
                     create: {
                         modelNo: String(p.modelNo),
                         description: p.description || '',
-                        material: p.material || '',
+                        vendor: p.vendor || '',
                         color: String(p.color),
                         price: parseFloat(p.price) || 0,
+                        cost: parseFloat(p.cost) || 0,
                         discount: parseFloat(p.discount) || 0,
                         stockQty: parseInt(p.stockQty) || 0,
                         currentStock: parseInt(p.stockQty) || 0, 
@@ -154,9 +156,10 @@ export async function addBulkProducts(products: any[]) {
         revalidatePath('/admin/reports');
         return { success: true, count };
     } catch (e) {
-        return { success: false, error: 'حدث خطأ أثناء الاستيراد التراكمي' };
+        return { success: false, error: 'حدث خطأ أثناء الاستيراد' };
     }
 }
+
 
 // ==========================================
 // قسم المزامنة مع جوجل شيت (Google Sheets Sync)
@@ -179,7 +182,6 @@ export async function syncFromGoogleSheets(startDateStr: string) {
     const headers = lines[0].split(",").map(h => h.trim());
     const rows = lines.slice(1);
 
-    // 1. إنشاء سجل لعملية المزامنة الجديدة
     const syncOp = await prisma.syncOperation.create({
         data: { startDate: SYNC_START_DATE }
     });
@@ -201,27 +203,23 @@ export async function syncFromGoogleSheets(startDateStr: string) {
       const totalPieces = (parseInt(data["raqty"]) || 0) * 4;
 
       for (const modelNo of modelCodes) {
-        // مفتاح فريد لضمان عدم سحب نفس الصف لنفس الموديل مرتين
         const compositeKey = `${data["id"]}-${modelNo}`;
 
-        // البحث في الجدول الجديد الخاص بالمزامنة
         const existingRecord = await prisma.syncRecord.findUnique({
             where: { uniqueKey: compositeKey }
         });
         if (existingRecord) continue;
 
         const product = await prisma.product.findFirst({
-            where: { modelNo: modelNo, material: data["khcode"] }
+            where: { modelNo: modelNo, vendor: data["khcode"] }
         });
 
         if (product) {
-          // تحديث الكمية
           await prisma.product.update({
             where: { id: product.id },
             data: { stockQty: { increment: totalPieces }, currentStock: { increment: totalPieces } }
           });
 
-          // تسجيل الحركة لربطها بعملية المزامنة الحالية
           await prisma.syncRecord.create({
             data: {
                 syncOperationId: syncOp.id,
@@ -235,16 +233,14 @@ export async function syncFromGoogleSheets(startDateStr: string) {
       }
     }
 
-    // تحديث عدد العناصر التي تم سحبها في العملية
     if (processedCount > 0) {
         await prisma.syncOperation.update({
             where: { id: syncOp.id },
             data: { itemsCount: processedCount }
         });
     } else {
-        // إذا لم يتم سحب أي شيء، نحذف العملية الفارغة
         await prisma.syncOperation.delete({ where: { id: syncOp.id } });
-        return { success: true, message: `لم يتم العثور على حركات جديدة لسحبها.` };
+        return { success: true, message: `لم يتم العثور على حركات جديدة.` };
     }
 
     revalidatePath('/admin/products');
@@ -263,19 +259,17 @@ export async function syncFromGoogleSheets(startDateStr: string) {
 export async function getSyncOperations() {
     const ops = await prisma.syncOperation.findMany({
         orderBy: { createdAt: 'desc' },
-        take: 10 // عرض آخر 10 عمليات فقط
+        take: 10
     });
     return JSON.parse(JSON.stringify(ops));
 }
 
 export async function revertSyncOperation(operationId: string) {
     try {
-        // 1. جلب جميع السجلات الخاصة بهذه العملية
         const records = await prisma.syncRecord.findMany({
             where: { syncOperationId: operationId }
         });
 
-        // 2. خصم الكميات من الأصناف (تراجع)
         for (const record of records) {
             await prisma.product.update({
                 where: { id: record.productId },
@@ -286,14 +280,13 @@ export async function revertSyncOperation(operationId: string) {
             });
         }
 
-        // 3. حذف العملية (سيتم حذف السجلات المرتبطة تلقائياً بسبب onDelete: Cascade)
         await prisma.syncOperation.delete({ where: { id: operationId } });
 
         revalidatePath('/admin/products');
         revalidatePath('/admin/reports');
         return { success: true };
     } catch (e: any) {
-        return { success: false, error: 'حدث خطأ أثناء التراجع عن المزامنة.' };
+        return { success: false, error: 'حدث خطأ أثناء التراجع.' };
     }
 }
 
@@ -304,7 +297,7 @@ export async function deleteProduct(id: string) {
     revalidatePath('/admin/notifications');
     return { success: true };
   } catch (e) { 
-      return { success: false, error: 'لا يمكن حذف الصنف لأنه موجود في طلبات سابقة' }; 
+      return { success: false, error: 'لا يمكن حذف الصنف لأنه مرتبط بطلبات سابقة' }; 
   }
 }
 
@@ -342,6 +335,10 @@ export async function getProducts() {
   const products = await prisma.product.findMany({ orderBy: { id: 'desc' }, take: 5000 });
   return JSON.parse(JSON.stringify(products));
 }
+
+// ... (rest of the file remains the same)
+
+
 
 // ==========================================
 // 3. إدارة العملاء (Customers)
@@ -549,7 +546,6 @@ export async function getLowStockClosedItems() {
 
 export async function getPayments() {
     try {
-        // 1. Fetch all standard payments from the Payment table
         const payments = await prisma.payment.findMany({
             orderBy: { createdAt: 'desc' },
             include: {
@@ -558,14 +554,11 @@ export async function getPayments() {
                 customer: true,
                 user: true,
             },
-            take: 200 // Limit the number of records for performance
+            take: 200
         });
 
-        // 2. Process payments to add the isDownPayment flag for UI purposes
-        // This identifies payments that were created as part of an order.
         const processedPayments = payments.map(p => ({
             ...p,
-            // The description for order deposits is specific, we use it to lock them.
             isDownPayment: p.description ? p.description.startsWith('تحصيل دفعة للأوردر') : false
         }));
 
