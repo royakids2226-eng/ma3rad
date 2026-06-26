@@ -24,10 +24,8 @@ export default function ReportsPage() {
     <div className="min-h-screen print:min-h-0 bg-gray-50 p-4 md:p-6 print:p-0 print:bg-white" dir="rtl">
         <style jsx global>{`
         @media print {
-          /* تصغير الهوامش الرسمية للورقة */
           @page { margin: 5mm; }
           
-          /* تصفير أي ارتفاعات وهمية تسبب الصفحة الفارغة */
           html, body, #__next, main {
             height: max-content !important;
             min-height: 0 !important;
@@ -36,12 +34,10 @@ export default function ReportsPage() {
             padding: 0 !important;
           }
 
-          /* إخفاء نهائي للعناصر غير المرغوبة بدون ترك مساحة فارغة */
           nav, aside, header, footer, .print\:hidden { 
             display: none !important; 
           }
 
-          /* إزالة الظلال والحدود الدائرية في الطباعة لتوفير المساحة */
           * {
             box-shadow: none !important;
           }
@@ -128,7 +124,6 @@ function InventoryReportView() {
     const [isLinkedStagesActive, setIsLinkedStagesActive] = useState(false);
     const [selectedHistory, setSelectedHistory] = useState<any[] | null>(null);
     const [selectedItemName, setSelectedItemName] = useState('');
-    // الترتيب الافتراضي أصبح بكود الموديل تصاعدياً
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'modelNo', direction: 'asc' });
 
     const handleSort = (key: string) => {
@@ -201,7 +196,6 @@ function InventoryReportView() {
 
     if (sortConfig !== null) {
         displayData.sort((a: any, b: any) => {
-            // الترتيب الرقمي (للمبيعات والمخزون)
             if (sortConfig.key === 'totalSold' || sortConfig.key === 'currentStock') {
                 const valA = Number(a[sortConfig.key]) || 0;
                 const valB = Number(b[sortConfig.key]) || 0;
@@ -210,15 +204,12 @@ function InventoryReportView() {
                 return 0;
             }
 
-            // الترتيب النصي/الرقمي الطبيعي (لكود الموديل)
             if (sortConfig.key === 'modelNo') {
                 const valA = String(a.modelNo || '');
                 const valB = String(b.modelNo || '');
                 
-                // الترتيب الطبيعي (مثلاً 2 تأتي قبل 10 وليس بعدها)
                 let comparison = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
                 
-                // إذا تطابق كود الموديل، نقوم بالترتيب الفرعي حسب الخامة
                 if (comparison === 0) {
                     const matA = String(a.material || '');
                     const matB = String(b.material || '');
@@ -278,7 +269,7 @@ function InventoryReportView() {
                                 className="p-5 text-yellow-500 cursor-pointer hover:bg-slate-800 transition-colors select-none"
                                 onClick={() => handleSort('totalSold')}
                             >
-                                المباع (سرية) {sortConfig?.key === 'totalSold' && (sortConfig.direction === 'asc' ? ' ↑' : ' ↓')}
+                                المباع (قطعة) {sortConfig?.key === 'totalSold' && (sortConfig.direction === 'asc' ? ' ↑' : ' ↓')}
                             </th>
                             {showCurrentStock && 
                                 <th 
@@ -302,7 +293,7 @@ function InventoryReportView() {
                                         <div className="flex flex-wrap gap-1.5">
                                             {item.colors.map((c:any, i:number) => (
                                                 <div key={i} className="bg-gray-50 border px-2 py-1 rounded-lg text-[10px] font-bold">
-                                                    {c.name} ({c.sold/4} سرية)
+                                                    {c.name} ({c.sold} قطعة)
                                                 </div>
                                             ))}
                                         </div>
@@ -314,10 +305,10 @@ function InventoryReportView() {
                                         <button 
                                             onClick={() => openHistory(item)} 
                                             className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded-xl shadow-lg transition-all active:scale-95 flex flex-col items-center"
-                                            title="اضغط لعرض تفاصيل البيع بالقطع"
+                                            title="اضغط لعرض تفاصيل البيع"
                                         >
-                                            <span className="text-lg leading-none">{item.totalSold / 4}</span>
-                                            <span className="text-[9px] font-bold">سرية</span>
+                                            <span className="text-lg leading-none">{item.totalSold}</span>
+                                            <span className="text-[9px] font-bold">قطعة</span>
                                         </button>
                                     ) : (
                                         <span className="text-gray-300">0</span>
