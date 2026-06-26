@@ -269,7 +269,9 @@ export default function NewOrderPage() {
     setCart(updatedCart);
     setSelectionMap({});
     setSearchTerm('');
-    setShowScanner(true); 
+    if (window.innerWidth < 768) { // md breakpoint is 768px
+        setShowScanner(true);
+    }
     // Clear failed items when cart is modified
     if (failedItems.length > 0) setFailedItems([]);
     setShowOnlyFailed(false);
@@ -534,7 +536,7 @@ export default function NewOrderPage() {
                 
                 <div className="relative mb-4 flex gap-2">
                   <input ref={productSearchInputRef} type="text" placeholder={isProductsLoading ? "جاري تحميل قائمة الأصناف..." : "🔍 ابحث برقم الموديل..."} className="flex-1 p-4 pl-12 border rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoFocus disabled={isProductsLoading} />
-                  <button onClick={() => setShowScanner(true)} className="bg-black text-white p-4 rounded-xl shadow-sm">📷</button>
+                  <button onClick={() => setShowScanner(true)} className="bg-black text-white p-4 rounded-xl shadow-sm md:hidden">📷</button>
                 </div>
 
                 {displayProducts.length > 0 && (
@@ -581,7 +583,7 @@ export default function NewOrderPage() {
                       })}
                     </div>
                     <div className="p-3 bg-gray-50 border-t text-center">
-                      <button onClick={handleAddToCart} disabled={Object.keys(selectionMap).length === 0} className="w-full bg-black text-white py-3 rounded-lg font-bold disabled:opacity-50">إضافة للسلة وفتح السكانر</button>
+                      <button onClick={handleAddToCart} disabled={Object.keys(selectionMap).length === 0} className="w-full bg-black text-white py-3 rounded-lg font-bold disabled:opacity-50"><span class="md:hidden">إضافة للسلة وفتح السكانر</span><span class="hidden md:inline">إضافة للسلة</span></button>
                     </div>
                   </div>
                 )}
