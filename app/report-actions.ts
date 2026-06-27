@@ -9,15 +9,29 @@ export async function getInventoryReport() {
       orderBy: { modelNo: 'asc' },
       include: {
         orderItems: {
-            include: { order: { include: { customer: true } } }
+          include: { 
+            order: { include: { customer: true } },
+            returnItems: true  // ✅ نجلب المرتجعات
+          }
         }
       }
     });
 
     const report = products.map(p => {
         const initial = p.stockQty || 0;
-        // ✅ بدون ضرب في 4
-        const totalSoldPieces = p.orderItems.reduce((acc, item) => acc + (item.quantity || 0), 0);
+        
+        // إجمالي المباع من الأوردرات
+        const totalSoldFromOrders = p.orderItems.reduce(
+            (acc, item) => acc + (item.quantity || 0), 0
+        );
+        
+        // إجمالي المرتجع
+        const totalReturned = p.orderItems.reduce(
+            (acc, item) => acc + (item.returnItems?.reduce((sum, ret) => sum + ret.quantity, 0) || 0), 0
+        );
+        
+        // الصافي = المباع - المرتجع
+        const totalSoldPieces = totalSoldFromOrders - totalReturned;
         const logicalCurrentStock = initial - totalSoldPieces;
 
         return {
@@ -26,10 +40,12 @@ export async function getInventoryReport() {
             vendor: p.vendor,
             color: p.color,
             initialStock: initial,
-            totalSold: totalSoldPieces,
+            totalSold: totalSoldPieces,  // ✅ الصافي بعد المرتجع
             currentStock: logicalCurrentStock,
-            // ✅ بدون ضرب في 4
-            totalSoldValue: p.orderItems.reduce((acc, item) => acc + ((item.quantity || 0) * (item.price || 0)), 0),
+            totalSoldValue: p.orderItems.reduce((acc, item) => {
+                const itemSold = (item.quantity || 0) - (item.returnItems?.reduce((sum, ret) => sum + ret.quantity, 0) || 0);
+                return acc + (itemSold * (item.price || 0));
+            }, 0),
             currentValue: logicalCurrentStock * (p.price || 0),
             price: p.price,
             status: p.status,
@@ -37,8 +53,7 @@ export async function getInventoryReport() {
                 orderNo: item.order.orderNo,
                 date: item.order.createdAt,
                 customer: item.order.customer.name,
-                // ✅ بدون ضرب في 4
-                quantity: item.quantity || 0,
+                quantity: item.quantity,
                 price: item.price
             }))
         };

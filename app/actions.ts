@@ -828,10 +828,10 @@ export async function createReturnOrder(data: any, userId: string) {
 
         // 5. معالجة الاسترداد النقدي
         if (refundMethod === 'CASH' && totalRefund > 0 && safeId) {
-          // سند استرداد من الخزنة
+          // سند استرداد من الخزنة (ينقص الرصيد)
           await tx.payment.create({
             data: {
-              type: 'REFUND',
+              type: 'OUT',  // ✅ مهم: OUT مش REFUND
               amount: totalRefund,
               currency: originalOrder.currency || 'EGP',
               safeId,

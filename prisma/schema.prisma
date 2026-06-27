@@ -121,6 +121,9 @@ model OrderItem {
   isPostponed     Boolean @default(false)
 
   logs            FulfillmentLog[]
+  
+  // ✅ أضف العلاقة دي
+  returnItems     ReturnItem[]
 }
 
 model FulfillmentLog {
@@ -201,6 +204,7 @@ model ReturnItem {
   
   // الصنف المرتجع
   orderItemId         String
+  orderItem           OrderItem     @relation(fields: [orderItemId], references: [id])
   productId           String
   product             Product       @relation("ReturnProduct", fields: [productId], references: [id])
   quantity            Int
