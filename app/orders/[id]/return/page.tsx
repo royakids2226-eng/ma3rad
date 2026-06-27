@@ -45,7 +45,7 @@ export default function ReturnOrderPage({ params }: { params: Promise<{ id: stri
       setOrder(orderData);
       setSafes(safesData);
       if (safesData.length > 0) {
-        const mainSafe = safesData.find(s => s.name === 'الخزنة الرئيسية');
+        const mainSafe = safesData.find((s: { id: string; name: string }) => s.name === 'الخزنة الرئيسية');
         setSelectedSafeId(mainSafe?.id || safesData[0].id);
       }
       setLoading(false);
