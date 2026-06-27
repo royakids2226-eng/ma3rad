@@ -674,3 +674,274 @@ export async function getCurrentUser(userId: string) {
     return null
   }
 }
+
+
+// ==========================================
+// 5. نظام المرتجعات
+// ==========================================
+
+export async function getReturnOrders() {
+  try {
+    const returns = await prisma.returnOrder.findMany({
+      include: {
+        originalOrder: { include: { customer: true } },
+        newOrder: true,
+        user: true,
+        safe: true,
+        items: {
+          include: {
+            product: true,
+            exchangedProduct: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return JSON.parse(JSON.stringify(returns));
+  } catch (error) {
+    console.error('Error fetching returns:', error);
+    return [];
+  }
+}
+
+export async function getReturnById(returnId: string) {
+  try {
+    const returnOrder = await prisma.returnOrder.findUnique({
+      where: { id: returnId },
+      include: {
+        originalOrder: {
+          include: {
+            customer: true,
+            items: { include: { product: true } },
+          },
+        },
+        newOrder: {
+          include: { items: { include: { product: true } } },
+        },
+        user: true,
+        safe: true,
+        items: {
+          include: {
+            product: true,
+            exchangedProduct: true,
+          },
+        },
+      },
+    });
+    return JSON.parse(JSON.stringify(returnOrder));
+  } catch (error) {
+    console.error('Error fetching return:', error);
+    return null;
+  }
+}
+
+export async function createReturnOrder(data: any, userId: string) {
+  const {
+    originalOrderId,
+    type, // FULL, PARTIAL, EXCHANGE
+    reason,
+    items, // [{ orderItemId, productId, quantity, unitPrice, refundAmount, exchangedProductId?, exchangedQty?, exchangedPrice? }]
+    totalRefund,
+    depositRefunded,
+    exchangeAmount,
+    refundMethod, // CASH, CREDIT, DEDUCT_FROM_NEXT
+    safeId,
+    newOrderId,
+    notes,
+  } = data;
+
+  try {
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // 1. التحقق من الأوردر الأصلي
+        const originalOrder = await tx.order.findUnique({
+          where: { id: originalOrderId },
+          include: { items: true, customer: true },
+        });
+
+        if (!originalOrder) {
+          throw new Error('الأوردر الأصلي غير موجود');
+        }
+
+        // 2. التحقق من الأصناف المرتجعة
+        for (const item of items) {
+          const orderItem = await tx.orderItem.findUnique({
+            where: { id: item.orderItemId },
+          });
+          if (!orderItem) {
+            throw new Error(`الصنف ${item.orderItemId} غير موجود في الأوردر`);
+          }
+          if (item.quantity > orderItem.quantity) {
+            throw new Error(`الكمية المرتجعة أكبر من الكمية الأصلية`);
+          }
+        }
+
+        // 3. إنشاء المرتجع
+        const returnOrder = await tx.returnOrder.create({
+          data: {
+            originalOrderId,
+            type,
+            reason,
+            totalRefund: totalRefund || 0,
+            depositRefunded: depositRefunded || 0,
+            exchangeAmount: exchangeAmount || 0,
+            refundMethod,
+            safeId: refundMethod === 'CASH' ? safeId : null,
+            newOrderId: type === 'EXCHANGE' ? newOrderId : null,
+            status: 'COMPLETED',
+            userId,
+            notes,
+            items: {
+              create: items.map((item: any) => ({
+                orderItemId: item.orderItemId,
+                productId: item.productId,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                refundAmount: item.refundAmount,
+                exchangedProductId: item.exchangedProductId || null,
+                exchangedQty: item.exchangedQty || 0,
+                exchangedPrice: item.exchangedPrice || 0,
+              })),
+            },
+          },
+        });
+
+        // 4. إرجاع المخزون للأصناف المرتجعة
+        for (const item of items) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: {
+              currentStock: { increment: item.quantity },
+            },
+          });
+
+          // لو استبدال، خصم المخزون للصنف الجديد
+          if (item.exchangedProductId && item.exchangedQty > 0) {
+            await tx.product.update({
+              where: { id: item.exchangedProductId },
+              data: {
+                currentStock: { decrement: item.exchangedQty },
+              },
+            });
+          }
+        }
+
+        // 5. معالجة الاسترداد النقدي
+        if (refundMethod === 'CASH' && totalRefund > 0 && safeId) {
+          // سند استرداد من الخزنة
+          await tx.payment.create({
+            data: {
+              type: 'REFUND',
+              amount: totalRefund,
+              currency: originalOrder.currency || 'EGP',
+              safeId,
+              userId,
+              customerId: originalOrder.customerId,
+              description: `استرداد مرتجع #${returnOrder.returnNo} للأوردر #${originalOrder.orderNo}`,
+            },
+          });
+        }
+
+        // 6. لو مرتجع كامل، تحديث حالة الأوردر الأصلي
+        if (type === 'FULL') {
+          await tx.order.update({
+            where: { id: originalOrderId },
+            data: {
+              notes: `${originalOrder.notes || ''}\n[مرتجع كامل #${returnOrder.returnNo}]`,
+            },
+          });
+        }
+
+        return returnOrder;
+      },
+      {
+        maxWait: 15000,
+        timeout: 60000,
+      }
+    );
+
+    revalidatePath('/orders/list');
+    revalidatePath('/admin/returns');
+    revalidatePath('/admin/products');
+    revalidatePath('/admin/cash-management');
+
+    return {
+      success: true,
+      data: JSON.parse(JSON.stringify(result)),
+    };
+  } catch (error: any) {
+    console.error('Error creating return:', error);
+    return {
+      success: false,
+      error: error.message || 'فشل إنشاء المرتجع',
+    };
+  }
+}
+
+export async function cancelReturnOrder(returnId: string) {
+  try {
+    const returnOrder = await prisma.returnOrder.findUnique({
+      where: { id: returnId },
+      include: { items: true },
+    });
+
+    if (!returnOrder) {
+      return { success: false, error: 'المرتجع غير موجود' };
+    }
+
+    if (returnOrder.status === 'CANCELLED') {
+      return { success: false, error: 'المرتجع ملغي بالفعل' };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // عكس إرجاع المخزون
+      for (const item of returnOrder.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            currentStock: { decrement: item.quantity },
+          },
+        });
+
+        // لو استبدال، عكس خصم المخزون
+        if (item.exchangedProductId && item.exchangedQty > 0) {
+          await tx.product.update({
+            where: { id: item.exchangedProductId },
+            data: {
+              currentStock: { increment: item.exchangedQty },
+            },
+          });
+        }
+      }
+
+      // إلغاء سند الاسترداد
+      if (returnOrder.refundMethod === 'CASH' && returnOrder.totalRefund > 0) {
+        await tx.payment.deleteMany({
+          where: {
+            description: { contains: `استرداد مرتجع #${returnOrder.returnNo}` },
+            type: 'REFUND',
+          },
+        });
+      }
+
+      // تحديث حالة المرتجع
+      await tx.returnOrder.update({
+        where: { id: returnId },
+        data: { status: 'CANCELLED' },
+      });
+    });
+
+    revalidatePath('/orders/list');
+    revalidatePath('/admin/returns');
+    revalidatePath('/admin/products');
+    revalidatePath('/admin/cash-management');
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('Error cancelling return:', error);
+    return {
+      success: false,
+      error: error.message || 'فشل إلغاء المرتجع',
+    };
+  }
+}

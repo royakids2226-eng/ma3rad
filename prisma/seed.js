@@ -66,7 +66,6 @@ async function main() {
       create: {
         modelNo: p.modelNo,
         description: 'جيبة 3700',
-        material: 'mag1300.12',
         color: p.color,
         stockQty: p.stockQty,
         price: p.price,

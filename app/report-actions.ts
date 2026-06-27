@@ -16,7 +16,8 @@ export async function getInventoryReport() {
 
     const report = products.map(p => {
         const initial = p.stockQty || 0;
-        const totalSoldPieces = p.orderItems.reduce((acc, item) => acc + ((item.quantity || 0) * 4), 0);
+        // ✅ بدون ضرب في 4
+        const totalSoldPieces = p.orderItems.reduce((acc, item) => acc + (item.quantity || 0), 0);
         const logicalCurrentStock = initial - totalSoldPieces;
 
         return {
@@ -27,7 +28,8 @@ export async function getInventoryReport() {
             initialStock: initial,
             totalSold: totalSoldPieces,
             currentStock: logicalCurrentStock,
-            totalSoldValue: p.orderItems.reduce((acc, item) => acc + ((item.quantity || 0) * 4 * (item.price || 0)), 0),
+            // ✅ بدون ضرب في 4
+            totalSoldValue: p.orderItems.reduce((acc, item) => acc + ((item.quantity || 0) * (item.price || 0)), 0),
             currentValue: logicalCurrentStock * (p.price || 0),
             price: p.price,
             status: p.status,
@@ -35,7 +37,8 @@ export async function getInventoryReport() {
                 orderNo: item.order.orderNo,
                 date: item.order.createdAt,
                 customer: item.order.customer.name,
-                quantity: (item.quantity || 0) * 4,
+                // ✅ بدون ضرب في 4
+                quantity: item.quantity || 0,
                 price: item.price
             }))
         };
@@ -196,7 +199,8 @@ export async function getEmployeePerformance() {
                         const discountPct = item.discountPercent;
                         const originalPrice = finalPrice / (1 - (discountPct / 100));
                         const discountPerPiece = originalPrice - finalPrice;
-                        totalDiscountValue += (discountPerPiece * (item.quantity || 0) * 4);
+                        // ✅ بدون ضرب في 4
+                        totalDiscountValue += (discountPerPiece * (item.quantity || 0));
                     }
                 });
                 totalDiscountValue += (order.discount || 0);

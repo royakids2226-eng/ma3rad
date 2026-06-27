@@ -281,7 +281,7 @@ export default function OrdersListPage() {
                         <div className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">بواسطة: {order.user.name}</div>
                     </div>
 
-                    <div className={`grid ${userRole === 'EMPLOYEE' ? 'grid-cols-2' : 'grid-cols-3'} gap-2 mt-3`}>
+                    <div className={`grid ${userRole === 'EMPLOYEE' ? 'grid-cols-2' : 'grid-cols-4'} gap-2 mt-3`}>
                         <Link href={`/orders/${order.id}/print`} className="bg-blue-100 text-blue-700 py-2 rounded-lg text-center font-bold text-xs md:text-sm hover:bg-blue-200 flex items-center justify-center">
                             🖨️ طباعة
                         </Link>
@@ -293,6 +293,15 @@ export default function OrdersListPage() {
                         >
                             📤 PDF
                         </button>
+
+                        {userRole !== 'EMPLOYEE' && (
+                          <Link 
+                            href={`/orders/${order.id}/return`} 
+                            className="bg-red-100 text-red-700 py-2 rounded-lg text-center font-bold text-xs md:text-sm hover:bg-red-200 flex items-center justify-center"
+                          >
+                            ↩️ مرتجع
+                          </Link>
+                        )}
 
                         {userRole !== 'EMPLOYEE' && (
                             <Link href={`/orders/${order.id}/edit`} className="bg-yellow-100 text-yellow-700 py-2 rounded-lg text-center font-bold text-xs md:text-sm hover:bg-yellow-200 flex items-center justify-center">
