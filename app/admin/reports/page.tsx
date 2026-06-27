@@ -89,7 +89,7 @@ export default function ReportsPage() {
             onClick={() => setActiveTab('SAFE')}
             className={`px-10 py-5 font-black whitespace-nowrap transition-all rounded-t-3xl flex items-center gap-3 ${activeTab === 'SAFE' ? 'bg-white border-t-4 border-green-600 text-green-700 shadow-[0_-4px_15px_rgba(0,0,0,0.08)]' : 'bg-transparent text-gray-400 hover:text-gray-600'}`}
         >
-            <span className="text-2xl">💰</span>
+            <span className="text-2xl"></span>
             دفتر أستاذ الخزينة
         </button>
         <button 
@@ -157,7 +157,7 @@ function InventoryReportView() {
         data.forEach(item => {
             if (!groups[item.modelNo]) {
                 groups[item.modelNo] = {
-                    id: item.modelNo, modelNo: item.modelNo, material: item.material,
+                    id: item.modelNo, modelNo: item.modelNo, vendor: item.vendor,
                     colors: [], initialStock: 0, totalSold: 0, currentStock: 0, currentValue: 0, history: []
                 };
             }
@@ -190,7 +190,7 @@ function InventoryReportView() {
                 else linked = [term];
                 return linked.includes(item.modelNo.toString());
             }
-            return item.modelNo.toLowerCase().includes(term) || item.material?.toLowerCase().includes(term);
+            return item.modelNo.toLowerCase().includes(term) || item.vendor?.toLowerCase().includes(term);
         });
     }
 
@@ -211,9 +211,9 @@ function InventoryReportView() {
                 let comparison = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
                 
                 if (comparison === 0) {
-                    const matA = String(a.material || '');
-                    const matB = String(b.material || '');
-                    comparison = matA.localeCompare(matB, undefined, { numeric: true, sensitivity: 'base' });
+                    const vendorA = String(a.vendor || '');
+                    const vendorB = String(b.vendor || '');
+                    comparison = vendorA.localeCompare(vendorB, undefined, { numeric: true, sensitivity: 'base' });
                 }
 
                 return sortConfig.direction === 'asc' ? comparison : -comparison;
@@ -228,7 +228,7 @@ function InventoryReportView() {
             <div className="flex flex-wrap gap-4 items-center justify-between print:hidden">
                 <div className="flex gap-2 items-center flex-1 min-w-[300px]">
                     <input 
-                        type="text" placeholder="ابحث بالموديل أو الخامة..." 
+                        type="text" placeholder="ابحث بالموديل أو المورد..." 
                         value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
                         className="flex-1 p-4 border rounded-2xl outline-none"
                     />
@@ -236,7 +236,7 @@ function InventoryReportView() {
                         onClick={() => setIsLinkedStagesActive(!isLinkedStagesActive)}
                         className={`px-4 py-4 rounded-2xl font-black border ${isLinkedStagesActive ? 'bg-indigo-600 text-white' : 'bg-white text-gray-400'}`}
                     >
-                        {isLinkedStagesActive ? '🔗 الربط مفعل' : '⛓️ ربط المراحل'}
+                        {isLinkedStagesActive ? ' الربط مفعل' : '⛓️ ربط المراحل'}
                     </button>
                 </div>
 
@@ -262,7 +262,7 @@ function InventoryReportView() {
                             >
                                 كود الموديل {sortConfig?.key === 'modelNo' && (sortConfig.direction === 'asc' ? ' ↓' : ' ↑')}
                             </th>
-                            <th className="p-5">الخامة</th>
+                            <th className="p-5">المورد</th>
                             <th className="p-5">{viewMode === 'COLOR' ? 'اللون' : 'الألوان'}</th>
                             {showInitialStock && <th className="p-5">أولي (قطعة)</th>}
                             <th 
@@ -285,7 +285,7 @@ function InventoryReportView() {
                         {displayData.map((item: any) => (
                             <tr key={item.id + item.color} className="border-b hover:bg-gray-50 transition-colors">
                                 <td className="p-5 font-black text-xl">{item.modelNo}</td>
-                                <td className="p-5 text-gray-400 font-bold text-sm">{item.material || '-'}</td>
+                                <td className="p-5 text-gray-400 font-bold text-sm">{item.vendor || '-'}</td>
                                 <td className="p-5">
                                     {viewMode === 'COLOR' ? (
                                         <span className="font-bold text-gray-600">{item.color}</span>
