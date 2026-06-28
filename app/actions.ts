@@ -1089,3 +1089,202 @@ export async function cancelReturnOrder(returnId: string) {
     };
   }
 }
+// ==========================================
+// 6. تقرير دفتر الأستاذ للعميل
+// ==========================================
+
+export async function getCustomerLedger(customerId: string) {
+  if (!customerId) return { success: false, error: 'العميل غير موجود' };
+
+  try {
+    // 1. جلب بيانات العميل
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      return { success: false, error: 'العميل غير موجود' };
+    }
+
+    // 2. جلب كل الأوردرات
+    const orders = await prisma.order.findMany({
+      where: { customerId },
+      include: {
+        items: {
+          include: { product: true },
+        },
+        user: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // 3. جلب كل المرتجعات
+    const returns = await prisma.returnOrder.findMany({
+      where: { originalOrder: { customerId } },
+      include: {
+        originalOrder: true,
+        newOrder: true,
+        items: {
+          include: {
+            product: true,
+            exchangedProduct: true,
+          },
+        },
+        user: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // 4. جلب كل حركات النقدية
+    const payments = await prisma.payment.findMany({
+      where: { customerId },
+      include: {
+        safe: true,
+        user: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // 5. تجميع كل الحركات في قائمة واحدة مرتبة بالتاريخ
+    const transactions: any[] = [];
+
+    // إضافة الأوردرات
+    orders.forEach(order => {
+      transactions.push({
+        type: 'ORDER',
+        date: order.createdAt,
+        reference: `أوردر #${order.orderNo}`,
+        description: `أوردر مبيعات - ${order.items.length} صنف`,
+        debit: order.totalAmount,
+        credit: 0,
+        orderId: order.id,
+        details: order.items.map(item => ({
+          modelNo: item.product.modelNo,
+          color: item.product.color,
+          quantity: item.quantity,
+          price: item.price,
+          total: item.quantity * item.price,
+        })),
+        user: order.user?.name || 'غير معروف',
+      });
+
+      // لو فيه عربون، نضيفه كحركة منفصلة
+      if (order.deposit > 0) {
+        transactions.push({
+          type: 'DEPOSIT',
+          date: order.createdAt,
+          reference: `عربون أوردر #${order.orderNo}`,
+          description: `دفعة مقدمة للأوردر`,
+          debit: 0,
+          credit: order.deposit,
+          orderId: order.id,
+          details: [],
+          user: order.user?.name || 'غير معروف',
+        });
+      }
+    });
+
+    // إضافة المرتجعات
+    returns.forEach(ret => {
+      const typeLabel = ret.type === 'FULL' ? 'مرتجع كامل' : 
+                       ret.type === 'PARTIAL' ? 'مرتجع جزئي' : 'استبدال';
+      
+      transactions.push({
+        type: 'RETURN',
+        date: ret.createdAt,
+        reference: `مرتجع #${ret.returnNo}`,
+        description: `${typeLabel} - أوردر #${ret.originalOrder.orderNo}`,
+        debit: 0,
+        credit: ret.totalRefund + Math.abs(ret.exchangeAmount || 0),
+        returnId: ret.id,
+        details: ret.items.map(item => ({
+          modelNo: item.product.modelNo,
+          color: item.product.color,
+          quantity: item.quantity,
+          price: item.unitPrice,
+          total: item.refundAmount,
+          exchangedProduct: item.exchangedProduct ? {
+            modelNo: item.exchangedProduct.modelNo,
+            color: item.exchangedProduct.color,
+            quantity: item.exchangedQty,
+            price: item.exchangedPrice,
+          } : null,
+        })),
+        user: ret.user?.name || 'غير معروف',
+      });
+
+      // لو فيه فرق استبدال موجب (العميل يدفع)
+      if (ret.type === 'EXCHANGE' && ret.exchangeAmount > 0) {
+        transactions.push({
+          type: 'EXCHANGE_DIFF',
+          date: ret.createdAt,
+          reference: `فرق استبدال #${ret.returnNo}`,
+          description: `فرق سعر استبدال`,
+          debit: ret.exchangeAmount,
+          credit: 0,
+          returnId: ret.id,
+          details: [],
+          user: ret.user?.name || 'غير معروف',
+        });
+      }
+    });
+
+    // إضافة حركات النقدية
+    payments.forEach(payment => {
+      const isDebit = payment.type === 'IN' || payment.type === 'PAYMENT_COLLECTION';
+      
+      transactions.push({
+        type: 'PAYMENT',
+        date: payment.createdAt,
+        reference: `سند ${payment.type === 'IN' ? 'قبض' : payment.type === 'OUT' ? 'صرف' : 'تحصيل'}`,
+        description: payment.description || 'حركة نقدية',
+        debit: isDebit ? payment.amount : 0,
+        credit: !isDebit ? payment.amount : 0,
+        paymentId: payment.id,
+        details: [],
+        user: payment.user?.name || 'غير معروف',
+        safe: payment.safe?.name || 'غير محدد',
+      });
+    });
+
+    // ترتيب الحركات بالتاريخ
+    transactions.sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    // 6. حساب الرصيد التراكمي
+    let runningBalance = 0;
+    const transactionsWithBalance = transactions.map(t => {
+      runningBalance += (t.debit - t.credit);
+      return { ...t, balance: runningBalance };
+    });
+
+    // 7. الحسابات الإجمالية
+    const summary = {
+      totalOrders: orders.length,
+      totalOrdersAmount: orders.reduce((sum, o) => sum + o.totalAmount, 0),
+      totalDeposits: orders.reduce((sum, o) => sum + (o.deposit || 0), 0),
+      totalReturns: returns.length,
+      totalReturnsAmount: returns.reduce((sum, r) => sum + r.totalRefund, 0),
+      totalPaymentsIn: payments
+        .filter(p => p.type === 'IN' || p.type === 'PAYMENT_COLLECTION')
+        .reduce((sum, p) => sum + p.amount, 0),
+      totalPaymentsOut: payments
+        .filter(p => p.type === 'OUT')
+        .reduce((sum, p) => sum + p.amount, 0),
+      currentBalance: runningBalance,
+    };
+
+    return {
+      success: true,
+      data: {
+        customer,
+        transactions: JSON.parse(JSON.stringify(transactionsWithBalance)),
+        summary,
+      },
+    };
+  } catch (error: any) {
+    console.error('Error in getCustomerLedger:', error);
+    return { success: false, error: error.message || 'فشل جلب البيانات' };
+  }
+}

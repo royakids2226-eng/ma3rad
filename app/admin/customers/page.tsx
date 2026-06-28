@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { 
     addCustomer, 
     getAdminCustomers, 
@@ -322,6 +323,7 @@ export default function CustomersPage() {
                                 </div>
                             </div>
                             <div className="flex gap-2">
+                                <Link href={`/admin/reports/customer/${c.id}`} className="bg-purple-100 text-purple-600 p-2 rounded-full text-xs">📚</Link>
                                 <button onClick={() => handleEditClick(c)} className="bg-blue-100 text-blue-600 p-2 rounded-full text-xs">✏️</button>
                                 <button onClick={() => handleDelete(c.id)} className="bg-red-100 text-red-600 p-2 rounded-full text-xs">🗑️</button>
                             </div>
@@ -374,6 +376,12 @@ export default function CustomersPage() {
                         <td className="p-3 text-gray-600 font-mono">{c.phone2}</td>
                         <td className="p-3 text-xs">{c.address}</td>
                         <td className="p-3 flex justify-center gap-2">
+                        <Link
+                            href={`/admin/reports/customer/${c.id}`}
+                            className="bg-purple-100 text-purple-700 px-3 py-1 rounded text-xs font-bold hover:bg-purple-200"
+                        >
+                            📚 كشف حساب
+                        </Link>
                         <button onClick={() => handleEditClick(c)} className="text-blue-600 bg-blue-100 px-2 py-1 rounded">تعديل</button>
                         <button onClick={() => handleDelete(c.id)} disabled={isDeleting} className="text-red-600 bg-red-100 px-2 py-1 rounded disabled:opacity-50">حذف</button>
                         </td>
