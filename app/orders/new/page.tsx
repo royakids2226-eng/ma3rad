@@ -7,7 +7,6 @@ import { useRouter, usePathname } from 'next/navigation';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import Link from 'next/link';
 
-// Define the Product type for TypeScript
 interface Product {
   id: string;
   modelNo: string;
@@ -19,7 +18,6 @@ interface Product {
   discount: number;
 }
 
-// Define the Safe type
 interface Safe {
   id: string;
   name: string;
@@ -44,10 +42,8 @@ export default function NewOrderPage() {
   const [newCust, setNewCust] = useState({ name: '', phone: '', phone2: '', code: '', address: '' });
   const [isSavingCust, setIsSavingCust] = useState(false);
 
-  // --- NEW: States for local product search ---
-  const [allProducts, setAllProducts] = useState<Product[]>([]); // Use the Product type
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [isProductsLoading, setIsProductsLoading] = useState(true);
-  // --- END NEW ---
 
   const [searchTerm, setSearchTerm] = useState('');
   const [showScanner, setShowScanner] = useState(false);
@@ -57,18 +53,52 @@ export default function NewOrderPage() {
   const [cartSearchTerm, setCartSearchTerm] = useState('');
   const [deposit, setDeposit] = useState<string>('');
   const [currency, setCurrency] = useState('EGP'); 
-  const [selectedSafeId, setSelectedSafeId] = useState<string>('');
-  const [showDiscountOptions, setShowDiscountOptions] = useState(false);
+  const [depositSplits, setDepositSplits] = useState<Array<{safeId: string, amount: number}>>([]);
+  const [voucherAmount, setVoucherAmount] = useState<string>('');
+  const [showVoucherInput, setShowVoucherInput] = useState(false);
   const [notes, setNotes] = useState('');
   
-  // State for stock validation issues
   const [failedItems, setFailedItems] = useState<any[]>([]);
   const [showOnlyFailed, setShowOnlyFailed] = useState(false);
 
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const productSearchInputRef = useRef<HTMLInputElement>(null);
+  const [showDiscountOptions, setShowDiscountOptions] = useState(false);
 
-  // --- FINAL UNSAVED CHANGES WARNING --- 
+  // ✅ دالة جديدة: توزيع العربون تلقائياً على الخزنة الأولى
+  const handleDepositChange = (value: string) => {
+    setDeposit(value);
+    const depositVal = parseFloat(value) || 0;
+    
+    if (depositVal > 0) {
+      // لو مفيش splits، نضيف split واحد
+      if (depositSplits.length === 0 && safes.length > 0) {
+        const mainSafe = safes.find(s => s.name === 'الخزنة الرئيسية') || safes[0];
+        setDepositSplits([{ safeId: mainSafe.id, amount: depositVal }]);
+      } 
+      // لو فيه split واحد بس، نحدثه بالمبلغ
+      else if (depositSplits.length === 1) {
+        const newSplits = [...depositSplits];
+        newSplits[0] = { ...newSplits[0], amount: depositVal };
+        setDepositSplits(newSplits);
+      }
+      // لو فيه أكتر من split، نخلي الأول ياخد الباقي
+      else if (depositSplits.length > 1) {
+        const otherSplitsTotal = depositSplits.slice(1).reduce((sum, s) => sum + (s.amount || 0), 0);
+        const remainingForFirst = depositVal - otherSplitsTotal;
+        const newSplits = [...depositSplits];
+        newSplits[0] = { ...newSplits[0], amount: Math.max(0, remainingForFirst) };
+        setDepositSplits(newSplits);
+      }
+    } else {
+      // لو مسح العربون، نخلي كل الـ splits بـ 0
+      if (depositSplits.length > 0) {
+        const newSplits = depositSplits.map(s => ({ ...s, amount: 0 }));
+        setDepositSplits(newSplits);
+      }
+    }
+  };
+
   useEffect(() => {
     const isDirty = cart.length > 0 && !isSavingOrder;
 
@@ -98,23 +128,17 @@ export default function NewOrderPage() {
     };
   }, [cart.length, isSavingOrder, pathname, router]);
 
-  // Initial Data Fetching
   useEffect(() => {
-    // Fetch non-critical data
     getCustomers().then(setCustomerResults);
     getSafes().then((data: Safe[]) => {
       setSafes(data);
       if (data.length > 0) {
         const mainSafe = data.find(safe => safe.name === 'الخزنة الرئيسية');
-        if (mainSafe) {
-          setSelectedSafeId(mainSafe.id);
-        } else {
-          setSelectedSafeId(data[0].id);
-        }
+        const defaultSafeId = mainSafe?.id || data[0].id;
+        setDepositSplits([{ safeId: defaultSafeId, amount: 0 }]);
       }
     });
     
-    // Fetch all products for local search
     getProductsForSearch().then(products => {
         setAllProducts(products);
         setIsProductsLoading(false);
@@ -129,7 +153,6 @@ export default function NewOrderPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Debounced Customer Search
   useEffect(() => {
       const delayDebounceFn = setTimeout(async () => {
         if (customerSearchTerm.length > 0) {
@@ -144,18 +167,13 @@ export default function NewOrderPage() {
       return () => clearTimeout(delayDebounceFn);
   }, [customerSearchTerm]);
 
-  // --- NEW: Local Product Search Logic ---
   const searchResults = useMemo(() => {
     if (searchTerm.length < 2) return [];
     const lowerCaseSearchTerm = searchTerm.toLowerCase();
-
-    // Prioritize exact match
     const exactMatches = allProducts.filter(p => p.modelNo.toLowerCase() === lowerCaseSearchTerm);
     if (exactMatches.length > 0) {
       return exactMatches;
     }
-
-    // Fallback to 'includes' search if no exact match is found
     return allProducts.filter(p => 
         p.modelNo.toLowerCase().includes(lowerCaseSearchTerm)
     );
@@ -182,8 +200,6 @@ export default function NewOrderPage() {
       return [];
   }, [firstResultModelNo, groupedSearchResults]);
 
-  // --- END NEW ---
-
   const toggleSelection = (productId: string, isChecked: boolean) => {
     setSelectionMap(prev => {
       const newMap = { ...prev };
@@ -194,7 +210,7 @@ export default function NewOrderPage() {
 
   const updateQuantity = (productId: string, newQty: number) => {
     if (newQty < 1) return;
-    const product = allProducts.find(p => p.id === productId); // Search in all products
+    const product = allProducts.find(p => p.id === productId);
     if (!product) return;
 
     if (product.status === 'CLOSED') {
@@ -269,10 +285,9 @@ export default function NewOrderPage() {
     setCart(updatedCart);
     setSelectionMap({});
     setSearchTerm('');
-    if (window.innerWidth < 768) { // md breakpoint is 768px
+    if (window.innerWidth < 768) {
         setShowScanner(true);
     }
-    // Clear failed items when cart is modified
     if (failedItems.length > 0) setFailedItems([]);
     setShowOnlyFailed(false);
   };
@@ -345,12 +360,24 @@ export default function NewOrderPage() {
     const total = cleanCart.reduce((acc, item) => acc + item.totalLinePrice, 0);
     const userId = session.user.image as string; 
     const depositVal = parseFloat(deposit) || 0;
+    const voucherVal = parseFloat(voucherAmount) || 0;
     
     if (!userId) { alert("خطأ هوية"); return; }
-    if (depositVal > 0 && !selectedSafeId) { alert("⚠️ يجب اختيار الخزنة!"); return; }
+    
+    if (depositVal > 0) {
+      const splitsTotal = depositSplits.reduce((sum, s) => sum + (s.amount || 0), 0);
+      if (Math.abs(splitsTotal - depositVal) > 0.01) {
+        alert(`⚠️ مجموع تقسيمات العربون (${splitsTotal.toFixed(2)}) لا يساوي قيمة العربون (${depositVal.toFixed(2)})!`);
+        return;
+      }
+      if (depositSplits.some(s => !s.safeId)) {
+        alert("⚠️ يجب اختيار خزنة لكل تقسيمة!");
+        return;
+      }
+    }
     
     setIsSavingOrder(true); 
-    setFailedItems([]); // Clear previous errors
+    setFailedItems([]);
     setShowOnlyFailed(false);
 
     try {
@@ -359,7 +386,8 @@ export default function NewOrderPage() {
           items: cleanCart, 
           total, 
           deposit: depositVal, 
-          safeId: selectedSafeId,
+          depositSplits: depositVal > 0 ? depositSplits : [],
+          voucherAmount: voucherVal,
           currency: currency,
           notes: notes
         }, userId);
@@ -369,8 +397,8 @@ export default function NewOrderPage() {
         } else {
              if (result.insufficientStockItems) {
                 setFailedItems(result.insufficientStockItems);
-                setStep(1); // Go back to cart view
-                setShowOnlyFailed(true); // Automatically filter
+                setStep(1);
+                setShowOnlyFailed(true);
                 alert('🚨 توجد أصناف غير متاحة! يرجى مراجعة السلة وتعديلها.');
             } else {
                 alert(result.error || "حدث خطأ أثناء حفظ الأوردر.");
@@ -431,6 +459,7 @@ export default function NewOrderPage() {
       }
       setIsSavingCust(false);
   };
+  
   const handleHomeClick = () => {
     if (cart.length > 0) {
       if (window.confirm("لديك أصناف في السلة لم يتم حفظها. هل تريد الخروج وتجاهل التغييرات؟")) {
@@ -444,18 +473,19 @@ export default function NewOrderPage() {
   const processedDisplayCart = getProcessedCart(); 
   const currentTotal = processedDisplayCart.reduce((acc, i) => acc + i.totalLinePrice, 0);
   const depositVal = parseFloat(deposit) || 0;
+  const voucherVal = parseFloat(voucherAmount) || 0;
+  const displayRemaining = currentTotal - depositVal - voucherVal;
   
   const failedProductIds = new Set(failedItems.map(f => f.productId));
   
   const filteredDisplayList = cart.filter(item => {
-      if (item.type === 'discount') return !showOnlyFailed; // Hide discounts when filtering
+      if (item.type === 'discount') return !showOnlyFailed;
       
       const hasFailedVariant = item.variants.some((v: any) => failedProductIds.has(v.productId));
       if (showOnlyFailed) {
           return hasFailedVariant;
       }
       
-      // Standard search filter
       return item.modelNo.toLowerCase().includes(cartSearchTerm.toLowerCase());
   });
 
@@ -523,7 +553,6 @@ export default function NewOrderPage() {
                             
                             <Scanner onScan={(result) => { if(result && result.length > 0) handleScan(result[0].rawValue); }} />
                             
-                            {/* --- Viewfinder Overlay --- */}
                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                 <div className="w-60 h-60 border-4 border-dashed border-white rounded-xl"></div>
                             </div>
@@ -701,8 +730,19 @@ export default function NewOrderPage() {
                <div className="mb-4">
                   <label className="block text-slate-400 text-sm mb-2 font-bold">💵 العربون / المدفوع الآن:</label>
                   <div className="flex gap-2">
-                     <input type="number" value={deposit} onChange={(e) => setDeposit(e.target.value)} className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-2xl outline-none border border-slate-700 focus:border-blue-500" placeholder="0.00" />
-                     <button onClick={() => setDeposit('')} className="bg-slate-700 text-xs px-4 rounded-lg hover:bg-slate-600 transition text-white font-bold">مسح</button>
+                     <input 
+                       type="number" 
+                       value={deposit} 
+                       onChange={(e) => handleDepositChange(e.target.value)}
+                       className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-2xl outline-none border border-slate-700 focus:border-blue-500" 
+                       placeholder="0.00" 
+                     />
+                     <button 
+                       onClick={() => handleDepositChange('')}
+                       className="bg-slate-700 text-xs px-4 rounded-lg hover:bg-slate-600 transition text-white font-bold"
+                     >
+                       مسح
+                     </button>
                   </div>
                </div>
                
@@ -718,17 +758,121 @@ export default function NewOrderPage() {
 
                {depositVal > 0 && (
                   <div className="mb-4 animate-in slide-in-from-top duration-300">
-                     <label className="block text-yellow-400 text-sm mb-2 font-bold">📥 توريد العربون إلى:</label>
-                     <select value={selectedSafeId} onChange={(e) => setSelectedSafeId(e.target.value)} className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-lg border border-slate-700">
-                        {safes.map(safe => (<option key={safe.id} value={safe.id}>{safe.name}</option>))}
-                     </select>
+                     <div className="flex justify-between items-center mb-2">
+                        <label className="block text-yellow-400 text-sm font-bold">📥 تقسيم العربون على الخزنات:</label>
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            setDepositSplits([...depositSplits, { safeId: safes[0]?.id || '', amount: 0 }]);
+                          }}
+                          className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg font-bold hover:bg-blue-700"
+                        >
+                          + إضافة خزنة
+                        </button>
+                     </div>
+                     
+                     <div className="space-y-2">
+                        {depositSplits.map((split, idx) => {
+                          return (
+                            <div key={idx} className="flex gap-2 items-center">
+                              <select 
+                                value={split.safeId} 
+                                onChange={(e) => {
+                                  const newSplits = [...depositSplits];
+                                  newSplits[idx] = { ...newSplits[idx], safeId: e.target.value };
+                                  setDepositSplits(newSplits);
+                                }}
+                                className="flex-1 p-3 rounded-xl bg-slate-800 text-white font-bold text-sm border border-slate-700"
+                              >
+                                {safes.map(safe => (
+                                  <option key={safe.id} value={safe.id}>{safe.name}</option>
+                                ))}
+                              </select>
+                              <input 
+                                type="number" 
+                                value={split.amount || ''}
+                                onChange={(e) => {
+                                  const newSplits = [...depositSplits];
+                                  newSplits[idx] = { ...newSplits[idx], amount: parseFloat(e.target.value) || 0 };
+                                  setDepositSplits(newSplits);
+                                }}
+                                className="w-28 p-3 rounded-xl bg-slate-800 text-white font-bold text-lg border border-slate-700 text-center"
+                                placeholder="0"
+                              />
+                              {depositSplits.length > 1 && (
+                                <button 
+                                  type="button"
+                                  onClick={() => setDepositSplits(depositSplits.filter((_, i) => i !== idx))}
+                                  className="bg-red-600 text-white w-10 h-10 rounded-xl font-bold hover:bg-red-700"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                     </div>
+                     
+                     <div className="mt-2 text-xs text-slate-400 flex justify-between">
+                       <span>المجموع الموزع: {depositSplits.reduce((sum, s) => sum + (s.amount || 0), 0).toFixed(2)} ج.م</span>
+                       <span className={Math.abs(depositSplits.reduce((sum, s) => sum + (s.amount || 0), 0) - depositVal) > 0.01 ? 'text-red-400 font-bold' : 'text-green-400'}>
+                         المتبقي للتوزيع: {(depositVal - depositSplits.reduce((sum, s) => sum + (s.amount || 0), 0)).toFixed(2)} ج.م
+                       </span>
+                     </div>
                   </div>
                )}
+
+               <div className="mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-slate-400 text-sm font-bold">🎟️ قسيمة مشتريات (خصم ظاهري):</label>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setShowVoucherInput(!showVoucherInput);
+                        if (showVoucherInput) setVoucherAmount('');
+                      }}
+                      className={`text-xs px-3 py-1 rounded-lg font-bold ${showVoucherInput ? 'bg-red-600 text-white' : 'bg-purple-600 text-white hover:bg-purple-700'}`}
+                    >
+                      {showVoucherInput ? '✕ إلغاء' : '+ إضافة قسيمة'}
+                    </button>
+                  </div>
+                  
+                  {showVoucherInput && (
+                    <div className="animate-in slide-in-from-top duration-300">
+                      <input 
+                        type="number" 
+                        value={voucherAmount}
+                        onChange={(e) => setVoucherAmount(e.target.value)}
+                        className="w-full p-4 rounded-xl bg-purple-900/30 text-white font-bold text-2xl outline-none border-2 border-purple-500 focus:border-purple-400"
+                        placeholder="0.00"
+                      />
+                      <p className="text-[10px] text-purple-300 mt-1">
+                        ⚠️ هذا خصم ظاهري للعرض فقط - لن يؤثر على دين العميل الفعلي
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 <div className="mb-4">
                   <label className="block text-slate-400 text-sm mb-1 font-bold">ملحوظة الفاتورة</label>
                   <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-3 rounded-xl bg-slate-800 text-white font-bold outline-none border border-slate-700" placeholder="اكتب هنا أي ملاحظات إضافية..."></textarea>
                </div>
-               <div className="flex justify-between text-xl font-bold pt-4 border-t border-slate-700 text-red-400"><span>المتبقي (آجل):</span><span>{(currentTotal - depositVal).toFixed(2)}</span></div>
+               <div className="space-y-2 pt-4 border-t border-slate-700">
+                  <div className="flex justify-between text-base font-bold text-slate-300">
+                    <span>المتبقي الفعلي (على العميل):</span>
+                    <span className="text-red-400">{(currentTotal - depositVal).toFixed(2)} ج.م</span>
+                  </div>
+                  {voucherVal > 0 && (
+                    <div className="flex justify-between text-base font-bold text-purple-300">
+                      <span>قسيمة المشتريات (ظاهري):</span>
+                      <span>- {voucherVal.toFixed(2)} ج.م</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-xl font-bold text-yellow-400">
+                    <span>المطلوب تحصيله الآن:</span>
+                    <span>{displayRemaining.toFixed(2)} ج.م</span>
+                  </div>
+                </div>
             </div>
             
             <button 
@@ -743,7 +887,6 @@ export default function NewOrderPage() {
         )}
       </div>
 
-      {/* Quick Add Customer Modal */}
       {isQuickAddOpen && (
           <div className="fixed inset-0 bg-black bg-opacity-60 z-[100] flex justify-center items-center p-4">
               <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl animate-slide-up">

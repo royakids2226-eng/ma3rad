@@ -144,7 +144,7 @@ model Payment {
   amount       Float
   currency     String   @default("EGP") 
 
-  type         String   @default("IN") // القيم الممكنة: IN, OUT, PAYMENT_COLLECTION, REFUND, TRANSFER
+  type         String   @default("IN") // القيم الممكنة: IN, OUT, PAYMENT_COLLECTION, REFUND, TRANSFER, VOUCHER
   description  String?  
 
   customerId   String?  
@@ -153,8 +153,8 @@ model Payment {
   userId       String
   user         User     @relation(fields: [userId], references: [id])
 
-  safeId       String   
-  safe         Safe     @relation("SourceSafe", fields: [safeId], references: [id])
+  safeId       String?   
+  safe         Safe?    @relation("SourceSafe", fields: [safeId], references: [id])
 
   targetSafeId String?  
   targetSafe   Safe?    @relation("TargetSafe", fields: [targetSafeId], references: [id])

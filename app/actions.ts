@@ -209,10 +209,17 @@ export async function getAdminStockAlerts() {
 // ==========================================
 
 export async function createOrder(data: any, userId: string) {
-  const { customerId, items, total, deposit, safeId, currency, notes } = data;
+  const { customerId, items, total, deposit, depositSplits, voucherAmount, currency, notes } = data;
 
-  if (deposit > 0 && !safeId) {
-    return { success: false, error: "عند وجود دفعة مقدمة، يجب تحديد الخزنة." };
+  // التحقق من الـ splits لو فيه عربون
+  if (deposit > 0) {
+    if (!depositSplits || depositSplits.length === 0) {
+      return { success: false, error: 'عند وجود دفعة مقدمة، يجب تحديد الخزنة.' };
+    }
+    const splitsTotal = depositSplits.reduce((sum: number, s: any) => sum + (parseFloat(s.amount) || 0), 0);
+    if (Math.abs(splitsTotal - deposit) > 0.01) {
+      return { success: false, error: 'مجموع تقسيمات العربون لا يساوي قيمة العربون.' };
+    }
   }
 
   const productQuantities = new Map<string, number>();
@@ -275,7 +282,7 @@ export async function createOrder(data: any, userId: string) {
             deposit: deposit || 0,
             currency: currency || "EGP",
             notes: notes,
-            safeId: deposit > 0 ? safeId : null,
+            safeId: (deposit > 0 && depositSplits && depositSplits.length > 0) ? depositSplits[0].safeId : null,
           },
           include: { customer: true },
         });
@@ -309,16 +316,36 @@ export async function createOrder(data: any, userId: string) {
           await tx.$executeRawUnsafe(query);
         }
 
-        if (deposit > 0) {
+        // إنشاء سند تحصيل لكل split
+        if (deposit > 0 && depositSplits && depositSplits.length > 0) {
+          for (const split of depositSplits) {
+            if (split.amount > 0) {
+              await tx.payment.create({
+                data: {
+                  type: 'PAYMENT_COLLECTION',
+                  amount: parseFloat(split.amount),
+                  currency: currency || 'EGP',
+                  safeId: split.safeId,
+                  userId: userId,
+                  customerId: customerId,
+                  description: `تحصيل دفعة للأوردر رقم #${order.orderNo} للعميل: ${order.customer.name}`,
+                },
+              });
+            }
+          }
+        }
+
+        // إنشاء سند القسيمة (ظاهري فقط - للحسابات)
+        if (voucherAmount > 0) {
           await tx.payment.create({
             data: {
-              type: "PAYMENT_COLLECTION",
-              amount: deposit,
-              currency: currency || "EGP",
-              safeId: safeId!,
+              type: 'VOUCHER',
+              amount: parseFloat(voucherAmount),
+              currency: currency || 'EGP',
+              safeId: null,
               userId: userId,
               customerId: customerId,
-              description: `تحصيل دفعة للأوردر رقم #${order.orderNo} للعميل: ${order.customer.name}`,
+              description: `قسيمة مشتريات للأوردر رقم #${order.orderNo} - خصم ظاهري`,
             },
           });
         }
