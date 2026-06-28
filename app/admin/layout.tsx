@@ -29,8 +29,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 font-sans" dir="rtl">
-      <nav className="bg-slate-900 text-white p-4 shadow-xl mb-8 sticky top-0 z-50 backdrop-blur-md bg-slate-900/95 border-b border-slate-800">
+    <div className="min-h-screen bg-slate-900 font-sans" dir="rtl">
+      <nav className="bg-slate-900 text-white p-4 shadow-xl sticky top-0 z-50 backdrop-blur-md bg-slate-900/95 border-b border-slate-800">
         <div className="container mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           
           <div className="text-xl font-bold flex items-center gap-3">

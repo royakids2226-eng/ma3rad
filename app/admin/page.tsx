@@ -1,112 +1,165 @@
-import Link from "next/link";
-import { getUsers, getProducts, getAdminCustomers } from "@/app/admin-actions";
-import { UsersIcon, UserGroupIcon, ArchiveBoxIcon, ChartBarIcon, Cog6ToothIcon, BanknotesIcon } from '@heroicons/react/24/outline';
+'use client'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 
-export default async function AdminDashboard() {
-  // جلب البيانات للإحصائيات العامة فقط
-  const users = await getUsers();
-  const products = await getProducts();
-  const customers = await getAdminCustomers();
+export default function AdminDashboard() {
+  const router = useRouter()
+  const { data: session } = useSession()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const menuItems = [
+    { id: 'orders', title: 'الأوردرات', icon: '🛒', color: 'from-blue-500 to-blue-700', href: '/orders/new' },
+    { id: 'cash', title: 'النقدية', icon: '💰', color: 'from-green-500 to-green-700', href: '/admin/cash-management' },
+    { id: 'inventory', title: 'المخزون', icon: '📦', color: 'from-purple-500 to-purple-700', href: '/admin/products' },
+    { id: 'customers', title: 'العملاء', icon: '👥', color: 'from-orange-500 to-orange-700', href: '/admin/customers' },
+    { id: 'reports', title: 'التقارير', icon: '📊', color: 'from-cyan-500 to-cyan-700', href: '/admin/reports' },
+    { id: 'returns', title: 'المرتجعات', icon: '↩️', color: 'from-red-500 to-red-700', href: '/admin/returns' },
+    { id: 'users', title: 'الموظفين', icon: '👔', color: 'from-pink-500 to-pink-700', href: '/admin/users' },
+    { id: 'settings', title: 'الإعدادات', icon: '⚙️', color: 'from-gray-500 to-gray-700', href: '/admin/settings' },
+  ]
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-white text-2xl">جاري التحميل...</div>
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* ترويسة الصفحة */}
-      <div className="flex justify-between items-end border-b border-gray-100 pb-6">
-        <div>
-           <h1 className="text-3xl font-black text-gray-800">لوحة القيادة</h1>
-           <p className="text-gray-400 font-bold mt-1">نظرة عامة على النظام والإحصائيات</p>
+    <div className="min-h-screen bg-slate-900 w-full" dir="rtl">
+      {/* Header */}
+      <header className="bg-slate-800 border-b border-slate-700 p-4">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-4">
+            <button onClick={() => router.push('/')} className="text-white hover:text-blue-400 transition">
+              ← خروج
+            </button>
+            <div className="bg-blue-600 px-4 py-2 rounded-lg font-bold text-white">
+              لوحة التحكم
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-left">
+              <div className="text-white font-bold">{session?.user?.name || 'مدير النظام'}</div>
+              <div className="text-xs text-gray-400">{session?.user?.email || 'ADMIN'}</div>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+              {session?.user?.name?.[0] || 'A'}
+            </div>
+          </div>
         </div>
-      </div>
+      </header>
 
-      {/* شبكة بطاقات الإحصائيات */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        
-        {/* كارت الموظفين */}
-        <Link href="/admin/users" className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all group">
-            <div className="flex justify-between items-start">
-                <div>
-                    <p className="text-slate-400 font-bold text-sm mb-2 uppercase tracking-wider">الموظفين</p>
-                    <h3 className="text-4xl font-black text-slate-800 group-hover:text-blue-600 transition-colors">{users.length}</h3>
-                </div>
-                <div className="text-4xl bg-slate-50 p-4 rounded-2xl group-hover:scale-110 transition-transform shadow-inner border border-slate-100">
-                  <UsersIcon className="w-8 h-8 text-slate-400"/>
-                </div>
+      {/* Main Content */}
+      <main className="w-full px-4 md:px-8 py-12">
+        <div className="text-center mb-12">
+          <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">
+            لوحة التحكم الرئيسية
+          </h1>
+          <p className="text-gray-400 text-lg">
+            نظام إدارة المبيعات المركزي - RoyalKids
+          </p>
+        </div>
+
+        {/* Radial Layout - Desktop */}
+        <div className="hidden md:block relative mx-auto" style={{ height: '750px', maxWidth: '900px' }}>
+          
+          {/* Center Circle */}
+          <div 
+            className="absolute top-1/2 left-1/2 z-10"
+            style={{ transform: 'translate(-50%, -50%)' }}
+          >
+            <div className="w-40 h-40 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-2xl border-4 border-slate-700 animate-pulse-glow">
+              <div className="text-center">
+                <div className="text-3xl font-bold text-white">modoo</div>
+                <div className="text-sm text-gray-200">v2.0</div>
+              </div>
             </div>
-        </Link>
+          </div>
 
-        {/* كارت العملاء */}
-        <Link href="/admin/customers" className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all group">
-            <div className="flex justify-between items-start">
-                <div>
-                    <p className="text-slate-400 font-bold text-sm mb-2 uppercase tracking-wider">العملاء المسجلين</p>
-                    <h3 className="text-4xl font-black text-slate-800 group-hover:text-yellow-500 transition-colors">{customers.length}</h3>
-                </div>
-                <div className="text-4xl bg-yellow-50 p-4 rounded-2xl group-hover:scale-110 transition-transform shadow-inner border border-yellow-100">
-                  <UserGroupIcon className="w-8 h-8 text-yellow-400" />
-                </div>
-            </div>
-        </Link>
+          {/* Orbital Circles */}
+          {menuItems.map((item, index) => {
+            const angle = (index * (360 / menuItems.length)) * (Math.PI / 180)
+            const radius = 320
+            const x = Math.cos(angle) * radius
+            const y = Math.sin(angle) * radius
 
-        {/* كارت المنتجات */}
-        <Link href="/admin/products" className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all group">
-            <div className="flex justify-between items-start">
-                <div>
-                    <p className="text-slate-400 font-bold text-sm mb-2 uppercase tracking-wider">إجمالي الأصناف</p>
-                    <h3 className="text-4xl font-black text-slate-800 group-hover:text-purple-600 transition-colors">{products.length}</h3>
-                </div>
-                <div className="text-4xl bg-purple-50 p-4 rounded-2xl group-hover:scale-110 transition-transform shadow-inner border border-purple-100">
-                  <ArchiveBoxIcon className="w-8 h-8 text-purple-400" />
-                </div>
-            </div>
-        </Link>
-        
-        {/* كارت إدارة النقدية */}
-        <Link href="/admin/cash-management" className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all group">
-            <div className="flex justify-between items-start">
-                <div>
-                    <p className="text-slate-400 font-bold text-sm mb-2 uppercase tracking-wider">إدارة النقدية</p>
-                    <h3 className="text-4xl font-black text-slate-800 group-hover:text-teal-600 transition-colors">...</h3>
-                </div>
-                <div className="text-4xl bg-teal-50 p-4 rounded-2xl group-hover:scale-110 transition-transform shadow-inner border border-teal-100">
-                  <BanknotesIcon className="w-8 h-8 text-teal-400" />
-                </div>
-            </div>
-        </Link>
+            return (
+              <div
+                key={item.id}
+                className="absolute top-1/2 left-1/2"
+                style={{ 
+                  transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))` 
+                }}
+              >
+                <button
+                  onClick={() => router.push(item.href)}
+                  className="group block"
+                >
+                  <div
+                    className={`
+                      w-36 h-36 
+                      bg-gradient-to-br ${item.color}
+                      rounded-full 
+                      flex flex-col items-center justify-center 
+                      shadow-xl 
+                      hover:scale-125 
+                      hover:shadow-2xl 
+                      transition-all 
+                      duration-300
+                      border-4 border-slate-800
+                      animate-float
+                      relative
+                    `}
+                    style={{ animationDelay: `${index * 0.3}s` }}
+                  >
+                    <div className="text-5xl mb-2 group-hover:scale-125 group-hover:rotate-12 transition-all duration-300">
+                      {item.icon}
+                    </div>
+                    <div className="text-white font-bold text-sm text-center px-3">
+                      {item.title}
+                    </div>
+                  </div>
+                </button>
+              </div>
+            )
+          })}
+        </div>
 
-        {/* كارت التقارير */}
-        <Link href="/admin/reports" className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all group">
-            <div className="flex justify-between items-start">
-                <div>
-                    <p className="text-slate-400 font-bold text-sm mb-2 uppercase tracking-wider">التقارير</p>
-                    <h3 className="text-4xl font-black text-slate-800 group-hover:text-green-600 transition-colors">...</h3>
+        {/* Mobile View - Grid */}
+        <div className="md:hidden grid grid-cols-2 gap-4 max-w-2xl mx-auto">
+          {menuItems.map((item, index) => (
+            <button
+              key={item.id}
+              onClick={() => router.push(item.href)}
+              className={`
+                bg-gradient-to-br ${item.color}
+                p-6 
+                rounded-2xl 
+                shadow-lg 
+                active:scale-95 
+                transition-all
+                text-right
+                relative
+                overflow-hidden
+              `}
+            >
+              <div className="flex items-center gap-3">
+                <div className="text-4xl">{item.icon}</div>
+                <div className="flex-1">
+                  <div className="text-white font-bold text-base">{item.title}</div>
                 </div>
-                <div className="text-4xl bg-green-50 p-4 rounded-2xl group-hover:scale-110 transition-transform shadow-inner border border-green-100">
-                  <ChartBarIcon className="w-8 h-8 text-green-400" />
-                </div>
-            </div>
-        </Link>
-
-        {/* كارت الإعدادات */}
-        <Link href="/admin/settings" className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all group">
-            <div className="flex justify-between items-start">
-                <div>
-                    <p className="text-slate-400 font-bold text-sm mb-2 uppercase tracking-wider">الإعدادات</p>
-                    <h3 className="text-4xl font-black text-slate-800 group-hover:text-red-600 transition-colors">...</h3>
-                </div>
-                <div className="text-4xl bg-red-50 p-4 rounded-2xl group-hover:scale-110 transition-transform shadow-inner border border-red-100">
-                  <Cog6ToothIcon className="w-8 h-8 text-red-400" />
-                </div>
-            </div>
-        </Link>
-
-      </div>
-
-      {/* منطقة ترحيبية بسيطة أسفل البطاقات لملء الفراغ بشكل جمالي */}
-      <div className="bg-gradient-to-br from-slate-50 to-white p-12 rounded-[2.5rem] border border-dashed border-slate-200 text-center opacity-60 select-none">
-        <span className="text-6xl block mb-4 grayscale opacity-50">🛡️</span>
-        <p className="text-slate-400 font-bold text-xl">نظام إدارة المبيعات المركزي</p>
-        <p className="text-slate-300 text-sm mt-2">Royakids Dashboard v1.8</p>
-      </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </main>
     </div>
-  );
+  )
 }

@@ -19,7 +19,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning={true}>
-      <body className={inter.className}>
+      <body className={`${inter.className} min-h-screen bg-slate-900 m-0 p-0`}>
         <NextAuthProvider>
           <ExitConfirmation /> {/* إضافة المكون هنا */}
           {children}
