@@ -1,42 +1,41 @@
 'use server'
+import { PrismaClient } from "@prisma/client";
+import { revalidatePath } from "next/cache";
+import bcrypt from "bcryptjs";
 
-import { PrismaClient } from '@prisma/client'
-import { revalidatePath } from 'next/cache'
-import bcrypt from 'bcryptjs'
-
-const prisma = new PrismaClient()
+const prisma = new PrismaClient();
 
 // معامل التحويل (عدد القطع في الدزينة أو الوحدة)
-const PIECES_PER_UNIT = 4
+const PIECES_PER_UNIT = 4;
 
 // ==========================================
 // 0. إدارة الإعدادات (Settings) - تم النقل هنا
 // ==========================================
 
 export async function getSettings() {
-  let settings = await prisma.settings.findFirst()
+  let settings = await prisma.settings.findFirst();
   if (!settings) {
-    settings = await prisma.settings.create({ data: {} })
+    settings = await prisma.settings.create({ data: {} });
   }
-  return JSON.parse(JSON.stringify(settings))
+  return JSON.parse(JSON.stringify(settings));
 }
 
 export async function updateSettings(data: any) {
   try {
-    const settings = await prisma.settings.findFirst()
-    const settingsId = settings ? settings.id : 'new'
+    const settings = await prisma.settings.findFirst();
+    const settingsId = settings ? settings.id : "new";
 
     await prisma.settings.upsert({
       where: { id: settingsId },
       update: data,
       create: data,
-    })
+    });
 
-    revalidatePath('/admin/settings')
-    return { success: true }
+    revalidatePath("/admin/settings");
+    return { success: true };
   } catch (e) {
-    console.error(e)
-    return { success: false, error: 'حدث خطأ أثناء تحديث الإعدادات' }
+    console.error(e);
+    return { success: false, error: "حدث خطأ أثناء تحديث الإعدادات" };
   }
 }
 
@@ -46,16 +45,19 @@ export async function updateSettings(data: any) {
 
 export async function getCustomers() {
   try {
-    const customers = await prisma.customer.findMany({ take: 20, orderBy: { name: 'asc' } })
-    return JSON.parse(JSON.stringify(customers))
+    const customers = await prisma.customer.findMany({
+      take: 20,
+      orderBy: { name: "asc" },
+    });
+    return JSON.parse(JSON.stringify(customers));
   } catch (error) {
-    return []
+    return [];
   }
 }
 
 export async function searchCustomers(term: string) {
-  if (!term) return []
-  const normalizedTerm = term.replace(/[أإآ]/g, 'ا')
+  if (!term) return [];
+  const normalizedTerm = term.replace(/[أإآ]/g, "ا");
   try {
     const customers = await prisma.$queryRaw`
       SELECT id, name, phone, "phone2", address, source 
@@ -65,16 +67,16 @@ export async function searchCustomers(term: string) {
         OR phone LIKE ${`%${term}%`}
         OR "phone2" LIKE ${`%${term}%`}
       LIMIT 50;
-    `
-    return JSON.parse(JSON.stringify(customers))
+    `;
+    return JSON.parse(JSON.stringify(customers));
   } catch (error) {
-    console.error('Search Error:', error)
-    return []
+    console.error("Search Error:", error);
+    return [];
   }
 }
 
 export async function checkCustomerPhone(phone: string) {
-  if (!phone || phone.length < 5) return { exists: false }
+  if (!phone || phone.length < 5) return { exists: false };
 
   try {
     const existingCustomer = await prisma.customer.findFirst({
@@ -82,20 +84,20 @@ export async function checkCustomerPhone(phone: string) {
         OR: [{ phone: { contains: phone } }, { phone2: { contains: phone } }],
       },
       select: { name: true, phone: true, phone2: true },
-    })
+    });
 
     if (existingCustomer) {
       return {
         exists: true,
         name: existingCustomer.name,
         details: `الرقم مسجل باسم: ${existingCustomer.name}`,
-      }
+      };
     }
 
-    return { exists: false }
+    return { exists: false };
   } catch (error) {
-    console.error('Phone Check Error:', error)
-    return { exists: false, error: 'حدث خطأ أثناء التحقق' }
+    console.error("Phone Check Error:", error);
+    return { exists: false, error: "حدث خطأ أثناء التحقق" };
   }
 }
 
@@ -105,10 +107,10 @@ export async function checkCustomerPhone(phone: string) {
 
 export async function getSafes() {
   try {
-    const safes = await prisma.safe.findMany({ orderBy: { name: 'asc' } })
-    return JSON.parse(JSON.stringify(safes))
+    const safes = await prisma.safe.findMany({ orderBy: { name: "asc" } });
+    return JSON.parse(JSON.stringify(safes));
   } catch (error) {
-    return []
+    return [];
   }
 }
 
@@ -119,36 +121,36 @@ export async function getProductsForSearch() {
       include: {
         // نجلب مبيعات كل صنف لنحسب الرصيد الفعلي حالاً
         orderItems: {
-          select: { quantity: true }
-        }
+          select: { quantity: true },
+        },
       },
-      orderBy: { modelNo: 'asc' }
+      orderBy: { modelNo: "asc" },
     });
 
     const PIECES_PER_UNIT = 4; // التأكد من نفس المعامل
 
-    const logicalProducts = products.map(p => {
-        const initialPieces = p.stockQty || 0;
-        
-        // حساب إجمالي القطع المباعة
-        const totalSoldPieces = p.orderItems.reduce((acc, item) => {
-            return acc + ((item.quantity || 0) * PIECES_PER_UNIT);
-        }, 0);
+    const logicalProducts = products.map((p) => {
+      const initialPieces = p.stockQty || 0;
 
-        // الرصيد الفعلي بالقطع
-        const actualCurrentStockPieces = initialPieces - totalSoldPieces;
+      // حساب إجمالي القطع المباعة
+      const totalSoldPieces = p.orderItems.reduce((acc, item) => {
+        return acc + (item.quantity || 0) * PIECES_PER_UNIT;
+      }, 0);
 
-        return {
-            id: p.id,
-            modelNo: p.modelNo,
-            color: p.color,
-            price: p.price,
-            // نرسل الرصيد المحسوب بدلاً من المخزن في قاعدة البيانات
-            currentStock: actualCurrentStockPieces, 
-            status: p.status,
-            description: p.description,
-            discount: p.discount,
-        };
+      // الرصيد الفعلي بالقطع
+      const actualCurrentStockPieces = initialPieces - totalSoldPieces;
+
+      return {
+        id: p.id,
+        modelNo: p.modelNo,
+        color: p.color,
+        price: p.price,
+        // نرسل الرصيد المحسوب بدلاً من المخزن في قاعدة البيانات
+        currentStock: actualCurrentStockPieces,
+        status: p.status,
+        description: p.description,
+        discount: p.discount,
+      };
     });
 
     return JSON.parse(JSON.stringify(logicalProducts));
@@ -158,17 +160,16 @@ export async function getProductsForSearch() {
   }
 }
 
-
 export async function searchProducts(term: string) {
-  if (!term || term.length < 2) return []
+  if (!term || term.length < 2) return [];
   try {
     const products = await prisma.product.findMany({
-      where: { modelNo: { contains: term, mode: 'insensitive' } },
-      orderBy: { modelNo: 'asc' },
-    })
-    return JSON.parse(JSON.stringify(products))
+      where: { modelNo: { contains: term, mode: "insensitive" } },
+      orderBy: { modelNo: "asc" },
+    });
+    return JSON.parse(JSON.stringify(products));
   } catch (error) {
-    return []
+    return [];
   }
 }
 
@@ -176,7 +177,7 @@ export async function getAdminStockAlerts() {
   try {
     const lowStockItems = await prisma.product.findMany({
       where: {
-        status: 'CLOSED',
+        status: "CLOSED",
         currentStock: {
           lte: 4,
         },
@@ -189,17 +190,17 @@ export async function getAdminStockAlerts() {
         description: true,
       },
       orderBy: {
-        currentStock: 'asc',
+        currentStock: "asc",
       },
-    })
+    });
 
     return {
       count: lowStockItems.length,
       items: JSON.parse(JSON.stringify(lowStockItems)),
-    }
+    };
   } catch (error) {
-    console.error('Stock Alert Error:', error)
-    return { count: 0, items: [] }
+    console.error("Stock Alert Error:", error);
+    return { count: 0, items: [] };
   }
 }
 
@@ -208,286 +209,308 @@ export async function getAdminStockAlerts() {
 // ==========================================
 
 export async function createOrder(data: any, userId: string) {
-  const { customerId, items, total, deposit, safeId, currency, notes } = data
+  const { customerId, items, total, deposit, safeId, currency, notes } = data;
 
   if (deposit > 0 && !safeId) {
-    return { success: false, error: 'عند وجود دفعة مقدمة، يجب تحديد الخزنة.' }
+    return { success: false, error: "عند وجود دفعة مقدمة، يجب تحديد الخزنة." };
   }
 
-  const productQuantities = new Map<string, number>()
-  const allVariants: any[] = []
+  const productQuantities = new Map<string, number>();
+  const allVariants: any[] = [];
 
   for (const cartItem of items) {
     for (const variant of cartItem.variants) {
-      const requestedPieces = variant.quantity * PIECES_PER_UNIT
+      const requestedPieces = variant.quantity * PIECES_PER_UNIT;
       productQuantities.set(
         variant.productId,
-        (productQuantities.get(variant.productId) || 0) + requestedPieces
-      )
-      allVariants.push(variant)
+        (productQuantities.get(variant.productId) || 0) + requestedPieces,
+      );
+      allVariants.push(variant);
     }
   }
 
-  const productIds = Array.from(productQuantities.keys())
+  const productIds = Array.from(productQuantities.keys());
 
   try {
     const products = await prisma.product.findMany({
       where: { id: { in: productIds } },
-    })
+    });
 
-    const productMap = new Map(products.map(p => [p.id, p]))
-    const insufficientStockItems: any[] = []
+    const productMap = new Map(products.map((p) => [p.id, p]));
+    const insufficientStockItems: any[] = [];
 
     for (const productId of productIds) {
-      const product = productMap.get(productId)
-      const requestedPieces = productQuantities.get(productId)!
+      const product = productMap.get(productId);
+      const requestedPieces = productQuantities.get(productId)!;
 
       if (!product) {
-        throw new Error(`الصنف بالمعرف ${productId} غير موجود.`)
+        throw new Error(`الصنف بالمعرف ${productId} غير موجود.`);
       }
-      if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
+      if (product.status !== "OPEN" && product.currentStock < requestedPieces) {
         insufficientStockItems.push({
           productId: product.id,
           modelNo: product.modelNo,
           color: product.color,
           availableStock: Math.floor(product.currentStock / PIECES_PER_UNIT),
           requestedQty: Math.floor(requestedPieces / PIECES_PER_UNIT),
-        })
+        });
       }
     }
 
     if (insufficientStockItems.length > 0) {
       return {
         success: false,
-        error: 'يوجد أصناف في السلة غير متاحة بالمخزون أو كميتها لا تكفي.',
+        error: "يوجد أصناف في السلة غير متاحة بالمخزون أو كميتها لا تكفي.",
         insufficientStockItems: insufficientStockItems,
-      }
+      };
     }
 
     const result = await prisma.$transaction(
-      async tx => {
+      async (tx) => {
         const order = await tx.order.create({
           data: {
             userId,
             customerId,
             totalAmount: total,
             deposit: deposit || 0,
-            currency: currency || 'EGP',
+            currency: currency || "EGP",
             notes: notes,
             safeId: deposit > 0 ? safeId : null,
           },
           include: { customer: true },
-        })
+        });
 
-        const orderItemsData = allVariants.map(variant => ({
+        const orderItemsData = allVariants.map((variant) => ({
           orderId: order.id,
           productId: variant.productId,
           quantity: variant.quantity,
           price: variant.price,
           discountPercent: variant.discountPercent || 0,
-        }))
+        }));
 
-        await tx.orderItem.createMany({ data: orderItemsData })
+        await tx.orderItem.createMany({ data: orderItemsData });
 
         // 3. Efficiently update product stock
         // Instead of sending N update commands, we build a single raw SQL query
         // This is dramatically faster for large orders.
-        const productsToUpdate = products.filter(p => p.status !== 'OPEN')
+        const productsToUpdate = products.filter((p) => p.status !== "OPEN");
         if (productsToUpdate.length > 0) {
           const caseStatement = productsToUpdate
             .map(
-              p =>
-                `WHEN id = '${p.id}' THEN "currentStock" - ${productQuantities.get(p.id)}`
+              (p) =>
+                `WHEN id = '${p.id}' THEN "currentStock" - ${productQuantities.get(p.id)}`,
             )
-            .join(' ')
+            .join(" ");
 
-          const idList = productsToUpdate.map(p => `'${p.id}'`).join(',')
+          const idList = productsToUpdate.map((p) => `'${p.id}'`).join(",");
 
-          const query = `UPDATE "Product" SET "currentStock" = CASE ${caseStatement} END WHERE id IN (${idList})`
+          const query = `UPDATE "Product" SET "currentStock" = CASE ${caseStatement} END WHERE id IN (${idList})`;
 
-          await tx.$executeRawUnsafe(query)
+          await tx.$executeRawUnsafe(query);
         }
 
         if (deposit > 0) {
           await tx.payment.create({
             data: {
-              type: 'PAYMENT_COLLECTION',
+              type: "PAYMENT_COLLECTION",
               amount: deposit,
-              currency: currency || 'EGP',
+              currency: currency || "EGP",
               safeId: safeId!,
               userId: userId,
               customerId: customerId,
               description: `تحصيل دفعة للأوردر رقم #${order.orderNo} للعميل: ${order.customer.name}`,
             },
-          })
+          });
         }
 
-        return order
+        return order;
       },
       {
         maxWait: 15000, // Wait 15s for the transaction to start
         timeout: 90000, // Allow 90s for the whole transaction to complete for large orders
-      }
-    )
+      },
+    );
 
-    revalidatePath('/')
-    revalidatePath('/admin/products')
-    revalidatePath('/admin/notifications')
-    revalidatePath('/orders/list')
-    revalidatePath('/admin/cash-management') // Revalidate the cash management page
+    revalidatePath("/");
+    revalidatePath("/admin/products");
+    revalidatePath("/admin/notifications");
+    revalidatePath("/orders/list");
+    revalidatePath("/admin/cash-management"); // Revalidate the cash management page
 
-    return { success: true, data: JSON.parse(JSON.stringify(result)) }
+    return { success: true, data: JSON.parse(JSON.stringify(result)) };
   } catch (error: any) {
-    console.error('Error creating order:', error)
+    console.error("Error creating order:", error);
     return {
       success: false,
-      error: error.message || 'فشل إنشاء الطلب بسبب خطأ غير متوقع.',
-    }
+      error: error.message || "فشل إنشاء الطلب بسبب خطأ غير متوقع.",
+    };
   }
 }
 
 export async function getOrderById(orderId: string) {
-  if (!orderId) return null
+  if (!orderId) return null;
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: {
         customer: {
           include: {
-            payments: { orderBy: { createdAt: 'desc' } },
+            payments: { orderBy: { createdAt: "desc" } },
           },
         },
         user: true,
         items: { include: { product: true } },
       },
-    })
-    return JSON.parse(JSON.stringify(order))
+    });
+    return JSON.parse(JSON.stringify(order));
   } catch (error) {
-    return null
+    return null;
   }
 }
 
 export async function deleteOrder(orderId: string) {
-    try {
-        await prisma.$transaction(async (tx) => {
-            // Step 1: Check for fulfilled items
-            const fulfilledItems = await tx.orderItem.findMany({
-                where: { orderId: orderId, fulfilledQty: { gt: 0 } },
-                include: { product: true }
-            });
-
-            if (fulfilledItems.length > 0) {
-                const itemDetails = fulfilledItems.map(item => `${item.product.modelNo} (الكمية المصروفة: ${item.fulfilledQty})`).join(', ');
-                throw new Error(`لا يمكن حذف الأوردر لوجود أصناف تم صرفها بالفعل: ${itemDetails}`);
-            }
-
-            // Step 2: Get order details and items to restore stock
-            const order = await tx.order.findUnique({
-                where: { id: orderId },
-                select: { orderNo: true, deposit: true, items: true }
-            });
-
-            if (!order) {
-                throw new Error("لم يتم العثور على الطلب.");
-            }
-
-            // Step 3: If a deposit exists, delete the corresponding payment entry
-            if (order.deposit && order.deposit > 0) {
-                await tx.payment.deleteMany({
-                    where: {
-                        description: { contains: `للأوردر رقم #${order.orderNo}` },
-                        type: 'PAYMENT_COLLECTION'
-                    }
-                });
-            }
-
-            // Step 4: Efficiently restore stock for all items in the order
-            if (order.items.length > 0) {
-                const caseStatement = order.items
-                    .map(item => `WHEN id = '${item.productId}' THEN "currentStock" + ${item.quantity * PIECES_PER_UNIT}`)
-                    .join(' ');
-                
-                const idList = order.items.map(item => `'${item.productId}'`).join(',');
-                
-                const query = `UPDATE "Product" SET "currentStock" = CASE ${caseStatement} END WHERE id IN (${idList})`;
-                
-                await tx.$executeRawUnsafe(query);
-            }
-
-            // Step 5: Delete order items and the order itself
-            await tx.orderItem.deleteMany({ where: { orderId } });
-            await tx.order.delete({ where: { id: orderId } });
-        }, {
-            maxWait: 15000, 
-            timeout: 90000, // Increased timeout for large deletions
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        // Step 1: Check for fulfilled items
+        const fulfilledItems = await tx.orderItem.findMany({
+          where: { orderId: orderId, fulfilledQty: { gt: 0 } },
+          include: { product: true },
         });
 
-        revalidatePath('/orders/list');
-        revalidatePath('/admin/notifications');
-        revalidatePath('/admin/products');
-        revalidatePath('/admin/cash-management'); // Ensure ledger is updated
-        return { success: true };
+        if (fulfilledItems.length > 0) {
+          const itemDetails = fulfilledItems
+            .map(
+              (item) =>
+                `${item.product.modelNo} (الكمية المصروفة: ${item.fulfilledQty})`,
+            )
+            .join(", ");
+          throw new Error(
+            `لا يمكن حذف الأوردر لوجود أصناف تم صرفها بالفعل: ${itemDetails}`,
+          );
+        }
 
-    } catch (error: any) {
-        console.error("Error deleting order:", error);
-        return { success: false, error: error.message || 'فشل حذف الطلب' };
-    }
+        // Step 2: Get order details and items to restore stock
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: { orderNo: true, deposit: true, items: true },
+        });
+
+        if (!order) {
+          throw new Error("لم يتم العثور على الطلب.");
+        }
+
+        // Step 3: If a deposit exists, delete the corresponding payment entry
+        if (order.deposit && order.deposit > 0) {
+          await tx.payment.deleteMany({
+            where: {
+              description: { contains: `للأوردر رقم #${order.orderNo}` },
+              type: "PAYMENT_COLLECTION",
+            },
+          });
+        }
+
+        // Step 4: Efficiently restore stock for all items in the order
+        if (order.items.length > 0) {
+          const caseStatement = order.items
+            .map(
+              (item) =>
+                `WHEN id = '${item.productId}' THEN "currentStock" + ${item.quantity * PIECES_PER_UNIT}`,
+            )
+            .join(" ");
+
+          const idList = order.items
+            .map((item) => `'${item.productId}'`)
+            .join(",");
+
+          const query = `UPDATE "Product" SET "currentStock" = CASE ${caseStatement} END WHERE id IN (${idList})`;
+
+          await tx.$executeRawUnsafe(query);
+        }
+
+        // Step 5: Delete order items and the order itself
+        await tx.orderItem.deleteMany({ where: { orderId } });
+        await tx.order.delete({ where: { id: orderId } });
+      },
+      {
+        maxWait: 15000,
+        timeout: 90000, // Increased timeout for large deletions
+      },
+    );
+
+    revalidatePath("/orders/list");
+    revalidatePath("/admin/notifications");
+    revalidatePath("/admin/products");
+    revalidatePath("/admin/cash-management"); // Ensure ledger is updated
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error deleting order:", error);
+    return { success: false, error: error.message || "فشل حذف الطلب" };
+  }
 }
 
-
 export async function updateOrder(orderId: string, data: any) {
-  const { customerId, items, total, deposit, safeId, currency, notes } = data 
+  const { customerId, items, total, deposit, safeId, currency, notes } = data;
 
   try {
     await prisma.$transaction(
-      async tx => {
+      async (tx) => {
         // 1. Fetch old items (including product details for error messages)
         const oldItems = await tx.orderItem.findMany({
           where: { orderId },
           include: { product: true }, // Include product for error messages and logic
-        })
+        });
 
         // 2. Prepare a map of new items for easy lookup
-        const newItemsMap =
-          new Map<string, { quantity: number; price: number; discountPercent: number; productId: string }>()
+        const newItemsMap = new Map<
+          string,
+          {
+            quantity: number;
+            price: number;
+            discountPercent: number;
+            productId: string;
+          }
+        >();
         for (const cartItem of items) {
           for (const variant of cartItem.variants) {
-            const key = variant.productId
+            const key = variant.productId;
             if (newItemsMap.has(key)) {
-              const existing = newItemsMap.get(key)!
-              existing.quantity += variant.quantity
+              const existing = newItemsMap.get(key)!;
+              existing.quantity += variant.quantity;
             } else {
               newItemsMap.set(key, {
                 productId: variant.productId,
                 quantity: variant.quantity,
                 price: variant.price,
                 discountPercent: variant.discountPercent || 0,
-              })
+              });
             }
           }
         }
 
-        const oldItemsMap = new Map(oldItems.map(item => [item.productId, item]))
+        const oldItemsMap = new Map(
+          oldItems.map((item) => [item.productId, item]),
+        );
 
         // 3. Determine items to delete, add, or update
         const itemsToDelete = oldItems.filter(
-          oldItem => !newItemsMap.has(oldItem.productId)
-        )
-        const itemsToAdd: any[] = []
-        const itemsToUpdate: any[] = []
+          (oldItem) => !newItemsMap.has(oldItem.productId),
+        );
+        const itemsToAdd: any[] = [];
+        const itemsToUpdate: any[] = [];
 
         for (const [productId, newItem] of newItemsMap.entries()) {
           if (oldItemsMap.has(productId)) {
-            const oldItem = oldItemsMap.get(productId)!
+            const oldItem = oldItemsMap.get(productId)!;
             if (
               oldItem.quantity !== newItem.quantity ||
               oldItem.price !== newItem.price ||
               oldItem.discountPercent !== newItem.discountPercent
             ) {
-              itemsToUpdate.push({ oldItem, newItem })
+              itemsToUpdate.push({ oldItem, newItem });
             }
           } else {
-            itemsToAdd.push(newItem)
+            itemsToAdd.push(newItem);
           }
         }
 
@@ -495,31 +518,37 @@ export async function updateOrder(orderId: string, data: any) {
         for (const itemToDelete of itemsToDelete) {
           if (itemToDelete.fulfilledQty > 0) {
             throw new Error(
-              `لا يمكن حذف الصنف ${itemToDelete.product.modelNo} لأنه تم صرف كميات منه بالفعل.`
-            )
+              `لا يمكن حذف الصنف ${itemToDelete.product.modelNo} لأنه تم صرف كميات منه بالفعل.`,
+            );
           }
-          const piecesToReturn = itemToDelete.quantity * PIECES_PER_UNIT
+          const piecesToReturn = itemToDelete.quantity * PIECES_PER_UNIT;
           await tx.product.update({
             where: { id: itemToDelete.productId },
             data: { currentStock: { increment: piecesToReturn } },
-          })
-          await tx.orderItem.delete({ where: { id: itemToDelete.id } })
+          });
+          await tx.orderItem.delete({ where: { id: itemToDelete.id } });
         }
 
         // 5. Process additions
         for (const itemToAdd of itemsToAdd) {
-          const requestedPieces = itemToAdd.quantity * PIECES_PER_UNIT
-          const product = await tx.product.findUnique({ where: { id: itemToAdd.productId } })
-          if (!product) throw new Error(`الصنف ${itemToAdd.productId} غير موجود`)
-          if (product.status !== 'OPEN' && product.currentStock < requestedPieces) {
+          const requestedPieces = itemToAdd.quantity * PIECES_PER_UNIT;
+          const product = await tx.product.findUnique({
+            where: { id: itemToAdd.productId },
+          });
+          if (!product)
+            throw new Error(`الصنف ${itemToAdd.productId} غير موجود`);
+          if (
+            product.status !== "OPEN" &&
+            product.currentStock < requestedPieces
+          ) {
             throw new Error(
-              `عذراً، الكمية نفذت للصنف: ${product.modelNo} - لون: ${product.color}`
-            )
+              `عذراً، الكمية نفذت للصنف: ${product.modelNo} - لون: ${product.color}`,
+            );
           }
           await tx.product.update({
             where: { id: itemToAdd.productId },
             data: { currentStock: { decrement: requestedPieces } },
-          })
+          });
           await tx.orderItem.create({
             data: {
               orderId: orderId,
@@ -528,31 +557,39 @@ export async function updateOrder(orderId: string, data: any) {
               price: itemToAdd.price,
               discountPercent: itemToAdd.discountPercent,
             },
-          })
+          });
         }
 
         // 6. Process updates
         for (const { oldItem, newItem } of itemsToUpdate) {
           if (newItem.quantity < oldItem.fulfilledQty) {
             throw new Error(
-              `لا يمكن تخفيض كمية الصنف ${oldItem.product.modelNo} لأقل من الكمية التي تم صرفها (${oldItem.fulfilledQty}).`
-            )
+              `لا يمكن تخفيض كمية الصنف ${oldItem.product.modelNo} لأقل من الكمية التي تم صرفها (${oldItem.fulfilledQty}).`,
+            );
           }
-          const quantityDifference = newItem.quantity - oldItem.quantity
-          const stockDifference = quantityDifference * PIECES_PER_UNIT
+          const quantityDifference = newItem.quantity - oldItem.quantity;
+          const stockDifference = quantityDifference * PIECES_PER_UNIT;
 
           if (stockDifference > 0) {
-            const product = await tx.product.findUnique({ where: { id: newItem.productId } })
-            if (!product) throw new Error(`الصنف ${newItem.productId} غير موجود`)
-            if (product.status !== 'OPEN' && product.currentStock < stockDifference) {
-              throw new Error(`عذراً، الكمية الإضافية للصنف ${product.modelNo} غير متاحة.`)
+            const product = await tx.product.findUnique({
+              where: { id: newItem.productId },
+            });
+            if (!product)
+              throw new Error(`الصنف ${newItem.productId} غير موجود`);
+            if (
+              product.status !== "OPEN" &&
+              product.currentStock < stockDifference
+            ) {
+              throw new Error(
+                `عذراً، الكمية الإضافية للصنف ${product.modelNo} غير متاحة.`,
+              );
             }
           }
 
           await tx.product.update({
             where: { id: newItem.productId },
             data: { currentStock: { decrement: stockDifference } },
-          })
+          });
 
           await tx.orderItem.update({
             where: { id: oldItem.id },
@@ -561,7 +598,7 @@ export async function updateOrder(orderId: string, data: any) {
               price: newItem.price,
               discountPercent: newItem.discountPercent,
             },
-          })
+          });
         }
 
         // 7. Update the order itself
@@ -571,34 +608,38 @@ export async function updateOrder(orderId: string, data: any) {
             customerId: customerId,
             totalAmount: total,
             deposit: deposit || 0,
-            currency: currency || 'EGP',
+            currency: currency || "EGP",
             safeId: deposit > 0 ? safeId : null,
             notes: notes,
           },
-        })
+        });
       },
       {
         maxWait: 15000,
         timeout: 60000,
-      }
-    )
+      },
+    );
 
-    revalidatePath(`/orders/list`)
-    revalidatePath(`/orders/${orderId}/edit`)
-    revalidatePath('/admin/notifications')
-    return { success: true }
+    revalidatePath(`/orders/list`);
+    revalidatePath(`/orders/${orderId}/edit`);
+    revalidatePath("/admin/notifications");
+    return { success: true };
   } catch (error: any) {
-    console.error('Error updating order:', error)
-    return { success: false, error: error.message }
+    console.error("Error updating order:", error);
+    return { success: false, error: error.message };
   }
 }
 
 export async function getUserOrders(userId: string) {
   try {
-    const user = await prisma.user.findUnique({ where: { id: userId } })
-    let whereCondition = {}
-    if (user?.role !== 'ADMIN' && user?.role !== 'OWNER' && user?.role !== 'ACCOUNTANT') {
-      whereCondition = { userId: userId }
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    let whereCondition = {};
+    if (
+      user?.role !== "ADMIN" &&
+      user?.role !== "OWNER" &&
+      user?.role !== "ACCOUNTANT"
+    ) {
+      whereCondition = { userId: userId };
     }
     // Using `include` is the correct and robust way to get all scalar fields (like orderNo)
     // and the specified relations.
@@ -613,13 +654,13 @@ export async function getUserOrders(userId: string) {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       take: 5000,
-    })
-    return { orders: JSON.parse(JSON.stringify(orders)), userRole: user?.role }
+    });
+    return { orders: JSON.parse(JSON.stringify(orders)), userRole: user?.role };
   } catch (error) {
-    console.error('Error in getUserOrders:', error)
-    return { orders: [], userRole: 'EMPLOYEE' }
+    console.error("Error in getUserOrders:", error);
+    return { orders: [], userRole: "EMPLOYEE" };
   }
 }
 
@@ -628,53 +669,61 @@ export async function getUserOrders(userId: string) {
 // ==========================================
 
 export async function createPayment(data: any, userId: string) {
-  const { type, amount, currency, safeId, customerId, targetSafeId, description } = data
+  const {
+    type,
+    amount,
+    currency,
+    safeId,
+    customerId,
+    targetSafeId,
+    description,
+  } = data;
   try {
     await prisma.payment.create({
       data: {
         type,
         amount: parseFloat(amount),
-        currency: currency || 'EGP',
+        currency: currency || "EGP",
         safeId,
         userId,
         customerId: customerId || null,
         targetSafeId: targetSafeId || null,
-        description: description || '',
+        description: description || "",
       },
-    })
-    revalidatePath('/')
-    return { success: true }
+    });
+    revalidatePath("/");
+    return { success: true };
   } catch (error) {
-    return { success: false, error: 'فشل العملية' }
+    return { success: false, error: "فشل العملية" };
   }
 }
 
 export async function registerEmployee(data: any) {
   try {
-    const { code, name, password } = data
-    const existingUser = await prisma.user.findUnique({ where: { code } })
-    if (existingUser) return { success: false, error: 'كود الموظف مستخدم بالفعل' }
+    const { code, name, password } = data;
+    const existingUser = await prisma.user.findUnique({ where: { code } });
+    if (existingUser)
+      return { success: false, error: "كود الموظف مستخدم بالفعل" };
 
-    const hashedPassword = await bcrypt.hash(password, 10)
+    const hashedPassword = await bcrypt.hash(password, 10);
     await prisma.user.create({
-      data: { code, name, password: hashedPassword, role: 'EMPLOYEE' },
-    })
-    return { success: true }
+      data: { code, name, password: hashedPassword, role: "EMPLOYEE" },
+    });
+    return { success: true };
   } catch (e) {
-    return { success: false, error: 'حدث خطأ أثناء التسجيل' }
+    return { success: false, error: "حدث خطأ أثناء التسجيل" };
   }
 }
 
 export async function getCurrentUser(userId: string) {
-  if (!userId) return null
+  if (!userId) return null;
   try {
-    const user = await prisma.user.findUnique({ where: { id: userId } })
-    return JSON.parse(JSON.stringify(user))
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    return JSON.parse(JSON.stringify(user));
   } catch (error) {
-    return null
+    return null;
   }
 }
-
 
 // ==========================================
 // 5. نظام المرتجعات
@@ -695,11 +744,11 @@ export async function getReturnOrders() {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
     return JSON.parse(JSON.stringify(returns));
   } catch (error) {
-    console.error('Error fetching returns:', error);
+    console.error("Error fetching returns:", error);
     return [];
   }
 }
@@ -730,7 +779,7 @@ export async function getReturnById(returnId: string) {
     });
     return JSON.parse(JSON.stringify(returnOrder));
   } catch (error) {
-    console.error('Error fetching return:', error);
+    console.error("Error fetching return:", error);
     return null;
   }
 }
@@ -738,17 +787,21 @@ export async function getReturnById(returnId: string) {
 export async function createReturnOrder(data: any, userId: string) {
   const {
     originalOrderId,
-    type, // FULL, PARTIAL, EXCHANGE
+    type,
     reason,
-    items, // [{ orderItemId, productId, quantity, unitPrice, refundAmount, exchangedProductId?, exchangedQty?, exchangedPrice? }]
+    items,
+    exchangeItems, // ✅ نجيبه من البيانات
     totalRefund,
     depositRefunded,
     exchangeAmount,
-    refundMethod, // CASH, CREDIT, DEDUCT_FROM_NEXT
+    refundMethod,
     safeId,
-    newOrderId,
     notes,
   } = data;
+
+  if (!userId) {
+    return { success: false, error: "المستخدم غير مسجل الدخول" };
+  }
 
   try {
     const result = await prisma.$transaction(
@@ -760,7 +813,7 @@ export async function createReturnOrder(data: any, userId: string) {
         });
 
         if (!originalOrder) {
-          throw new Error('الأوردر الأصلي غير موجود');
+          throw new Error("الأوردر الأصلي غير موجود");
         }
 
         // 2. التحقق من الأصناف المرتجعة
@@ -769,26 +822,99 @@ export async function createReturnOrder(data: any, userId: string) {
             where: { id: item.orderItemId },
           });
           if (!orderItem) {
-            throw new Error(`الصنف ${item.orderItemId} غير موجود في الأوردر`);
+            throw new Error(`الصنف غير موجود في الأوردر`);
           }
           if (item.quantity > orderItem.quantity) {
-            throw new Error(`الكمية المرتجعة أكبر من الكمية الأصلية`);
+            throw new Error("الكمية المرتجعة أكبر من الكمية الأصلية");
           }
         }
 
-        // 3. إنشاء المرتجع
+        // 3. لو استبدال - إنشاء الأوردر الجديد أولاً
+        let newOrderId = null;
+
+        if (type === "EXCHANGE" && exchangeItems && exchangeItems.length > 0) {
+          // ✅ نستخدم exchangeItems مباشرة
+          const allExchangeProducts = new Map<
+            string,
+            {
+              quantity: number;
+              price: number;
+              productId: string;
+            }
+          >();
+
+          exchangeItems.forEach((item: any) => {
+            const key = item.productId;
+            if (allExchangeProducts.has(key)) {
+              const existing = allExchangeProducts.get(key)!;
+              existing.quantity += item.quantity;
+            } else {
+              allExchangeProducts.set(key, {
+                productId: item.productId,
+                quantity: item.quantity,
+                price: item.price,
+              });
+            }
+          });
+
+          // حساب الإجمالي
+          let newOrderTotal = 0;
+          allExchangeProducts.forEach((item) => {
+            newOrderTotal += item.quantity * item.price;
+          });
+
+          // إنشاء الأوردر الجديد
+          const newOrder = await tx.order.create({
+            data: {
+              userId,
+              customerId: originalOrder.customerId,
+              totalAmount: newOrderTotal,
+              deposit: 0,
+              currency: originalOrder.currency || "EGP",
+              safeId: null,
+              notes: `أوردر استبدال من المرتجع - أوردر أصلي #${originalOrder.orderNo}`,
+            },
+          });
+
+          // إنشاء عناصر الأوردر الجديد
+          const exchangeItemsData = Array.from(
+            allExchangeProducts.values(),
+          ).map((item) => ({
+            orderId: newOrder.id,
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price,
+            discountPercent: 0,
+          }));
+
+          await tx.orderItem.createMany({ data: exchangeItemsData });
+
+          // خصم المخزون للأصناف الجديدة
+          for (const item of exchangeItemsData) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { currentStock: { decrement: item.quantity } },
+            });
+          }
+
+          newOrderId = newOrder.id;
+        }
+
+        // 4. إنشاء المرتجع
         const returnOrder = await tx.returnOrder.create({
           data: {
             originalOrderId,
             type,
             reason,
-            totalRefund: totalRefund || 0,
+            totalRefund: type === "EXCHANGE" ? 0 : totalRefund || 0,
             depositRefunded: depositRefunded || 0,
-            exchangeAmount: exchangeAmount || 0,
-            refundMethod,
-            safeId: refundMethod === 'CASH' ? safeId : null,
-            newOrderId: type === 'EXCHANGE' ? newOrderId : null,
-            status: 'COMPLETED',
+            exchangeAmount: type === "EXCHANGE" ? exchangeAmount || 0 : 0,
+            refundMethod:
+              type === "EXCHANGE" ? "CREDIT" : refundMethod || "CASH",
+            safeId:
+              type !== "EXCHANGE" && refundMethod === "CASH" ? safeId : null,
+            newOrderId: newOrderId,
+            status: "COMPLETED",
             userId,
             notes,
             items: {
@@ -798,56 +924,74 @@ export async function createReturnOrder(data: any, userId: string) {
                 quantity: item.quantity,
                 unitPrice: item.unitPrice,
                 refundAmount: item.refundAmount,
-                exchangedProductId: item.exchangedProductId || null,
-                exchangedQty: item.exchangedQty || 0,
-                exchangedPrice: item.exchangedPrice || 0,
+                exchangedProductId: null,
+                exchangedQty: 0,
+                exchangedPrice: 0,
               })),
             },
           },
         });
 
-        // 4. إرجاع المخزون للأصناف المرتجعة
+        // 5. إرجاع المخزون للأصناف المرتجعة
         for (const item of items) {
           await tx.product.update({
             where: { id: item.productId },
-            data: {
-              currentStock: { increment: item.quantity },
-            },
+            data: { currentStock: { increment: item.quantity } },
           });
+        }
 
-          // لو استبدال، خصم المخزون للصنف الجديد
-          if (item.exchangedProductId && item.exchangedQty > 0) {
-            await tx.product.update({
-              where: { id: item.exchangedProductId },
-              data: {
-                currentStock: { decrement: item.exchangedQty },
-              },
+        // 6. معالجة الاسترداد النقدي (للمرتجع العادي فقط)
+        if (type !== 'EXCHANGE' && refundMethod === 'CASH' && totalRefund > 0 && safeId) {
+            await tx.payment.create({
+                data: {
+                type: 'OUT',
+                amount: totalRefund,
+                currency: originalOrder.currency || 'EGP',
+                safeId,
+                userId,
+                customerId: originalOrder.customerId,
+                description: `استرداد مرتجع #${returnOrder.returnNo} للأوردر #${originalOrder.orderNo}`,
+                },
             });
-          }
         }
 
-        // 5. معالجة الاسترداد النقدي
-        if (refundMethod === 'CASH' && totalRefund > 0 && safeId) {
-          // سند استرداد من الخزنة (ينقص الرصيد)
-          await tx.payment.create({
-            data: {
-              type: 'OUT',  // ✅ مهم: OUT مش REFUND
-              amount: totalRefund,
-              currency: originalOrder.currency || 'EGP',
-              safeId,
-              userId,
-              customerId: originalOrder.customerId,
-              description: `استرداد مرتجع #${returnOrder.returnNo} للأوردر #${originalOrder.orderNo}`,
-            },
-          });
+        // 7. ✅ معالجة فرق الاستبدال (جديد)
+        if (type === 'EXCHANGE' && exchangeAmount !== 0 && safeId) {
+            if (exchangeAmount > 0) {
+                // العميل يدفع الفرق → سند قبض
+                await tx.payment.create({
+                data: {
+                    type: 'IN',
+                    amount: exchangeAmount,
+                    currency: originalOrder.currency || 'EGP',
+                    safeId,
+                    userId,
+                    customerId: originalOrder.customerId,
+                    description: `فرق استبدال مرتجع #${returnOrder.returnNo} - أوردر #${originalOrder.orderNo}`,
+                },
+                });
+            } else {
+                // العميل يسترد الفرق → سند صرف
+                await tx.payment.create({
+                data: {
+                    type: 'OUT',
+                    amount: Math.abs(exchangeAmount),
+                    currency: originalOrder.currency || 'EGP',
+                    safeId,
+                    userId,
+                    customerId: originalOrder.customerId,
+                    description: `استرداد فرق استبدال مرتجع #${returnOrder.returnNo} - أوردر #${originalOrder.orderNo}`,
+                },
+                });
+            }
         }
 
-        // 6. لو مرتجع كامل، تحديث حالة الأوردر الأصلي
-        if (type === 'FULL') {
+        // 7. لو مرتجع كامل، تحديث ملاحظات الأوردر الأصلي
+        if (type === "FULL") {
           await tx.order.update({
             where: { id: originalOrderId },
             data: {
-              notes: `${originalOrder.notes || ''}\n[مرتجع كامل #${returnOrder.returnNo}]`,
+              notes: `${originalOrder.notes || ""}\n[مرتجع كامل #${returnOrder.returnNo}]`,
             },
           });
         }
@@ -857,23 +1001,23 @@ export async function createReturnOrder(data: any, userId: string) {
       {
         maxWait: 15000,
         timeout: 60000,
-      }
+      },
     );
 
-    revalidatePath('/orders/list');
-    revalidatePath('/admin/returns');
-    revalidatePath('/admin/products');
-    revalidatePath('/admin/cash-management');
+    revalidatePath("/orders/list");
+    revalidatePath("/admin/returns");
+    revalidatePath("/admin/products");
+    revalidatePath("/admin/cash-management");
 
     return {
       success: true,
       data: JSON.parse(JSON.stringify(result)),
     };
   } catch (error: any) {
-    console.error('Error creating return:', error);
+    console.error("Error creating return:", error);
     return {
       success: false,
-      error: error.message || 'فشل إنشاء المرتجع',
+      error: error.message || "فشل إنشاء المرتجع",
     };
   }
 }
@@ -886,11 +1030,11 @@ export async function cancelReturnOrder(returnId: string) {
     });
 
     if (!returnOrder) {
-      return { success: false, error: 'المرتجع غير موجود' };
+      return { success: false, error: "المرتجع غير موجود" };
     }
 
-    if (returnOrder.status === 'CANCELLED') {
-      return { success: false, error: 'المرتجع ملغي بالفعل' };
+    if (returnOrder.status === "CANCELLED") {
+      return { success: false, error: "المرتجع ملغي بالفعل" };
     }
 
     await prisma.$transaction(async (tx) => {
@@ -915,11 +1059,11 @@ export async function cancelReturnOrder(returnId: string) {
       }
 
       // إلغاء سند الاسترداد
-      if (returnOrder.refundMethod === 'CASH' && returnOrder.totalRefund > 0) {
+      if (returnOrder.refundMethod === "CASH" && returnOrder.totalRefund > 0) {
         await tx.payment.deleteMany({
           where: {
             description: { contains: `استرداد مرتجع #${returnOrder.returnNo}` },
-            type: 'REFUND',
+            type: "REFUND",
           },
         });
       }
@@ -927,21 +1071,21 @@ export async function cancelReturnOrder(returnId: string) {
       // تحديث حالة المرتجع
       await tx.returnOrder.update({
         where: { id: returnId },
-        data: { status: 'CANCELLED' },
+        data: { status: "CANCELLED" },
       });
     });
 
-    revalidatePath('/orders/list');
-    revalidatePath('/admin/returns');
-    revalidatePath('/admin/products');
-    revalidatePath('/admin/cash-management');
+    revalidatePath("/orders/list");
+    revalidatePath("/admin/returns");
+    revalidatePath("/admin/products");
+    revalidatePath("/admin/cash-management");
 
     return { success: true };
   } catch (error: any) {
-    console.error('Error cancelling return:', error);
+    console.error("Error cancelling return:", error);
     return {
       success: false,
-      error: error.message || 'فشل إلغاء المرتجع',
+      error: error.message || "فشل إلغاء المرتجع",
     };
   }
 }

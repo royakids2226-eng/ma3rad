@@ -14,6 +14,7 @@ export default function ReturnOrderPage({ params }: { params: Promise<{ id: stri
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [safes, setSafes] = useState<any[]>([]);
+  const [printAfterSave, setPrintAfterSave] = useState(false);
 
   // نوع المرتجع
   const [returnType, setReturnType] = useState<'FULL' | 'PARTIAL' | 'EXCHANGE'>('PARTIAL');
@@ -23,20 +24,21 @@ export default function ReturnOrderPage({ params }: { params: Promise<{ id: stri
   // الأصناف المختارة للرجوع
   const [selectedItems, setSelectedItems] = useState<{[key: string]: {
     quantity: number;
-    exchangedProductId?: string;
-    exchangedQty?: number;
-    exchangedPrice?: number;
   }}>({});
 
   // طريقة الاسترداد
   const [refundMethod, setRefundMethod] = useState<'CASH' | 'CREDIT' | 'DEDUCT_FROM_NEXT'>('CASH');
   const [selectedSafeId, setSelectedSafeId] = useState('');
 
-  // حقول الاستبدال
+  // حقول الاستبدال - مع حفظ السعر
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [selectedExchangeProduct, setSelectedExchangeProduct] = useState<any>(null);
-  const [exchangeQty, setExchangeQty] = useState(1);
+  const [exchangeProducts, setExchangeProducts] = useState<{[key: string]: {
+    quantity: number;
+    price: number;
+    modelNo: string;
+    color: string;
+  }}>({});
 
   // تحميل البيانات
   useEffect(() => {
@@ -69,7 +71,7 @@ export default function ReturnOrderPage({ params }: { params: Promise<{ id: stri
     }
   }, [searchTerm, returnType]);
 
-  // تبديل اختيار صنف
+  // تبديل اختيار صنف للرجوع
   const toggleItem = (itemId: string, maxQty: number) => {
     setSelectedItems(prev => {
       const newItems = { ...prev };
@@ -101,33 +103,50 @@ export default function ReturnOrderPage({ params }: { params: Promise<{ id: stri
     setReturnType('FULL');
   };
 
-  // اختيار صنف للاستبدال
-  const handleSelectExchangeProduct = (product: any) => {
-    setSelectedExchangeProduct(product);
-    setSearchTerm('');
-    setSearchResults([]);
+  // اختيار/إلغاء صنف بديل للاستبدال
+  const toggleExchangeProduct = (product: any) => {
+    setExchangeProducts(prev => {
+      const newProducts = { ...prev };
+      if (newProducts[product.id]) {
+        delete newProducts[product.id];
+      } else {
+        newProducts[product.id] = {
+          quantity: 1,
+          price: product.price,
+          modelNo: product.modelNo,
+          color: product.color,
+        };
+      }
+      return newProducts;
+    });
+  };
+
+  // تحديث كمية الصنف البديل
+  const updateExchangeQuantity = (productId: string, qty: number, maxQty: number) => {
+    if (qty < 1 || qty > maxQty) return;
+    setExchangeProducts(prev => ({
+      ...prev,
+      [productId]: { ...prev[productId], quantity: qty },
+    }));
   };
 
   // الحسابات
   const calculateTotals = () => {
     let totalRefund = 0;
-    let exchangeAmount = 0;
     let totalExchangeValue = 0;
 
     Object.entries(selectedItems).forEach(([itemId, data]) => {
       const orderItem = order.items.find((i: any) => i.id === itemId);
       if (!orderItem) return;
-
-      const refundAmount = data.quantity * orderItem.price;
-      totalRefund += refundAmount;
-
-      // لو استبدال
-      if (returnType === 'EXCHANGE' && data.exchangedProductId && data.exchangedQty) {
-        const exchangeValue = data.exchangedQty * (data.exchangedPrice || 0);
-        totalExchangeValue += exchangeValue;
-        exchangeAmount += exchangeValue - refundAmount;
-      }
+      totalRefund += data.quantity * orderItem.price;
     });
+
+    // نستخدم السعر المحفوظ مباشرة
+    Object.entries(exchangeProducts).forEach(([productId, data]) => {
+      totalExchangeValue += data.quantity * data.price;
+    });
+
+    const exchangeAmount = totalExchangeValue - totalRefund;
 
     return { totalRefund, exchangeAmount, totalExchangeValue };
   };
@@ -146,40 +165,48 @@ export default function ReturnOrderPage({ params }: { params: Promise<{ id: stri
       return;
     }
 
-    if (returnType === 'EXCHANGE' && !selectedExchangeProduct) {
-      alert('اختر الصنف البديل للاستبدال');
+    if (returnType === 'EXCHANGE' && Object.keys(exchangeProducts).length === 0) {
+      alert('اختر صنف بديل واحد على الأقل للاستبدال');
       return;
     }
 
     setIsSaving(true);
 
+    // ✅ الأصناف المرتجعة
     const items = Object.entries(selectedItems).map(([itemId, data]) => {
       const orderItem = order.items.find((i: any) => i.id === itemId);
+      
       return {
         orderItemId: itemId,
         productId: orderItem.productId,
         quantity: data.quantity,
         unitPrice: orderItem.price,
         refundAmount: data.quantity * orderItem.price,
-        exchangedProductId: returnType === 'EXCHANGE' ? selectedExchangeProduct?.id : null,
-        exchangedQty: returnType === 'EXCHANGE' ? exchangeQty : 0,
-        exchangedPrice: returnType === 'EXCHANGE' ? selectedExchangeProduct?.price : 0,
       };
     });
+
+    // ✅ الأصناف البديلة (array منفصل)
+    const exchangeItems = Object.entries(exchangeProducts).map(([productId, data]) => ({
+      productId,
+      quantity: data.quantity,
+      price: data.price,
+    }));
+
+    const { totalRefund: calculatedRefund, exchangeAmount: calculatedExchange } = calculateTotals();
 
     const result = await createReturnOrder({
       originalOrderId: order.id,
       type: returnType,
       reason,
       items,
-      totalRefund: returnType === 'EXCHANGE' ? 0 : totalRefund,
+      exchangeItems,  // ✅ نبعته منفصل
+      totalRefund: returnType === 'EXCHANGE' ? 0 : calculatedRefund,
       depositRefunded: 0,
-      exchangeAmount: returnType === 'EXCHANGE' ? exchangeAmount : 0,
+      exchangeAmount: returnType === 'EXCHANGE' ? calculatedExchange : 0,
       refundMethod: returnType === 'EXCHANGE' ? 'CREDIT' : refundMethod,
       safeId: selectedSafeId,
-      newOrderId: returnType === 'EXCHANGE' ? 'PENDING' : null,
       notes: returnType === 'EXCHANGE' 
-        ? `${notes || ''}\nاستبدال بـ: ${selectedExchangeProduct?.modelNo} - ${selectedExchangeProduct?.color}`
+        ? `${notes || ''}\nاستبدال بـ: ${Object.values(exchangeProducts).map((p: any) => `${p.modelNo} (${p.color})`).join(', ')}`
         : notes,
     }, session?.user?.image as string);
 
@@ -187,7 +214,15 @@ export default function ReturnOrderPage({ params }: { params: Promise<{ id: stri
 
     if (result.success) {
       alert('✅ تم إنشاء المرتجع بنجاح');
-      router.push('/orders/list');
+      
+      if (printAfterSave) {
+        // نروح صفحة المرتجعات ونطبع
+        localStorage.setItem('printReturnId', result.data.id);
+        localStorage.setItem('printReturn', 'true');
+        router.push('/admin/returns');
+      } else {
+        router.push('/orders/list');
+      }
     } else {
       alert('❌ خطأ: ' + result.error);
     }
@@ -266,7 +301,7 @@ export default function ReturnOrderPage({ params }: { params: Promise<{ id: stri
           )}
         </div>
 
-        {/* الأصناف */}
+        {/* الأصناف المرتجعة */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
           <h3 className="font-bold text-gray-700 mb-3">الأصناف</h3>
           <div className="space-y-2">
@@ -322,82 +357,136 @@ export default function ReturnOrderPage({ params }: { params: Promise<{ id: stri
           </div>
         </div>
 
-        {/* قسم الاستبدال - يظهر فقط عند اختيار استبدال */}
+        {/* قسم الأصناف البديلة للاستبدال */}
         {returnType === 'EXCHANGE' && (
           <div className="bg-white p-4 rounded-xl shadow-sm border-2 border-blue-200">
-            <h3 className="font-bold text-blue-700 mb-3 flex items-center gap-2">
-              🔵 الصنف البديل للاستبدال
+            <h3 className="font-bold text-blue-700 mb-3">
+              🔵 الأصناف البديلة للاستبدال
             </h3>
             
-            {/* البحث عن المنتج */}
             <div className="mb-4">
-              <label className="text-xs font-bold text-gray-600 mb-1 block">ابحث عن الموديل الجديد:</label>
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="اكتب رقم الموديل..."
+                placeholder="ابحث عن الموديل الجديد..."
                 className="w-full p-3 border-2 border-blue-200 rounded-lg focus:border-blue-500 outline-none"
               />
-              
-              {/* نتائج البحث */}
-              {searchResults.length > 0 && (
-                <div className="mt-2 border-2 border-blue-100 rounded-lg max-h-60 overflow-y-auto">
-                  {searchResults.map((product: any) => (
-                    <div
-                      key={product.id}
-                      onClick={() => handleSelectExchangeProduct(product)}
-                      className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 flex justify-between items-center"
-                    >
+            </div>
+
+            {/* المنتجات المختارة - ثابتة */}
+            {Object.keys(exchangeProducts).length > 0 && (
+              <div className="mb-4 border-2 border-green-200 rounded-lg p-3 bg-green-50">
+                <h4 className="font-bold text-green-800 mb-2 text-sm">
+                  ✅ الأصناف المختارة ({Object.keys(exchangeProducts).length}):
+                </h4>
+                <div className="space-y-2">
+                  {Object.entries(exchangeProducts).map(([productId, data]) => (
+                    <div key={productId} className="flex justify-between items-center bg-white p-2 rounded border border-green-200">
                       <div>
-                        <div className="font-bold">{product.modelNo}</div>
-                        <div className="text-xs text-gray-500">{product.color}</div>
+                        <div className="font-bold text-sm">{data.modelNo}</div>
+                        <div className="text-xs text-gray-500">{data.color} - {data.price} ج.م</div>
                       </div>
-                      <div className="text-left">
-                        <div className="font-bold text-blue-600">{product.price} ج.م</div>
-                        <div className={`text-xs ${product.currentStock > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          متاح: {product.currentStock}
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => {
+                              if (data.quantity > 1) {
+                                setExchangeProducts(prev => ({
+                                  ...prev,
+                                  [productId]: { ...prev[productId], quantity: prev[productId].quantity - 1 }
+                                }));
+                              }
+                            }}
+                            className="w-6 h-6 bg-gray-200 rounded text-xs font-bold"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            min="1"
+                            value={data.quantity}
+                            onChange={(e) => {
+                              const qty = parseInt(e.target.value) || 1;
+                              setExchangeProducts(prev => ({
+                                ...prev,
+                                [productId]: { ...prev[productId], quantity: qty }
+                              }));
+                            }}
+                            className="w-12 p-1 border rounded text-center text-sm"
+                          />
+                          <button
+                            onClick={() => {
+                              setExchangeProducts(prev => ({
+                                ...prev,
+                                [productId]: { ...prev[productId], quantity: prev[productId].quantity + 1 }
+                              }));
+                            }}
+                            className="w-6 h-6 bg-gray-200 rounded text-xs font-bold"
+                          >
+                            +
+                          </button>
+                        </div>
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-blue-600">
+                            {(data.quantity * data.price).toFixed(2)} ج.م
+                          </div>
+                          <button
+                            onClick={() => toggleExchangeProduct({ id: productId })}
+                            className="text-xs text-red-600 font-bold"
+                          >
+                            ✕ إزالة
+                          </button>
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
-              )}
-            </div>
-
-            {/* المنتج المختار */}
-            {selectedExchangeProduct && (
-              <div className="bg-blue-50 p-4 rounded-lg border-2 border-blue-300">
-                <div className="flex justify-between items-center mb-3">
-                  <div>
-                    <div className="font-bold text-lg text-blue-800">{selectedExchangeProduct.modelNo}</div>
-                    <div className="text-sm text-blue-600">{selectedExchangeProduct.color}</div>
-                    <div className="text-xs text-blue-500">{selectedExchangeProduct.vendor}</div>
-                  </div>
-                  <div className="text-left">
-                    <div className="font-bold text-xl text-blue-700">{selectedExchangeProduct.price} ج.م</div>
-                    <button
-                      onClick={() => setSelectedExchangeProduct(null)}
-                      className="text-xs text-red-600 font-bold mt-1"
-                    >
-                      إزالة ✕
-                    </button>
+                <div className="mt-3 pt-3 border-t border-green-200">
+                  <div className="flex justify-between items-center font-bold text-green-800">
+                    <span>القيمة الإجمالية:</span>
+                    <span>{calculateTotals().totalExchangeValue.toFixed(2)} ج.م</span>
                   </div>
                 </div>
-                
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-bold text-gray-600">الكمية:</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max={selectedExchangeProduct.currentStock}
-                    value={exchangeQty}
-                    onChange={(e) => setExchangeQty(parseInt(e.target.value) || 1)}
-                    className="w-20 p-2 border-2 border-blue-300 rounded text-center font-bold"
-                  />
-                  <span className="text-xs text-gray-500">
-                    الإجمالي: {exchangeQty * selectedExchangeProduct.price} ج.م
-                  </span>
+              </div>
+            )}
+
+            {/* نتائج البحث - لإضافة منتجات جديدة */}
+            {searchResults.length > 0 && (
+              <div>
+                <h4 className="font-bold text-gray-700 mb-2 text-sm">
+                  📦 نتائج البحث (اضغط للإضافة):
+                </h4>
+                <div className="border-2 border-blue-100 rounded-lg max-h-60 overflow-y-auto">
+                  {searchResults.map((product: any) => {
+                    const isSelected = !!exchangeProducts[product.id];
+                    if (isSelected) return null;
+                    
+                    return (
+                      <div
+                        key={product.id}
+                        onClick={() => toggleExchangeProduct(product)}
+                        className="p-3 border-b last:border-0 hover:bg-blue-50 cursor-pointer"
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="font-bold">{product.modelNo}</div>
+                            <div className="text-xs text-gray-500">
+                              {product.color} - {product.price} ج.م
+                            </div>
+                          </div>
+                          <div className="text-left">
+                            <div className="text-xs text-gray-500">
+                              متاح: {product.currentStock}
+                            </div>
+                            <div className="text-xs text-blue-600 font-bold mt-1">
+                              + أضف
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -438,7 +527,7 @@ export default function ReturnOrderPage({ params }: { params: Promise<{ id: stri
                       : 'bg-white border-gray-200'
                   }`}
                 >
-                  ⚖️ خصم من الفاتورة القادمة
+                  ⚖️ خصم قادم
                 </button>
               </div>
 
@@ -542,14 +631,31 @@ export default function ReturnOrderPage({ params }: { params: Promise<{ id: stri
           )}
         </div>
 
+        {/* خيار الطباعة */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={printAfterSave}
+              onChange={(e) => setPrintAfterSave(e.target.checked)}
+              className="w-5 h-5"
+            />
+            <span className="font-bold text-gray-700">
+              🖨️ طباعة إيصال المرتجع بعد الحفظ
+            </span>
+          </label>
+        </div>
+
         {/* زر الحفظ */}
         <button
           onClick={handleSave}
-          disabled={isSaving || Object.keys(selectedItems).length === 0 || (returnType === 'EXCHANGE' && !selectedExchangeProduct)}
+          disabled={isSaving || Object.keys(selectedItems).length === 0 || (returnType === 'EXCHANGE' && Object.keys(exchangeProducts).length === 0)}
           className="w-full bg-red-600 text-white py-4 rounded-xl font-black text-lg shadow-xl disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
           {isSaving ? '⏳ جاري الحفظ...' : 
-            returnType === 'EXCHANGE' ? '🔄 تأكيد الاستبدال' : '↩️ تأكيد المرتجع'
+            printAfterSave 
+              ? (returnType === 'EXCHANGE' ? '🔄 تأكيد الاستبدال والطباعة' : '↩️ تأكيد المرتجع والطباعة')
+              : (returnType === 'EXCHANGE' ? '🔄 تأكيد الاستبدال' : '↩️ تأكيد المرتجع')
           }
         </button>
       </div>
