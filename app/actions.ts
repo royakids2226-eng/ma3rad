@@ -1118,9 +1118,13 @@ export async function getCustomerLedger(customerId: string) {
       orderBy: { createdAt: 'asc' },
     });
 
-    // 3. جلب كل المرتجعات
+    // ✅ 3. جلب كل المرتجعات (كامل - جزئي - استبدال)
     const returns = await prisma.returnOrder.findMany({
-      where: { originalOrder: { customerId } },
+      where: {
+        originalOrder: {
+          customerId: customerId  // ✅ نجيب المرتجعات لكل أوردرات العميل
+        }
+      },
       include: {
         originalOrder: true,
         newOrder: true,
@@ -1167,21 +1171,6 @@ export async function getCustomerLedger(customerId: string) {
         })),
         user: order.user?.name || 'غير معروف',
       });
-
-      // لو فيه عربون، نضيفه كحركة منفصلة
-      if (order.deposit > 0) {
-        transactions.push({
-          type: 'DEPOSIT',
-          date: order.createdAt,
-          reference: `عربون أوردر #${order.orderNo}`,
-          description: `دفعة مقدمة للأوردر`,
-          debit: 0,
-          credit: order.deposit,
-          orderId: order.id,
-          details: [],
-          user: order.user?.name || 'غير معروف',
-        });
-      }
     });
 
     // إضافة المرتجعات
@@ -1189,13 +1178,15 @@ export async function getCustomerLedger(customerId: string) {
       const typeLabel = ret.type === 'FULL' ? 'مرتجع كامل' : 
                        ret.type === 'PARTIAL' ? 'مرتجع جزئي' : 'استبدال';
       
+      const totalReturnValue = ret.items.reduce((sum, item) => sum + item.refundAmount, 0);
+
       transactions.push({
         type: 'RETURN',
         date: ret.createdAt,
         reference: `مرتجع #${ret.returnNo}`,
         description: `${typeLabel} - أوردر #${ret.originalOrder.orderNo}`,
         debit: 0,
-        credit: ret.totalRefund + Math.abs(ret.exchangeAmount || 0),
+        credit: totalReturnValue,
         returnId: ret.id,
         details: ret.items.map(item => ({
           modelNo: item.product.modelNo,
@@ -1212,34 +1203,32 @@ export async function getCustomerLedger(customerId: string) {
         })),
         user: ret.user?.name || 'غير معروف',
       });
-
-      // لو فيه فرق استبدال موجب (العميل يدفع)
-      if (ret.type === 'EXCHANGE' && ret.exchangeAmount > 0) {
-        transactions.push({
-          type: 'EXCHANGE_DIFF',
-          date: ret.createdAt,
-          reference: `فرق استبدال #${ret.returnNo}`,
-          description: `فرق سعر استبدال`,
-          debit: ret.exchangeAmount,
-          credit: 0,
-          returnId: ret.id,
-          details: [],
-          user: ret.user?.name || 'غير معروف',
-        });
-      }
     });
 
     // إضافة حركات النقدية
     payments.forEach(payment => {
-      const isDebit = payment.type === 'IN' || payment.type === 'PAYMENT_COLLECTION';
-      
+      let debit = 0;
+      let credit = 0;
+      let reference = '';
+
+      if (payment.type === 'IN') {
+        credit = payment.amount;
+        reference = 'سند قبض';
+      } else if (payment.type === 'OUT') {
+        debit = payment.amount;
+        reference = 'سند صرف';
+      } else if (payment.type === 'PAYMENT_COLLECTION') {
+        credit = payment.amount;
+        reference = 'سند تحصيل';
+      }
+
       transactions.push({
         type: 'PAYMENT',
         date: payment.createdAt,
-        reference: `سند ${payment.type === 'IN' ? 'قبض' : payment.type === 'OUT' ? 'صرف' : 'تحصيل'}`,
+        reference,
         description: payment.description || 'حركة نقدية',
-        debit: isDebit ? payment.amount : 0,
-        credit: !isDebit ? payment.amount : 0,
+        debit,
+        credit,
         paymentId: payment.id,
         details: [],
         user: payment.user?.name || 'غير معروف',
@@ -1263,11 +1252,13 @@ export async function getCustomerLedger(customerId: string) {
     const summary = {
       totalOrders: orders.length,
       totalOrdersAmount: orders.reduce((sum, o) => sum + o.totalAmount, 0),
-      totalDeposits: orders.reduce((sum, o) => sum + (o.deposit || 0), 0),
+      totalDeposits: payments
+        .filter(p => p.type === 'PAYMENT_COLLECTION')
+        .reduce((sum, p) => sum + p.amount, 0),
       totalReturns: returns.length,
       totalReturnsAmount: returns.reduce((sum, r) => sum + r.totalRefund, 0),
       totalPaymentsIn: payments
-        .filter(p => p.type === 'IN' || p.type === 'PAYMENT_COLLECTION')
+        .filter(p => p.type === 'IN' || p.type === 'PAYMENT_COLlection')
         .reduce((sum, p) => sum + p.amount, 0),
       totalPaymentsOut: payments
         .filter(p => p.type === 'OUT')
