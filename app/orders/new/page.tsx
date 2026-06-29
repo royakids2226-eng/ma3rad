@@ -167,18 +167,33 @@ export default function NewOrderPage() {
       return () => clearTimeout(delayDebounceFn);
   }, [customerSearchTerm]);
 
+  // ✅ البحث: يجلب كل الموديلات اللي تحتوي على الرقم
   const searchResults = useMemo(() => {
-    if (searchTerm.length < 2) return [];
-    const lowerCaseSearchTerm = searchTerm.toLowerCase();
-    const exactMatches = allProducts.filter(p => p.modelNo.toLowerCase() === lowerCaseSearchTerm);
-    if (exactMatches.length > 0) {
-      return exactMatches;
-    }
-    return allProducts.filter(p => 
-        p.modelNo.toLowerCase().includes(lowerCaseSearchTerm)
-    );
-  }, [searchTerm, allProducts]);
+    if (searchTerm.length < 1) return []
+    const lowerCaseSearchTerm = searchTerm.toLowerCase()
+  
+    // جلب كل الموديلات اللي تحتوي على الرقم
+    const results = allProducts.filter(p => 
+      p.modelNo.toLowerCase().includes(lowerCaseSearchTerm)
+    )
+  
+    // ترتيب النتائج
+    return results.sort((a, b) => {
+      const aExact = a.modelNo.toLowerCase() === lowerCaseSearchTerm ? 1 : 0
+      const bExact = b.modelNo.toLowerCase() === lowerCaseSearchTerm ? 1 : 0
+      
+      if (aExact !== bExact) return bExact - aExact
+      
+      const aStartsWith = a.modelNo.toLowerCase().startsWith(lowerCaseSearchTerm) ? 1 : 0
+      const bStartsWith = b.modelNo.toLowerCase().startsWith(lowerCaseSearchTerm) ? 1 : 0
+      
+      if (aStartsWith !== bStartsWith) return bStartsWith - aStartsWith
+      
+      return a.modelNo.localeCompare(b.modelNo)
+    })
+  }, [searchTerm, allProducts])
 
+  // ✅ تجميع النتائج حسب الموديل
   const groupedSearchResults = useMemo(() => {
     if (searchResults.length === 0) return {};
     const grouped = searchResults.reduce((acc, product) => {
@@ -191,14 +206,10 @@ export default function NewOrderPage() {
     return grouped;
   }, [searchResults]);
 
-  const firstResultModelNo = searchResults.length > 0 ? searchResults[0].modelNo : '';
-
-  const displayProducts = useMemo(() => {
-      if (firstResultModelNo) {
-          return groupedSearchResults[firstResultModelNo] || [];
-      }
-      return [];
-  }, [firstResultModelNo, groupedSearchResults]);
+  // ✅ قائمة بكل الموديلات الفريدة (مش بس أول واحد)
+  const uniqueModelNos = useMemo(() => {
+    return Array.from(new Set(searchResults.map(p => p.modelNo)))
+  }, [searchResults])
 
   const toggleSelection = (productId: string, isChecked: boolean) => {
     setSelectionMap(prev => {
@@ -229,7 +240,7 @@ export default function NewOrderPage() {
 
   const handleSelectAll = () => {
     const newMap: {[key: string]: number} = {};
-    displayProducts.forEach((p: Product) => { 
+    searchResults.forEach((p: Product) => { 
         const isSoldOut = p.status !== 'OPEN' && p.currentStock <= 0;
         if (!isSoldOut) {
             newMap[p.id] = 1; 
@@ -568,51 +579,147 @@ export default function NewOrderPage() {
                   <button onClick={() => setShowScanner(true)} className="bg-black text-white p-4 rounded-xl shadow-sm md:hidden">📷</button>
                 </div>
 
-                {displayProducts.length > 0 && (
+                {/* ✅ عرض كل الموديلات اللي تحتوي على الرقم */}
+                {uniqueModelNos.length > 0 && (
                   <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6">
-                     <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
-                      <span className="font-bold text-gray-700">موديل: {firstResultModelNo}</span>
-                      <button onClick={handleSelectAll} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold">تحديد الكل</button>
+                    <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
+                      <span className="font-bold text-gray-700">
+                        🔍 النتائج ({uniqueModelNos.length} موديل)
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        اضغط على الموديل لعرض الأصناف
+                      </span>
                     </div>
+                    
+                    {/* قائمة الموديلات */}
                     <div className="divide-y divide-gray-100">
-                      {displayProducts.map(prod => {
-                        const isSoldOut = prod.status !== 'OPEN' && prod.currentStock <= 0;
-                        const availableStock = prod.currentStock;
-                        const isLastOne = availableStock === 1 && prod.status === 'CLOSED';
-                        const isSelected = !!selectionMap[prod.id];
-                        const qty = selectionMap[prod.id] || 1;
+                      {uniqueModelNos.map((modelNo) => {
+                        const products = groupedSearchResults[modelNo] || []
+                        const totalStock = products.reduce((sum, p) => sum + p.currentStock, 0)
+                        const minPrice = Math.min(...products.map(p => p.price))
+                        const maxPrice = Math.max(...products.map(p => p.price))
                         
                         return (
-                          <div key={prod.id} className={`p-4 flex items-center justify-between transition-colors ${isSoldOut ? 'bg-gray-100 opacity-60' : (isSelected ? 'bg-blue-50' : 'bg-white')} ${isLastOne ? 'bg-red-50' : ''}`}>
-                            <div className="flex items-center gap-3 flex-1">
-                              <input 
-                                type="checkbox" 
-                                checked={isSelected} 
-                                onChange={(e) => toggleSelection(prod.id, e.target.checked)} 
-                                disabled={isSoldOut}
-                                className="w-6 h-6" 
-                              />
-                              <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
-                                  <div className={`font-bold ${isLastOne ? 'text-red-700' : ''}`}>{prod.color}</div>
-                                  <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {availableStock} قطعة</div>
-                                  {prod.discount > 0 && <div className="text-[10px] text-red-600 font-bold">خصم صنف: {prod.discount}%</div>}
-                                  {isLastOne && <div className="text-red-700 text-xs font-bold animate-pulse mt-1">🔥 آخر قطعة!</div>}
-                                  {isSoldOut && <span className="text-[10px] text-red-600 font-bold block">نفذت الكمية</span>}
+                          <div key={modelNo} className="p-4 hover:bg-blue-50 transition-colors">
+                            <div className="flex justify-between items-start mb-3">
+                              <div>
+                                <div className="text-xl font-black text-blue-700">{modelNo}</div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {products.length} لون | إجمالي: {totalStock} قطعة
+                                  {minPrice !== maxPrice 
+                                    ? ` | ${minPrice} - ${maxPrice} ج.م`
+                                    : ` | ${minPrice} ج.م`
+                                  }
+                                </div>
                               </div>
+                              <button
+                                onClick={() => {
+                                  // تحديد كل الأصناف المتاحة
+                                  const newMap: {[key: string]: number} = {}
+                                  products.forEach(p => {
+                                    const isSoldOut = p.status !== 'OPEN' && p.currentStock <= 0
+                                    if (!isSoldOut) {
+                                      newMap[p.id] = 1
+                                    }
+                                  })
+                                  setSelectionMap(newMap)
+                                }}
+                                className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold hover:bg-blue-200"
+                              >
+                                تحديد الكل
+                              </button>
                             </div>
-                            {isSelected && !isSoldOut && (
-                              <div className="flex items-center gap-2 bg-white rounded-lg border px-2 py-1 shadow-sm">
-                                <button onClick={() => updateQuantity(prod.id, qty + 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">+</button>
-                                <input type="number" value={qty} onChange={(e) => updateQuantity(prod.id, parseInt(e.target.value) || 1)} className="w-10 text-center font-bold outline-none" />
-                                <button onClick={() => updateQuantity(prod.id, qty - 1)} className="w-8 h-8 bg-gray-200 rounded font-bold">-</button>
-                              </div>
-                            )}
+                            
+                            {/* الأصناف (الألوان) */}
+                            <div className="space-y-2">
+                              {products.map(prod => {
+                                const isSoldOut = prod.status !== 'OPEN' && prod.currentStock <= 0
+                                const availableStock = prod.currentStock
+                                const isLastOne = availableStock === 1 && prod.status === 'CLOSED'
+                                const isSelected = !!selectionMap[prod.id]
+                                const qty = selectionMap[prod.id] || 1
+                                
+                                return (
+                                  <div 
+                                    key={prod.id} 
+                                    className={`p-3 flex items-center justify-between rounded-lg transition-colors ${
+                                      isSoldOut ? 'bg-gray-100 opacity-60' : 
+                                      (isSelected ? 'bg-blue-50 border border-blue-200' : 'bg-white border border-gray-100')
+                                    } ${isLastOne ? 'bg-red-50' : ''}`}
+                                  >
+                                    <div className="flex items-center gap-3 flex-1">
+                                      <input 
+                                        type="checkbox" 
+                                        checked={isSelected} 
+                                        onChange={(e) => toggleSelection(prod.id, e.target.checked)} 
+                                        disabled={isSoldOut}
+                                        className="w-5 h-5" 
+                                      />
+                                      <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
+                                        <div className={`font-bold ${isLastOne ? 'text-red-700' : ''}`}>
+                                          {prod.color}
+                                        </div>
+                                        <div className="text-xs text-gray-500">
+                                          {prod.price} ج.م | متاح: {availableStock}
+                                        </div>
+                                        {prod.discount > 0 && (
+                                          <div className="text-[10px] text-red-600 font-bold">
+                                            خصم صنف: {prod.discount}%
+                                          </div>
+                                        )}
+                                        {isLastOne && (
+                                          <div className="text-red-700 text-xs font-bold animate-pulse mt-1">
+                                            🔥 آخر قطعة!
+                                          </div>
+                                        )}
+                                        {isSoldOut && (
+                                          <span className="text-[10px] text-red-600 font-bold block">
+                                            نفذت الكمية
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    {isSelected && !isSoldOut && (
+                                      <div className="flex items-center gap-2 bg-white rounded-lg border px-2 py-1 shadow-sm">
+                                        <button 
+                                          onClick={() => updateQuantity(prod.id, qty + 1)} 
+                                          className="w-7 h-7 bg-gray-200 rounded font-bold text-sm"
+                                        >
+                                          +
+                                        </button>
+                                        <input 
+                                          type="number" 
+                                          value={qty} 
+                                          onChange={(e) => updateQuantity(prod.id, parseInt(e.target.value) || 1)} 
+                                          className="w-10 text-center font-bold outline-none text-sm" 
+                                        />
+                                        <button 
+                                          onClick={() => updateQuantity(prod.id, qty - 1)} 
+                                          className="w-7 h-7 bg-gray-200 rounded font-bold text-sm"
+                                        >
+                                          -
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
                           </div>
-                        );
+                        )
                       })}
                     </div>
+                    
+                    {/* زر إضافة للسلة */}
                     <div className="p-3 bg-gray-50 border-t text-center">
-                      <button onClick={handleAddToCart} disabled={Object.keys(selectionMap).length === 0} className="w-full bg-black text-white py-3 rounded-lg font-bold disabled:opacity-50"><span className="md:hidden">إضافة للسلة وفتح السكانر</span><span className="hidden md:inline">إضافة للسلة</span></button>
+                      <button 
+                        onClick={handleAddToCart} 
+                        disabled={Object.keys(selectionMap).length === 0} 
+                        className="w-full bg-black text-white py-3 rounded-lg font-bold disabled:opacity-50 hover:bg-gray-800 transition"
+                      >
+                        <span className="md:hidden">إضافة للسلة ({Object.keys(selectionMap).length} صنف) وفتح السكانر</span>
+                        <span className="hidden md:inline">إضافة للسلة ({Object.keys(selectionMap).length} صنف)</span>
+                      </button>
                     </div>
                   </div>
                 )}
