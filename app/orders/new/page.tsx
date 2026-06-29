@@ -47,7 +47,7 @@ export default function NewOrderPage() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [showScanner, setShowScanner] = useState(false);
-  const [selectionMap, setSelectionMap] = useState<{[key: string]: number}>({});
+  const [selectionMap, setSelectionMap] = useState<{[key: string]: number | string}>({});
 
   const [cart, setCart] = useState<any[]>([]);
   const [cartSearchTerm, setCartSearchTerm] = useState('');
@@ -65,24 +65,20 @@ export default function NewOrderPage() {
   const productSearchInputRef = useRef<HTMLInputElement>(null);
   const [showDiscountOptions, setShowDiscountOptions] = useState(false);
 
-  // ✅ دالة جديدة: توزيع العربون تلقائياً على الخزنة الأولى
   const handleDepositChange = (value: string) => {
     setDeposit(value);
     const depositVal = parseFloat(value) || 0;
     
     if (depositVal > 0) {
-      // لو مفيش splits، نضيف split واحد
       if (depositSplits.length === 0 && safes.length > 0) {
         const mainSafe = safes.find(s => s.name === 'الخزنة الرئيسية') || safes[0];
         setDepositSplits([{ safeId: mainSafe.id, amount: depositVal }]);
       } 
-      // لو فيه split واحد بس، نحدثه بالمبلغ
       else if (depositSplits.length === 1) {
         const newSplits = [...depositSplits];
         newSplits[0] = { ...newSplits[0], amount: depositVal };
         setDepositSplits(newSplits);
       }
-      // لو فيه أكتر من split، نخلي الأول ياخد الباقي
       else if (depositSplits.length > 1) {
         const otherSplitsTotal = depositSplits.slice(1).reduce((sum, s) => sum + (s.amount || 0), 0);
         const remainingForFirst = depositVal - otherSplitsTotal;
@@ -91,7 +87,6 @@ export default function NewOrderPage() {
         setDepositSplits(newSplits);
       }
     } else {
-      // لو مسح العربون، نخلي كل الـ splits بـ 0
       if (depositSplits.length > 0) {
         const newSplits = depositSplits.map(s => ({ ...s, amount: 0 }));
         setDepositSplits(newSplits);
@@ -167,46 +162,36 @@ export default function NewOrderPage() {
       return () => clearTimeout(delayDebounceFn);
   }, [customerSearchTerm]);
 
-  // ✅ البحث: يجلب كل الموديلات اللي تحتوي على الرقم
   const searchResults = useMemo(() => {
     if (searchTerm.length < 1) return []
     const lowerCaseSearchTerm = searchTerm.toLowerCase()
   
-    // جلب كل الموديلات اللي تحتوي على الرقم
     const results = allProducts.filter(p => 
       p.modelNo.toLowerCase().includes(lowerCaseSearchTerm)
     )
   
-    // ترتيب النتائج
     return results.sort((a, b) => {
       const aExact = a.modelNo.toLowerCase() === lowerCaseSearchTerm ? 1 : 0
       const bExact = b.modelNo.toLowerCase() === lowerCaseSearchTerm ? 1 : 0
-      
       if (aExact !== bExact) return bExact - aExact
-      
       const aStartsWith = a.modelNo.toLowerCase().startsWith(lowerCaseSearchTerm) ? 1 : 0
       const bStartsWith = b.modelNo.toLowerCase().startsWith(lowerCaseSearchTerm) ? 1 : 0
-      
       if (aStartsWith !== bStartsWith) return bStartsWith - aStartsWith
-      
       return a.modelNo.localeCompare(b.modelNo)
     })
   }, [searchTerm, allProducts])
 
-  // ✅ تجميع النتائج حسب الموديل
   const groupedSearchResults = useMemo(() => {
     if (searchResults.length === 0) return {};
-    const grouped = searchResults.reduce((acc, product) => {
+    return searchResults.reduce((acc, product) => {
         if (!acc[product.modelNo]) {
             acc[product.modelNo] = [];
         }
         acc[product.modelNo].push(product);
         return acc;
     }, {} as { [key: string]: Product[] });
-    return grouped;
   }, [searchResults]);
 
-  // ✅ قائمة بكل الموديلات الفريدة (مش بس أول واحد)
   const uniqueModelNos = useMemo(() => {
     return Array.from(new Set(searchResults.map(p => p.modelNo)))
   }, [searchResults])
@@ -214,50 +199,73 @@ export default function NewOrderPage() {
   const toggleSelection = (productId: string, isChecked: boolean) => {
     setSelectionMap(prev => {
       const newMap = { ...prev };
-      if (isChecked) newMap[productId] = 1; else delete newMap[productId];
+      if (isChecked) {
+        newMap[productId] = 1;
+      } else {
+        delete newMap[productId];
+      }
+      return newMap;
+    });
+  };
+
+  const removeProductFromSelection = (productId: string) => {
+    setSelectionMap(prev => {
+      const newMap = { ...prev };
+      delete newMap[productId];
       return newMap;
     });
   };
 
   const updateQuantity = (productId: string, newQty: number) => {
-    if (newQty < 1) return;
+    if (isNaN(newQty)) return;
+
     const product = allProducts.find(p => p.id === productId);
     if (!product) return;
 
-    if (product.status === 'CLOSED') {
+    if (newQty > 0 && product.status === 'CLOSED') {
         const availableStock = product.currentStock;
         if (newQty > availableStock) {
-          alert(`الكمية المتاحة من هذا الصنف المغلق هي ${availableStock} قطعة فقط. لا يمكن بيع كمية أكبر.`);
-          return;
+            alert(`الكمية المتاحة من هذا الصنف المغلق هي ${availableStock} قطعة فقط. لا يمكن بيع كمية أكبر.`);
+            return;
         }
         if (newQty === availableStock) {
-          alert("🛎️ تنبيه: تم بيع آخر كمية متاحة. من فضلك، شيل شماعة الموديل.");
+            alert("🛎️ تنبيه: تم بيع آخر كمية متاحة. من فضلك، شيل شماعة الموديل.");
         }
     }
-    
+
+    const currentQty = selectionMap[productId];
+    if (newQty < 0 && (!currentQty || Number(currentQty) > 0)) {
+        const confirmReturn = window.confirm(
+            `⚠️ أنت تدخل كمية سالبة (${newQty})\n\nهذا سيُعتبر مرتجع وسيخصم من إجمالي الفاتورة.\n\nهل تريد الاستمرار؟`
+        );
+        if (!confirmReturn) return;
+    }
+
     setSelectionMap(prev => ({ ...prev, [productId]: newQty }));
   };
-
-  const handleSelectAll = () => {
-    const newMap: {[key: string]: number} = {};
-    searchResults.forEach((p: Product) => { 
-        const isSoldOut = p.status !== 'OPEN' && p.currentStock <= 0;
-        if (!isSoldOut) {
-            newMap[p.id] = 1; 
-        }
-    });
-    setSelectionMap(newMap);
+  
+  const handleQuantityInput = (productId: string, value: string) => {
+    if (value === '-' || value === '') {
+      setSelectionMap(prev => ({ ...prev, [productId]: value }));
+      return;
+    }
+    const num = parseInt(value, 10);
+    updateQuantity(productId, num);
   };
 
   const handleAddToCart = () => {
-    const selectedIds = Object.keys(selectionMap);
-    if (selectedIds.length === 0) return;
+    const validSelection = Object.entries(selectionMap).filter(([, qty]) => typeof qty === 'number' && qty !== 0);
+    if (validSelection.length === 0) return;
 
-    const selectedProducts = allProducts.filter(p => selectedIds.includes(p.id));
+    const selectedProducts = allProducts.filter(p => selectionMap.hasOwnProperty(p.id));
+    
     const groupedByModel: {[key: string]: any[]} = {};
-    selectedProducts.forEach(p => {
-      if (!groupedByModel[p.modelNo]) groupedByModel[p.modelNo] = [];
-      groupedByModel[p.modelNo].push({ ...p, qty: selectionMap[p.id] });
+    validSelection.forEach(([productId, qty]) => {
+      const product = selectedProducts.find(p => p.id === productId);
+      if (product) {
+        if (!groupedByModel[product.modelNo]) groupedByModel[product.modelNo] = [];
+        groupedByModel[product.modelNo].push({ ...product, qty: qty });
+      }
     });
 
     let updatedCart = [...cart];
@@ -272,8 +280,11 @@ export default function NewOrderPage() {
           existingItem.variants.forEach((v: any) => { variantsMap[v.productId] = { ...v }; });
 
           newVariants.forEach((nv: any) => {
-              if (variantsMap[nv.id]) variantsMap[nv.id].quantity += nv.qty;
-              else variantsMap[nv.id] = { productId: nv.id, quantity: nv.qty, price: nv.price, color: nv.color, productDiscount: nv.discount }; 
+              if (variantsMap[nv.id]) {
+                variantsMap[nv.id].quantity += nv.qty;
+              } else {
+                variantsMap[nv.id] = { productId: nv.id, quantity: nv.qty, price: nv.price, color: nv.color, productDiscount: nv.discount }; 
+              }
           });
 
           const finalVariants = Object.values(variantsMap);
@@ -372,6 +383,9 @@ export default function NewOrderPage() {
     const userId = session.user.image as string; 
     const depositVal = parseFloat(deposit) || 0;
     const voucherVal = parseFloat(voucherAmount) || 0;
+    const hasReturnItems = cleanCart.some(item =>
+      item.variants.some((v: any) => v.quantity < 0)
+    );
     
     if (!userId) { alert("خطأ هوية"); return; }
     
@@ -400,7 +414,7 @@ export default function NewOrderPage() {
           depositSplits: depositVal > 0 ? depositSplits : [],
           voucherAmount: voucherVal,
           currency: currency,
-          notes: notes
+          notes: hasReturnItems ? `${notes ? notes + ' | ' : ''}يحتوي على مرتجع (كميات سالبة)` : notes
         }, userId);
 
         if (result.success && result.data?.id) {
@@ -579,19 +593,14 @@ export default function NewOrderPage() {
                   <button onClick={() => setShowScanner(true)} className="bg-black text-white p-4 rounded-xl shadow-sm md:hidden">📷</button>
                 </div>
 
-                {/* ✅ عرض كل الموديلات اللي تحتوي على الرقم */}
                 {uniqueModelNos.length > 0 && (
                   <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6">
                     <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
                       <span className="font-bold text-gray-700">
                         🔍 النتائج ({uniqueModelNos.length} موديل)
                       </span>
-                      <span className="text-xs text-gray-500">
-                        اضغط على الموديل لعرض الأصناف
-                      </span>
                     </div>
                     
-                    {/* قائمة الموديلات */}
                     <div className="divide-y divide-gray-100">
                       {uniqueModelNos.map((modelNo) => {
                         const products = groupedSearchResults[modelNo] || []
@@ -612,32 +621,15 @@ export default function NewOrderPage() {
                                   }
                                 </div>
                               </div>
-                              <button
-                                onClick={() => {
-                                  // تحديد كل الأصناف المتاحة
-                                  const newMap: {[key: string]: number} = {}
-                                  products.forEach(p => {
-                                    const isSoldOut = p.status !== 'OPEN' && p.currentStock <= 0
-                                    if (!isSoldOut) {
-                                      newMap[p.id] = 1
-                                    }
-                                  })
-                                  setSelectionMap(newMap)
-                                }}
-                                className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold hover:bg-blue-200"
-                              >
-                                تحديد الكل
-                              </button>
                             </div>
                             
-                            {/* الأصناف (الألوان) */}
                             <div className="space-y-2">
                               {products.map(prod => {
                                 const isSoldOut = prod.status !== 'OPEN' && prod.currentStock <= 0
                                 const availableStock = prod.currentStock
                                 const isLastOne = availableStock === 1 && prod.status === 'CLOSED'
-                                const isSelected = !!selectionMap[prod.id]
-                                const qty = selectionMap[prod.id] || 1
+                                const isSelected = selectionMap.hasOwnProperty(prod.id);
+                                const qty = selectionMap[prod.id];
                                 
                                 return (
                                   <div 
@@ -656,7 +648,8 @@ export default function NewOrderPage() {
                                         className="w-5 h-5" 
                                       />
                                       <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
-                                        <div className={`font-bold ${isLastOne ? 'text-red-700' : ''}`}>
+                                        <div className={`font-bold ${isLastOne ? 'text-red-700' : ''} ${Number(qty) < 0 ? 'text-red-600' : ''}`}>
+                                          {Number(qty) < 0 && <span className="text-xs bg-red-100 text-red-700 px-1 rounded mr-1">مرتجع</span>}
                                           {prod.color}
                                         </div>
                                         <div className="text-xs text-gray-500">
@@ -680,24 +673,34 @@ export default function NewOrderPage() {
                                       </div>
                                     </div>
                                     {isSelected && !isSoldOut && (
-                                      <div className="flex items-center gap-2 bg-white rounded-lg border px-2 py-1 shadow-sm">
+                                      <div className="flex items-center gap-1 bg-white rounded-lg border px-2 py-1 shadow-sm">
                                         <button 
-                                          onClick={() => updateQuantity(prod.id, qty + 1)} 
-                                          className="w-7 h-7 bg-gray-200 rounded font-bold text-sm"
+                                          onClick={() => updateQuantity(prod.id, (Number(qty) || 0) + 1)} 
+                                          className="w-7 h-7 bg-gray-200 rounded font-bold text-sm hover:bg-gray-300"
+                                          title="زيادة"
                                         >
                                           +
                                         </button>
                                         <input 
-                                          type="number" 
-                                          value={qty} 
-                                          onChange={(e) => updateQuantity(prod.id, parseInt(e.target.value) || 1)} 
-                                          className="w-10 text-center font-bold outline-none text-sm" 
+                                          type="number"
+                                          value={qty}
+                                          onChange={(e) => handleQuantityInput(prod.id, e.target.value)}
+                                          className="w-14 text-center font-bold outline-none text-sm border rounded"
+                                          step="1"
                                         />
                                         <button 
-                                          onClick={() => updateQuantity(prod.id, qty - 1)} 
-                                          className="w-7 h-7 bg-gray-200 rounded font-bold text-sm"
+                                          onClick={() => updateQuantity(prod.id, (Number(qty) || 0) - 1)} 
+                                          className="w-7 h-7 bg-gray-200 rounded font-bold text-sm hover:bg-gray-300"
+                                          title="تقليل"
                                         >
                                           -
+                                        </button>
+                                        <button 
+                                          onClick={() => removeProductFromSelection(prod.id)}
+                                          className="w-7 h-7 bg-red-100 text-red-600 rounded font-bold text-sm hover:bg-red-200 mr-1"
+                                          title="حذف من التحديد"
+                                        >
+                                          ✕
                                         </button>
                                       </div>
                                     )}
@@ -710,15 +713,13 @@ export default function NewOrderPage() {
                       })}
                     </div>
                     
-                    {/* زر إضافة للسلة */}
                     <div className="p-3 bg-gray-50 border-t text-center">
                       <button 
                         onClick={handleAddToCart} 
                         disabled={Object.keys(selectionMap).length === 0} 
                         className="w-full bg-black text-white py-3 rounded-lg font-bold disabled:opacity-50 hover:bg-gray-800 transition"
                       >
-                        <span className="md:hidden">إضافة للسلة ({Object.keys(selectionMap).length} صنف) وفتح السكانر</span>
-                        <span className="hidden md:inline">إضافة للسلة ({Object.keys(selectionMap).length} صنف)</span>
+                        إضافة للسلة ({Object.keys(selectionMap).filter(k => typeof selectionMap[k] === 'number' && selectionMap[k] !== 0).length} صنف)
                       </button>
                     </div>
                   </div>
@@ -782,8 +783,10 @@ export default function NewOrderPage() {
                                 {item.variants.map((v:any, i:number) => {
                                     const failedInfo = failedItems.find(f => f.productId === v.productId);
                                     return (
-                                        <span key={i} className={`inline-block px-2 py-1 rounded border mr-1 text-[10px] ${failedInfo ? 'bg-red-200 border-red-400' : 'bg-white'}`}>
+                                        <span key={i} className={`inline-block px-2 py-1 rounded border mr-1 text-[10px] ${ failedInfo ? 'bg-red-200 border-red-400' : v.quantity < 0 ? 'bg-orange-100 border-orange-400 text-orange-800' : 'bg-white' }`}>
+                                            {v.quantity < 0 && <span className="font-bold">↩️</span>}
                                             {v.quantity} ({v.color})
+                                            {v.quantity < 0 && <span className="font-bold text-red-600">مرتجع</span>}
                                             {failedInfo && <span className="font-bold text-red-800"> (متاح: {failedInfo.availableStock})</span>}
                                         </span>
                                     )

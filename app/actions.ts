@@ -297,23 +297,30 @@ export async function createOrder(data: any, userId: string) {
 
         await tx.orderItem.createMany({ data: orderItemsData });
 
-        // 3. Efficiently update product stock
-        // Instead of sending N update commands, we build a single raw SQL query
-        // This is dramatically faster for large orders.
-        const productsToUpdate = products.filter((p) => p.status !== "OPEN");
-        if (productsToUpdate.length > 0) {
-          const caseStatement = productsToUpdate
-            .map(
-              (p) =>
-                `WHEN id = '${p.id}' THEN "currentStock" - ${productQuantities.get(p.id)}`,
-            )
-            .join(" ");
-
-          const idList = productsToUpdate.map((p) => `'${p.id}'`).join(",");
-
-          const query = `UPDATE "Product" SET "currentStock" = CASE ${caseStatement} END WHERE id IN (${idList})`;
-
-          await tx.$executeRawUnsafe(query);
+        // ✅ تحديث المخزون مع دعم الكميات السالبة (مرتجع)
+        for (const item of items) {
+          for (const variant of item.variants) {
+            const qty = variant.quantity;
+            
+            if (qty > 0) {
+              // بيع عادي - خصم من المخزون
+              await tx.product.update({
+                where: { id: variant.productId },
+                data: {
+                  currentStock: { decrement: qty },
+                },
+              });
+            } else if (qty < 0) {
+              // مرتجع - إضافة للمخزون
+              await tx.product.update({
+                where: { id: variant.productId },
+                data: {
+                  currentStock: { increment: Math.abs(qty) },
+                },
+              });
+            }
+            // لو qty === 0، لا تفعل شيئاً
+          }
         }
 
         // إنشاء سند تحصيل لكل split
