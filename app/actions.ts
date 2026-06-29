@@ -1320,3 +1320,159 @@ export async function getCustomerLedger(customerId: string) {
     return { success: false, error: error.message || 'فشل جلب البيانات' };
   }
 }
+// ========================================
+// ملخص اليوم
+// ========================================
+export async function getTodaySummary() {
+  try {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+
+    // 1. أوردرات اليوم
+    const orders = await prisma.order.findMany({
+      where: {
+        createdAt: { gte: today, lt: tomorrow },
+      },
+      include: {
+        customer: true,
+        items: {
+          include: {
+            product: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    // 2. مدفوعات اليوم
+    const payments = await prisma.payment.findMany({
+      where: {
+        createdAt: { gte: today, lt: tomorrow },
+      },
+      include: {
+        safe: true,
+        customer: true,
+        vendor: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    // تجميع الأوردرات حسب العميل
+    const ordersByCustomer: any = {}
+    let totalOrdersAmount = 0
+    let totalOrdersCount = 0
+
+    orders.forEach(order => {
+      const customerName = order.customer?.name || 'عميل نقدي'
+      if (!ordersByCustomer[customerName]) {
+        ordersByCustomer[customerName] = { count: 0, total: 0, orders: [] }
+      }
+      ordersByCustomer[customerName].count += 1
+      ordersByCustomer[customerName].total += order.totalAmount
+      ordersByCustomer[customerName].orders.push({
+        id: order.id,
+        orderNo: order.orderNo,
+        total: order.totalAmount,
+        time: order.createdAt,
+      })
+      totalOrdersAmount += order.totalAmount
+      totalOrdersCount += 1
+    })
+
+    // تجميع المدفوعات حسب الخزنة
+    const paymentsBySafe: any = {}
+    let totalPaymentsIn = 0
+    let totalPaymentsOut = 0
+    let totalPaymentsCollection = 0
+
+    payments.forEach(p => {
+      const safeName = p.safe?.name || 'بدون خزنة'
+      if (!paymentsBySafe[safeName]) {
+        paymentsBySafe[safeName] = { in: 0, out: 0, collection: 0, count: 0 }
+      }
+      paymentsBySafe[safeName].count += 1
+      
+      if (p.type === 'IN') {
+        paymentsBySafe[safeName].in += p.amount
+        totalPaymentsIn += p.amount
+      } else if (p.type === 'OUT') {
+        paymentsBySafe[safeName].out += p.amount
+        totalPaymentsOut += p.amount
+      } else if (p.type === 'PAYMENT_COLLECTION') {
+        paymentsBySafe[safeName].collection += p.amount
+        totalPaymentsCollection += p.amount
+      }
+    })
+
+    // تجميع الأصناف المباعة حسب المورد
+    const productsByVendor: any = {}
+    let totalItemsSold = 0
+    let totalItemsRevenue = 0
+
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        const vendorName = item.product?.vendor || 'غير محدد'
+        const modelNo = item.product?.modelNo || 'غير معروف'
+        const color = item.product?.color || ''
+        const key = `${vendorName}__${modelNo}`
+        
+        if (!productsByVendor[key]) {
+          productsByVendor[key] = {
+            vendor: vendorName,
+            modelNo,
+            color,
+            quantity: 0,
+            revenue: 0,
+            orders: 0,
+          }
+        }
+        productsByVendor[key].quantity += item.quantity
+        productsByVendor[key].revenue += (item.quantity * item.price)
+        productsByVendor[key].orders += 1
+        totalItemsSold += item.quantity
+        totalItemsRevenue += (item.quantity * item.price)
+      })
+    })
+
+    // تجميع حسب المورد فقط
+    const vendorsSummary: any = {}
+    Object.values(productsByVendor).forEach((item: any) => {
+      if (!vendorsSummary[item.vendor]) {
+        vendorsSummary[item.vendor] = { quantity: 0, revenue: 0, models: 0 }
+      }
+      vendorsSummary[item.vendor].quantity += item.quantity
+      vendorsSummary[item.vendor].revenue += item.revenue
+      vendorsSummary[item.vendor].models += 1
+    })
+
+    return {
+      success: true,
+      data: {
+        date: today.toISOString().split('T')[0],
+        orders: {
+          total: totalOrdersAmount,
+          count: totalOrdersCount,
+          byCustomer: ordersByCustomer,
+        },
+        payments: {
+          totalIn: totalPaymentsIn,
+          totalOut: totalPaymentsOut,
+          totalCollection: totalPaymentsCollection,
+          net: totalPaymentsIn + totalPaymentsCollection - totalPaymentsOut,
+          bySafe: paymentsBySafe,
+        },
+        products: {
+          totalQuantity: totalItemsSold,
+          totalRevenue: totalItemsRevenue,
+          byVendor: vendorsSummary,
+          details: productsByVendor,
+        },
+      },
+    }
+  } catch (error: any) {
+    console.error('Error in getTodaySummary:', error)
+    return { success: false, error: error.message }
+  }
+}

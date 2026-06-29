@@ -1,11 +1,51 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getCurrentUser } from "./actions"; 
+import { getCurrentUser, getTodaySummary } from "./actions"; 
 import { authOptions } from "@/auth";
 import NotificationBell from "./admin/NotificationBell";
 import TestOrderButton from "./TestOrderButton";
 import TrialBanner from '@/components/TrialBanner';
+import { prisma } from '@/lib/prisma';
+
+async function TodaySummaryButton() {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
+  const ordersCount = await prisma.order.count({
+    where: { createdAt: { gte: today, lt: tomorrow } },
+  })
+
+  return (
+    <div className="scale-in" style={{ animationDelay: '0.05s' }}>
+      <Link 
+        href="/today-summary" 
+        className="action-card block glass rounded-2xl p-6 text-center group relative overflow-hidden"
+      >
+        <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+        
+        <div className="relative z-10">
+          <div className="bg-gradient-to-br from-amber-500/20 to-orange-500/20 w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300">
+            <span className="text-3xl"></span>
+          </div>
+          <span className="text-white font-bold text-sm md:text-base block">
+            ملخص اليوم
+          </span>
+          <div className="text-gray-400 text-xs mt-1">
+            {ordersCount > 0 ? `${ordersCount} أوردر اليوم` : 'لا توجد أوردرات'}
+          </div>
+          {ordersCount > 0 && (
+            <div className="absolute -top-2 -right-2 bg-orange-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shadow-lg">
+              {ordersCount}
+            </div>
+          )}
+        </div>
+      </Link>
+    </div>
+  )
+}
 
 export default async function Home() {
   const session = await getServerSession(authOptions);
@@ -96,9 +136,14 @@ export default async function Home() {
             </div>
           </div>
         </header>
-
-        {/* Main Actions Grid */}
+        
         <div className="max-w-6xl mx-auto space-y-6">
+          {/* ملخص اليوم - للأدمن والمحاسب فقط */}
+          {isAllowedInAdmin && (
+            <TodaySummaryButton />
+          )}
+
+          {/* Main Actions Grid */}
           
           {/* Primary Action - New Order */}
           <div className="scale-in" style={{ animationDelay: '0.1s' }}>
