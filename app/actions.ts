@@ -696,7 +696,8 @@ export async function getUserOrders(userId: string) {
 // ==========================================
 
 export async function createPayment(data: any, userId: string) {
-  const { type, amount, currency, safeId, targetSafeId, description, customerId, vendorId, isExpense } = data;
+  // ✅ تعديل: استقبال paymentDate
+  const { type, amount, currency, safeId, targetSafeId, description, customerId, vendorId, isExpense, paymentDate } = data;
 
   if (!amount || amount <= 0) {
     return { success: false, error: 'المبلغ يجب أن يكون أكبر من صفر' };
@@ -706,7 +707,6 @@ export async function createPayment(data: any, userId: string) {
     return { success: false, error: 'يجب اختيار الخزنة' };
   }
 
-  // ✅ التحقق حسب النوع
   if (type === 'IN' && !customerId) {
     return { success: false, error: 'يجب اختيار العميل' };
   }
@@ -727,6 +727,8 @@ export async function createPayment(data: any, userId: string) {
         customerId: customerId || null,
         vendorId: vendorId || null,
         userId,
+        // ✅ تعديل: استخدام التاريخ المخصص أو الحالي
+        createdAt: paymentDate ? new Date(paymentDate + 'T12:00:00') : new Date(),
       },
     });
 

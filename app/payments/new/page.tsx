@@ -45,6 +45,9 @@ export default function CashManagementPage() {
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('EGP'); 
   const [description, setDescription] = useState('');
+  
+  // ✅ تعديل 1: إضافة state التاريخ (أضف هذا السطر بعد description)
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
 
   // حالات الخزينة
   const [selectedSafeId, setSelectedSafeId] = useState('');       
@@ -193,6 +196,7 @@ export default function CashManagementPage() {
       }
     }
 
+    // ✅ تعديل 3: تمرير paymentDate في createPayment
     const res = await createPayment({
         type: activeTab,
         customerId: activeTab === 'IN' ? selectedCustomerId : undefined,
@@ -203,6 +207,7 @@ export default function CashManagementPage() {
         targetSafeId: activeTab === 'TRANSFER' ? targetSafeId : undefined,
         description: finalDescription,
         isExpense: activeTab === 'OUT' && payoutType === 'EXPENSE',
+        paymentDate: paymentDate,
     }, session?.user?.image as string);
 
     if (res.success) { 
@@ -210,6 +215,7 @@ export default function CashManagementPage() {
       // إعادة تعيين النموذج
       setAmount('');
       setDescription('');
+      setPaymentDate(new Date().toISOString().split('T')[0]);
       if (activeTab === 'IN') {
         setSelectedCustomerId('');
         setCustomerSearchTerm('');
@@ -484,6 +490,18 @@ export default function CashManagementPage() {
                     </div>
                   </div>
                 )}
+
+                {/* ✅ تعديل 2: إضافة حقل التاريخ - ضع هذا القسم قبل المبلغ والعملة */}
+                <div>
+                    <label className="block text-gray-500 text-sm mb-1 font-bold">📅 التاريخ</label>
+                    <input 
+                      type="date" 
+                      value={paymentDate} 
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                      max={new Date().toISOString().split('T')[0]}
+                      className="w-full p-3 border-2 rounded-lg bg-gray-50 text-lg font-bold outline-none focus:border-blue-500" 
+                    />
+                </div>
 
                 {/* ✅ المبلغ والعملة - مشترك */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
