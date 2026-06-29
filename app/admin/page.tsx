@@ -14,12 +14,13 @@ export default function AdminDashboard() {
 
   const menuItems = [
     { id: 'orders', title: 'الأوردرات', icon: '🛒', color: 'from-blue-500 to-blue-700', href: '/orders/new' },
-    { id: 'cash', title: 'النقدية', icon: '💰', color: 'from-green-500 to-green-700', href: '/admin/cash-management' },
+    { id: 'cash', title: 'النقدية', icon: '💰', color: 'from-green-500 to-green-700', href: '/payments/new' },
     { id: 'inventory', title: 'المخزون', icon: '📦', color: 'from-purple-500 to-purple-700', href: '/admin/products' },
-    { id: 'customers', title: 'العملاء', icon: '👥', color: 'from-orange-500 to-orange-700', href: '/admin/customers' },
+    { id: 'customers', title: 'العملاء', icon: '', color: 'from-orange-500 to-orange-700', href: '/admin/customers' },
+    { id: 'vendors', title: 'الموردين', icon: '🏪', color: 'from-pink-500 to-rose-700', href: '/admin/vendors' },
     { id: 'reports', title: 'التقارير', icon: '📊', color: 'from-cyan-500 to-cyan-700', href: '/admin/reports' },
     { id: 'returns', title: 'المرتجعات', icon: '↩️', color: 'from-red-500 to-red-700', href: '/admin/returns' },
-    { id: 'users', title: 'الموظفين', icon: '👔', color: 'from-pink-500 to-pink-700', href: '/admin/users' },
+    { id: 'users', title: 'الموظفين', icon: '👔', color: 'from-indigo-500 to-indigo-700', href: '/admin/users' },
     { id: 'settings', title: 'الإعدادات', icon: '⚙️', color: 'from-gray-500 to-gray-700', href: '/admin/settings' },
   ]
 
@@ -33,7 +34,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-900 w-full" dir="rtl">
-      {/* Header */}
       <header className="bg-slate-800 border-b border-slate-700 p-4">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-4">
@@ -56,7 +56,6 @@ export default function AdminDashboard() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="w-full px-4 md:px-8 py-12">
         <div className="text-center mb-12">
           <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">
@@ -67,10 +66,7 @@ export default function AdminDashboard() {
           </p>
         </div>
 
-        {/* Radial Layout - Desktop */}
         <div className="hidden md:block relative mx-auto" style={{ height: '750px', maxWidth: '900px' }}>
-          
-          {/* Center Circle */}
           <div 
             className="absolute top-1/2 left-1/2 z-10"
             style={{ transform: 'translate(-50%, -50%)' }}
@@ -83,7 +79,6 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Orbital Circles */}
           {menuItems.map((item, index) => {
             const angle = (index * (360 / menuItems.length)) * (Math.PI / 180)
             const radius = 320
@@ -132,7 +127,6 @@ export default function AdminDashboard() {
           })}
         </div>
 
-        {/* Mobile View - Grid */}
         <div className="md:hidden grid grid-cols-2 gap-4 max-w-2xl mx-auto">
           {menuItems.map((item, index) => (
             <button

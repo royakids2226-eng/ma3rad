@@ -35,6 +35,9 @@ model User {
   payments  Payment[]
   returns   ReturnOrder[]
   createdAt DateTime  @default(now())
+  
+  // ✅ علاقة جديدة: حركات الموردين
+  vendorTransactions VendorTransaction[]
 }
 
 model Customer {
@@ -49,11 +52,59 @@ model Customer {
   payments  Payment[]
 }
 
+// ========================================
+// ✅ نموذج الموردين (جديد)
+// ========================================
+
+model Vendor {
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  phone       String?
+  phone2      String?
+  address     String?
+  notes       String?
+  source      String   @default("MANUAL") // MANUAL, IMPORT
+  
+  // العلاقات
+  products    Product[]                    // المنتجات المرتبطة بالمورد
+  payments    Payment[]                    // سندات الدفع للمورد
+  transactions VendorTransaction[]        // حركات المورد (دفتر الأستاذ)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ========================================
+// ✅ حركات المورد - دفتر الأستاذ (جديد)
+// ========================================
+
+model VendorTransaction {
+  id          String   @id @default(cuid())
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+  
+  type        String   // PURCHASE (استلام بضاعة), PAYMENT (دفع), RETURN (مرتجع للمورد)
+  amount      Float
+  description String?
+  reference   String?  // رقم الفاتورة أو السند
+  
+  // ربط اختياري بالمنتج
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id])
+  quantity    Int?
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  createdAt   DateTime @default(now())
+}
+
 model Product {
   id               String      @id @default(cuid())
   modelNo          String
   description      String?
-  vendor           String?
+  vendor           String?     // ⚠️ حقل قديم (نصي) - احتفظنا به للتوافق
   color            String
   stockQty         Int         @default(0)
   currentStock     Int         @default(0)
@@ -68,6 +119,11 @@ model Product {
   syncRecords      SyncRecord[]
   returnItems      ReturnItem[] @relation("ReturnProduct")
   exchangedItems   ReturnItem[] @relation("ExchangedProduct")
+
+  // ✅ علاقات جديدة للموردين
+  vendorId         String?
+  vendorRef        Vendor?     @relation(fields: [vendorId], references: [id])
+  vendorTransactions VendorTransaction[]
 
   @@unique([modelNo, color])
 }
@@ -121,8 +177,6 @@ model OrderItem {
   isPostponed     Boolean @default(false)
 
   logs            FulfillmentLog[]
-  
-  // ✅ أضف العلاقة دي
   returnItems     ReturnItem[]
 }
 
@@ -144,7 +198,7 @@ model Payment {
   amount       Float
   currency     String   @default("EGP") 
 
-  type         String   @default("IN") // القيم الممكنة: IN, OUT, PAYMENT_COLLECTION, REFUND, TRANSFER, VOUCHER
+  type         String   @default("IN") // القيم الممكنة: IN, OUT, PAYMENT_COLLECTION, REFUND, TRANSFER, VOUCHER, VENDOR_PAYMENT
   description  String?  
 
   customerId   String?  
@@ -158,6 +212,10 @@ model Payment {
 
   targetSafeId String?  
   targetSafe   Safe?    @relation("TargetSafe", fields: [targetSafeId], references: [id])
+  
+  // ✅ علاقة جديدة: الدفع للمورد
+  vendorId     String?
+  vendor       Vendor?  @relation(fields: [vendorId], references: [id])
 }
 
 // ==================== نظام المرتجعات ====================

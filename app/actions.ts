@@ -696,32 +696,44 @@ export async function getUserOrders(userId: string) {
 // ==========================================
 
 export async function createPayment(data: any, userId: string) {
-  const {
-    type,
-    amount,
-    currency,
-    safeId,
-    customerId,
-    targetSafeId,
-    description,
-  } = data;
+  const { type, amount, currency, safeId, targetSafeId, description, customerId, vendorId, isExpense } = data;
+
+  if (!amount || amount <= 0) {
+    return { success: false, error: 'المبلغ يجب أن يكون أكبر من صفر' };
+  }
+
+  if (!safeId) {
+    return { success: false, error: 'يجب اختيار الخزنة' };
+  }
+
+  // ✅ التحقق حسب النوع
+  if (type === 'IN' && !customerId) {
+    return { success: false, error: 'يجب اختيار العميل' };
+  }
+
+  if (type === 'OUT' && !customerId && !vendorId && !isExpense) {
+    return { success: false, error: 'يجب تحديد الجهة (مورد أو مصروفات)' };
+  }
+
   try {
-    await prisma.payment.create({
+    const payment = await prisma.payment.create({
       data: {
         type,
         amount: parseFloat(amount),
-        currency: currency || "EGP",
+        currency: currency || 'EGP',
         safeId,
-        userId,
-        customerId: customerId || null,
         targetSafeId: targetSafeId || null,
-        description: description || "",
+        description: description || null,
+        customerId: customerId || null,
+        vendorId: vendorId || null,
+        userId,
       },
     });
-    revalidatePath("/");
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: "فشل العملية" };
+
+    return { success: true, payment };
+  } catch (error: any) {
+    console.error('Error creating payment:', error);
+    return { success: false, error: error.message };
   }
 }
 
