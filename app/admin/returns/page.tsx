@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react';
-import { getReturnOrders, getReturnById } from '@/app/actions';
+import { getReturnOrders, getReturnById, cancelReturnOrder } from '@/app/actions';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
 
 export default function ReturnsListPage() {
   const [returns, setReturns] = useState<any[]>([]);
@@ -20,6 +21,18 @@ export default function ReturnsListPage() {
     if (data) {
       setSelectedReturn(data);
       setTimeout(() => window.print(), 300);
+    }
+  };
+
+  const handleCancel = async (returnId: string, returnNo: number) => {
+    if (window.confirm(`هل أنت متأكد أنك تريد إلغاء المرتجع رقم #${returnNo}؟ سيتم التراجع عن كل حركات المخزون والنقدية.`)) {
+      const result = await cancelReturnOrder(returnId);
+      if (result.success) {
+        toast.success(`تم إلغاء المرتجع #${returnNo} بنجاح.`);
+        setReturns(returns.map(r => r.id === returnId ? { ...r, status: 'CANCELLED' } : r));
+      } else {
+        toast.error(result.error || 'فشل إلغاء المرتجع.');
+      }
     }
   };
 
@@ -71,16 +84,20 @@ export default function ReturnsListPage() {
             </thead>
             <tbody>
               {returns.map((ret: any) => (
-                <tr key={ret.id} className="border-b hover:bg-gray-50">
+                <tr key={ret.id} className={`border-b hover:bg-gray-50 ${ret.status === 'CANCELLED' ? 'bg-red-50 opacity-60' : ''}`}>
                   <td className="p-3 font-bold">#{ret.returnNo}</td>
                   <td className="p-3">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${
-                      ret.type === 'FULL' ? 'bg-red-100 text-red-700' :
-                      ret.type === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-blue-100 text-blue-700'
-                    }`}>
-                      {ret.type === 'FULL' ? '🔴 كامل' : ret.type === 'PARTIAL' ? '🟡 جزئي' : '🔵 استبدال'}
-                    </span>
+                    {ret.status === 'CANCELLED' ? (
+                       <span className='px-2 py-1 rounded text-xs font-bold bg-gray-400 text-white'>ملغي</span>
+                    ) : (
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                          ret.type === 'FULL' ? 'bg-red-100 text-red-700' :
+                          ret.type === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-blue-100 text-blue-700'
+                        }`}>
+                          {ret.type === 'FULL' ? '🔴 كامل' : ret.type === 'PARTIAL' ? '🟡 جزئي' : '🔵 استبدال'}
+                        </span>
+                    )}
                   </td>
                   <td className="p-3">
                     <Link href={`/orders/${ret.originalOrderId}/edit`} className="text-blue-600 underline">
@@ -105,12 +122,23 @@ export default function ReturnsListPage() {
                   <td className="p-3 text-sm">
                     {new Date(ret.createdAt).toLocaleDateString('ar-EG')}
                   </td>
-                  <td className="p-3">
+                  <td className="p-3 flex gap-2">
                     <button
                       onClick={() => handlePrint(ret.id)}
-                      className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-xs font-bold hover:bg-blue-200"
+                      className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold hover:bg-blue-200 disabled:opacity-50"
+                      disabled={ret.status === 'CANCELLED'}
                     >
-                      🖨️ طباعة
+                      🖨️
+                    </button>
+                    <Link href={`/admin/returns/${ret.id}/edit`}>
+                       <button className="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-bold hover:bg-yellow-200 disabled:opacity-50" disabled={ret.status === 'CANCELLED'}>✏️</button>
+                    </Link>
+                    <button
+                      onClick={() => handleCancel(ret.id, ret.returnNo)}
+                      className="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-bold hover:bg-red-200 disabled:opacity-50"
+                      disabled={ret.status === 'CANCELLED'}
+                    >
+                      🗑️
                     </button>
                   </td>
                 </tr>

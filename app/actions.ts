@@ -1150,6 +1150,151 @@ export async function cancelReturnOrder(returnId: string) {
     };
   }
 }
+
+export async function updateReturnOrder(returnId: string, data: { reason?: string; notes?: string; items?: any[] }) {
+    try {
+        const { reason, notes, items: newItems } = data;
+
+        if (!returnId) {
+            return { success: false, error: "لم يتم تحديد المرتجع" };
+        }
+
+        return await prisma.$transaction(async (tx) => {
+            // Step 1: Get the current state of the return order from DB
+            const returnOrder = await tx.returnOrder.findUnique({
+                where: { id: returnId },
+                include: { 
+                    items: { include: { product: true } }, 
+                    originalOrder: true 
+                },
+            });
+
+            if (!returnOrder) throw new Error("لم يتم العثور على المرتجع.");
+            if (returnOrder.status === 'CANCELLED') throw new Error("لا يمكن تعديل مرتجع ملغي.");
+            if (returnOrder.type === 'EXCHANGE') throw new Error("تعديل مرتجعات الاستبدال غير مدعوم حالياً.");
+
+            const oldItemsMap = new Map(returnOrder.items.map(item => [item.id, item]));
+            const newItemsFromClient = newItems || [];
+            let finalTotalRefund = 0;
+
+            // Step 2: Handle Deletions
+            const newItemIds = new Set(newItemsFromClient.map(i => i.id).filter(id => id && !id.startsWith('new-')));
+            const itemsToDelete = returnOrder.items.filter(oldItem => !newItemIds.has(oldItem.id));
+
+            for (const item of itemsToDelete) {
+                await tx.product.update({
+                    where: { id: item.productId },
+                    data: { currentStock: { decrement: item.quantity } },
+                });
+                await tx.returnItem.delete({ where: { id: item.id } });
+            }
+
+            // Step 3: Handle Additions and Updates
+            for (const newItem of newItemsFromClient) {
+                const originalOrderItem = await tx.orderItem.findUnique({ 
+                    where: { id: newItem.orderItemId },
+                    include: { product: true }
+                });
+
+                if (!originalOrderItem) throw new Error(`الصنف الأصلي بالمعرف ${newItem.orderItemId} غير موجود في الفاتورة الأصلية.`);
+                if (newItem.quantity > originalOrderItem.quantity) {
+                    throw new Error(`كمية الصنف ${originalOrderItem.product.modelNo} تتجاوز الكمية المشتراة (${originalOrderItem.quantity}).`);
+                }
+                
+                const refundAmountForItem = newItem.quantity * originalOrderItem.price;
+
+                if (newItem.id && !newItem.id.startsWith('new-')) { // UPDATE existing item
+                    const oldItem = oldItemsMap.get(newItem.id);
+                    if (!oldItem) throw new Error(`الصنف المراد تحديثه ${newItem.id} غير موجود.`);
+
+                    const quantityDifference = newItem.quantity - oldItem.quantity;
+                    
+                    if (quantityDifference !== 0) {
+                        await tx.product.update({
+                            where: { id: oldItem.productId },
+                            data: { currentStock: { increment: quantityDifference } },
+                        });
+                    }
+                    
+                    await tx.returnItem.update({ 
+                        where: { id: oldItem.id },
+                        data: { 
+                            quantity: newItem.quantity, 
+                            refundAmount: refundAmountForItem
+                        }
+                    });
+
+                } else { // ADD new item to the return
+                    await tx.product.update({
+                        where: { id: originalOrderItem.productId },
+                        data: { currentStock: { increment: newItem.quantity } },
+                    });
+
+                    await tx.returnItem.create({
+                        data: {
+                            returnOrderId: returnId,
+                            orderItemId: newItem.orderItemId,
+                            productId: originalOrderItem.productId,
+                            quantity: newItem.quantity,
+                            unitPrice: originalOrderItem.price,
+                            refundAmount: refundAmountForItem,
+                        }
+                    });
+                }
+                finalTotalRefund += refundAmountForItem;
+            }
+
+            // Step 4: Update the parent ReturnOrder with new total, reason, and notes
+            await tx.returnOrder.update({
+                where: { id: returnId },
+                data: {
+                    reason: reason,
+                    notes: notes,
+                    totalRefund: finalTotalRefund,
+                },
+            });
+
+            // Step 5: Create, Update, or Delete the associated Cash Payment
+            const paymentDescription = `استرداد مرتجع #${returnOrder.returnNo} للأوردر #${returnOrder.originalOrder.orderNo}`;
+            const existingPayment = await tx.payment.findFirst({ where: { description: paymentDescription, type: 'OUT' } });
+
+            if (finalTotalRefund > 0) {
+                 if (existingPayment) {
+                    await tx.payment.update({ 
+                        where: { id: existingPayment.id },
+                        data: { amount: finalTotalRefund }
+                    });
+                 } else if (returnOrder.safeId) { 
+                      await tx.payment.create({
+                        data: {
+                            type: 'OUT',
+                            amount: finalTotalRefund,
+                            currency: returnOrder.originalOrder.currency || 'EGP',
+                            safeId: returnOrder.safeId,
+                            userId: returnOrder.userId,
+                            customerId: returnOrder.originalOrder.customerId,
+                            description: paymentDescription,
+                        },
+                    });
+                 }
+            } else if (existingPayment) {
+                await tx.payment.delete({ where: { id: existingPayment.id } });
+            }
+
+            return { success: true };
+        });
+
+    } catch (error: any) {
+        console.error("Error updating return order:", error);
+        return { success: false, error: error.message || "فشل تحديث المرتجع" };
+    } finally {
+        revalidatePath(`/admin/returns`);
+        revalidatePath(`/admin/returns/${returnId}/edit`);
+        revalidatePath(`/admin/products`);
+        revalidatePath(`/admin/cash-management`);
+    }
+}
+
 // ==========================================
 // 6. تقرير دفتر الأستاذ للعميل
 // ==========================================
@@ -1345,154 +1490,167 @@ export async function getCustomerLedger(customerId: string) {
 // ========================================
 export async function getTodaySummary() {
   try {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // 1. أوردرات اليوم
-    const orders = await prisma.order.findMany({
-      where: {
-        createdAt: { gte: today, lt: tomorrow },
-      },
-      include: {
-        customer: true,
-        items: {
-          include: {
-            product: true,
-          },
+    // 1. Fetch today's data in parallel
+    const [orders, payments, returns] = await Promise.all([
+      prisma.order.findMany({
+        where: { createdAt: { gte: today, lt: tomorrow } },
+        include: {
+          customer: true,
+          items: { include: { product: true } },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.payment.findMany({
+        where: { createdAt: { gte: today, lt: tomorrow } },
+        include: { safe: true, customer: true, vendor: true },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.returnOrder.findMany({
+        where: {
+          createdAt: { gte: today, lt: tomorrow },
+          status: "COMPLETED",
+        },
+        include: {
+          originalOrder: { include: { customer: true } },
+          items: true,
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
 
-    // 2. مدفوعات اليوم
-    const payments = await prisma.payment.findMany({
-      where: {
-        createdAt: { gte: today, lt: tomorrow },
-      },
-      include: {
-        safe: true,
-        customer: true,
-        vendor: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    })
-
-    // تجميع الأوردرات حسب العميل
-    const ordersByCustomer: any = {}
-    let totalOrdersAmount = 0
-    let totalOrdersCount = 0
-
-    orders.forEach(order => {
-      const customerName = order.customer?.name || 'عميل نقدي'
+    // 2. Process Orders
+    const ordersByCustomer: any = {};
+    const totalOrdersAmount = orders.reduce((sum, order) => {
+      const customerName = order.customer?.name || "عميل نقدي";
       if (!ordersByCustomer[customerName]) {
-        ordersByCustomer[customerName] = { count: 0, total: 0, orders: [] }
+        ordersByCustomer[customerName] = { count: 0, total: 0, orders: [] };
       }
-      ordersByCustomer[customerName].count += 1
-      ordersByCustomer[customerName].total += order.totalAmount
+      ordersByCustomer[customerName].count += 1;
+      ordersByCustomer[customerName].total += order.totalAmount;
       ordersByCustomer[customerName].orders.push({
         id: order.id,
         orderNo: order.orderNo,
         total: order.totalAmount,
         time: order.createdAt,
-      })
-      totalOrdersAmount += order.totalAmount
-      totalOrdersCount += 1
-    })
+      });
+      return sum + order.totalAmount;
+    }, 0);
 
-    // تجميع المدفوعات حسب الخزنة
-    const paymentsBySafe: any = {}
-    let totalPaymentsIn = 0
-    let totalPaymentsOut = 0
-    let totalPaymentsCollection = 0
+    // 3. Process Payments (including refunds)
+    const paymentsBySafe: any = {};
+    let totalPaymentsIn = 0;
+    let totalPaymentsOut_General = 0;
+    let totalPaymentsOut_Refunds = 0;
+    let totalPaymentsCollection = 0;
 
-    payments.forEach(p => {
-      const safeName = p.safe?.name || 'بدون خزنة'
+    payments.forEach((p) => {
+      const safeName = p.safe?.name || "بدون خزنة";
       if (!paymentsBySafe[safeName]) {
-        paymentsBySafe[safeName] = { in: 0, out: 0, collection: 0, count: 0 }
+        paymentsBySafe[safeName] = { in: 0, out: 0, collection: 0, refund: 0, count: 0 };
       }
-      paymentsBySafe[safeName].count += 1
-      
-      if (p.type === 'IN') {
-        paymentsBySafe[safeName].in += p.amount
-        totalPaymentsIn += p.amount
-      } else if (p.type === 'OUT') {
-        paymentsBySafe[safeName].out += p.amount
-        totalPaymentsOut += p.amount
-      } else if (p.type === 'PAYMENT_COLLECTION') {
-        paymentsBySafe[safeName].collection += p.amount
-        totalPaymentsCollection += p.amount
-      }
-    })
+      paymentsBySafe[safeName].count += 1;
 
-    // تجميع الأصناف المباعة حسب المورد
-    const productsByVendor: any = {}
-    let totalItemsSold = 0
-    let totalItemsRevenue = 0
-
-    orders.forEach(order => {
-      order.items.forEach(item => {
-        const vendorName = item.product?.vendor || 'غير محدد'
-        const modelNo = item.product?.modelNo || 'غير معروف'
-        const color = item.product?.color || ''
-        const key = `${vendorName}__${modelNo}`
-        
-        if (!productsByVendor[key]) {
-          productsByVendor[key] = {
-            vendor: vendorName,
-            modelNo,
-            color,
-            quantity: 0,
-            revenue: 0,
-            orders: 0,
-          }
+      if (p.type === "IN") {
+        paymentsBySafe[safeName].in += p.amount;
+        totalPaymentsIn += p.amount;
+      } else if (p.type === "OUT") {
+        if (p.description?.includes("استرداد")) {
+          paymentsBySafe[safeName].refund += p.amount;
+          totalPaymentsOut_Refunds += p.amount;
+        } else {
+          paymentsBySafe[safeName].out += p.amount;
+          totalPaymentsOut_General += p.amount;
         }
-        productsByVendor[key].quantity += item.quantity
-        productsByVendor[key].revenue += (item.quantity * item.price)
-        productsByVendor[key].orders += 1
-        totalItemsSold += item.quantity
-        totalItemsRevenue += (item.quantity * item.price)
-      })
-    })
-
-    // تجميع حسب المورد فقط
-    const vendorsSummary: any = {}
-    Object.values(productsByVendor).forEach((item: any) => {
-      if (!vendorsSummary[item.vendor]) {
-        vendorsSummary[item.vendor] = { quantity: 0, revenue: 0, models: 0 }
+      } else if (p.type === "PAYMENT_COLLECTION") {
+        paymentsBySafe[safeName].collection += p.amount;
+        totalPaymentsCollection += p.amount;
       }
-      vendorsSummary[item.vendor].quantity += item.quantity
-      vendorsSummary[item.vendor].revenue += item.revenue
-      vendorsSummary[item.vendor].models += 1
-    })
+    });
+
+    // 4. Process Returns
+    const returnsByCustomer: any = {};
+    const totalItemsReturnedValue = returns.reduce((sum, ret) => {
+      const customerName = ret.originalOrder.customer?.name || "عميل نقدي";
+      if (!returnsByCustomer[customerName]) {
+        returnsByCustomer[customerName] = { count: 0, totalValue: 0, returns: [] };
+      }
+      const returnValue = ret.items.reduce((s, i) => s + i.refundAmount, 0);
+      returnsByCustomer[customerName].count += 1;
+      returnsByCustomer[customerName].totalValue += returnValue;
+      returnsByCustomer[customerName].returns.push({
+        id: ret.id,
+        returnNo: ret.returnNo,
+        value: returnValue,
+        type: ret.type,
+        time: ret.createdAt,
+      });
+      return sum + returnValue;
+    }, 0);
+
+    // 5. Process Sold Products
+    const productsByVendor: any = {};
+    const totalItemsSold = orders.reduce((sum, order) => {
+        order.items.forEach((item) => {
+            const vendorName = item.product?.vendor || "غير محدد";
+            const key = vendorName;
+            if (!productsByVendor[key]) {
+                productsByVendor[key] = { quantity: 0, revenue: 0, models: new Set() };
+            }
+            productsByVendor[key].quantity += item.quantity;
+            productsByVendor[key].revenue += item.quantity * item.price;
+            productsByVendor[key].models.add(item.product.modelNo);
+        });
+        return sum + order.items.reduce((s, i) => s + i.quantity, 0);
+    }, 0);
+
+    const vendorsSummary = Object.entries(productsByVendor).map(([vendor, data]: [string, any]) => ({
+        vendor,
+        quantity: data.quantity,
+        revenue: data.revenue,
+        models: data.models.size,
+    }));
+
+    // 6. Final Calculations
+    const netCash = totalPaymentsIn + totalPaymentsCollection - (totalPaymentsOut_General + totalPaymentsOut_Refunds);
+    const totalRevenue = totalOrdersAmount - totalItemsReturnedValue;
 
     return {
       success: true,
       data: {
-        date: today.toISOString().split('T')[0],
+        date: today.toISOString().split("T")[0],
         orders: {
           total: totalOrdersAmount,
-          count: totalOrdersCount,
+          count: orders.length,
           byCustomer: ordersByCustomer,
+        },
+        returns: {
+          totalValue: totalItemsReturnedValue,
+          totalCashRefund: totalPaymentsOut_Refunds,
+          count: returns.length,
+          byCustomer: returnsByCustomer,
         },
         payments: {
           totalIn: totalPaymentsIn,
-          totalOut: totalPaymentsOut,
+          totalOut: totalPaymentsOut_General,
+          totalOutRefunds: totalPaymentsOut_Refunds,
           totalCollection: totalPaymentsCollection,
-          net: totalPaymentsIn + totalPaymentsCollection - totalPaymentsOut,
+          net: netCash,
           bySafe: paymentsBySafe,
         },
         products: {
           totalQuantity: totalItemsSold,
-          totalRevenue: totalItemsRevenue,
+          totalRevenue: totalRevenue, // Net revenue
           byVendor: vendorsSummary,
-          details: productsByVendor,
         },
       },
-    }
+    };
   } catch (error: any) {
-    console.error('Error in getTodaySummary:', error)
-    return { success: false, error: error.message }
+    console.error("Error in getTodaySummary:", error);
+    return { success: false, error: error.message };
   }
 }
