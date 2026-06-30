@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 // معامل التحويل (عدد القطع في الدزينة أو الوحدة)
-const PIECES_PER_UNIT = 4;
+const PIECES_PER_UNIT = 1;
 
 // ==========================================
 // 0. إدارة الإعدادات (Settings) - تم النقل هنا
@@ -127,14 +127,12 @@ export async function getProductsForSearch() {
       orderBy: { modelNo: "asc" },
     });
 
-    const PIECES_PER_UNIT = 4; // التأكد من نفس المعامل
-
     const logicalProducts = products.map((p) => {
       const initialPieces = p.stockQty || 0;
 
       // حساب إجمالي القطع المباعة
       const totalSoldPieces = p.orderItems.reduce((acc, item) => {
-        return acc + (item.quantity || 0) * PIECES_PER_UNIT;
+        return acc + (item.quantity || 0);
       }, 0);
 
       // الرصيد الفعلي بالقطع
@@ -211,14 +209,14 @@ export async function getAdminStockAlerts() {
 export async function createOrder(data: any, userId: string) {
   const { customerId, items, total, deposit, depositSplits, voucherAmount, currency, notes } = data;
 
-  // التحقق من الـ splits لو فيه عربون
-  if (deposit > 0) {
+  // التحقق من الـ splits لو فيه عربون أو مرتجع
+  if (deposit !== 0) {
     if (!depositSplits || depositSplits.length === 0) {
-      return { success: false, error: 'عند وجود دفعة مقدمة، يجب تحديد الخزنة.' };
+      return { success: false, error: 'عند وجود حركة نقدية، يجب تحديد الخزنة.' };
     }
     const splitsTotal = depositSplits.reduce((sum: number, s: any) => sum + (parseFloat(s.amount) || 0), 0);
     if (Math.abs(splitsTotal - deposit) > 0.01) {
-      return { success: false, error: 'مجموع تقسيمات العربون لا يساوي قيمة العربون.' };
+      return { success: false, error: 'مجموع تقسيمات المبلغ لا يساوي القيمة الإجمالية للحركة النقدية.' };
     }
   }
 
@@ -282,7 +280,7 @@ export async function createOrder(data: any, userId: string) {
             deposit: deposit || 0,
             currency: currency || "EGP",
             notes: notes,
-            safeId: (deposit > 0 && depositSplits && depositSplits.length > 0) ? depositSplits[0].safeId : null,
+            safeId: null, // تم إزالة المنطق الخاطئ من هنا
           },
           include: { customer: true },
         });
@@ -323,19 +321,34 @@ export async function createOrder(data: any, userId: string) {
           }
         }
 
-        // إنشاء سند تحصيل لكل split
-        if (deposit > 0 && depositSplits && depositSplits.length > 0) {
+        // إنشاء سندات الدفع/الاسترداد لكل split
+        if (deposit !== 0 && depositSplits && depositSplits.length > 0) {
           for (const split of depositSplits) {
-            if (split.amount > 0) {
+            const splitAmount = parseFloat(split.amount) || 0;
+            if (splitAmount === 0) continue;
+
+            if (splitAmount > 0) {
               await tx.payment.create({
                 data: {
                   type: 'PAYMENT_COLLECTION',
-                  amount: parseFloat(split.amount),
+                  amount: splitAmount,
                   currency: currency || 'EGP',
                   safeId: split.safeId,
                   userId: userId,
                   customerId: customerId,
                   description: `تحصيل دفعة للأوردر رقم #${order.orderNo} للعميل: ${order.customer.name}`,
+                },
+              });
+            } else { // splitAmount < 0
+              await tx.payment.create({
+                data: {
+                  type: 'OUT',
+                  amount: Math.abs(splitAmount),
+                  currency: currency || 'EGP',
+                  safeId: split.safeId,
+                  userId: userId,
+                  customerId: customerId,
+                  description: `مرتجع نقدي للأوردر رقم #${order.orderNo} للعميل: ${order.customer.name}`,
                 },
               });
             }

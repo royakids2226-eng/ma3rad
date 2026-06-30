@@ -1,4 +1,5 @@
 'use client'
+
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { getCustomers, getProductsForSearch, createOrder, getSafes, searchCustomers, checkCustomerPhone } from '@/app/actions';
 import { addCustomer } from '@/app/admin-actions'; 
@@ -68,29 +69,22 @@ export default function NewOrderPage() {
   const handleDepositChange = (value: string) => {
     setDeposit(value);
     const depositVal = parseFloat(value) || 0;
-    
-    if (depositVal > 0) {
-      if (depositSplits.length === 0 && safes.length > 0) {
-        const mainSafe = safes.find(s => s.name === 'الخزنة الرئيسية') || safes[0];
-        setDepositSplits([{ safeId: mainSafe.id, amount: depositVal }]);
-      } 
-      else if (depositSplits.length === 1) {
-        const newSplits = [...depositSplits];
-        newSplits[0] = { ...newSplits[0], amount: depositVal };
-        setDepositSplits(newSplits);
-      }
-      else if (depositSplits.length > 1) {
-        const otherSplitsTotal = depositSplits.slice(1).reduce((sum, s) => sum + (s.amount || 0), 0);
-        const remainingForFirst = depositVal - otherSplitsTotal;
-        const newSplits = [...depositSplits];
-        newSplits[0] = { ...newSplits[0], amount: Math.max(0, remainingForFirst) };
-        setDepositSplits(newSplits);
-      }
+
+    if (depositVal !== 0) {
+        if (depositSplits.length === 0 && safes.length > 0) {
+            const mainSafe = safes.find(s => s.name === 'الخزنة الرئيسية') || safes[0];
+            setDepositSplits([{ safeId: mainSafe.id, amount: depositVal }]);
+        } else if (depositSplits.length === 1) {
+            setDepositSplits(splits => [{ ...splits[0], amount: depositVal }]);
+        } else {
+            const otherSplitsTotal = depositSplits.slice(1).reduce((sum, s) => sum + (s.amount || 0), 0);
+            const remainingForFirst = depositVal - otherSplitsTotal;
+            setDepositSplits(splits => [{ ...splits[0], amount: remainingForFirst }, ...splits.slice(1)]);
+        }
     } else {
-      if (depositSplits.length > 0) {
-        const newSplits = depositSplits.map(s => ({ ...s, amount: 0 }));
-        setDepositSplits(newSplits);
-      }
+        if (depositSplits.length > 0) {
+            setDepositSplits(splits => splits.map(s => ({ ...s, amount: 0 })));
+        }
     }
   };
 
@@ -250,6 +244,9 @@ export default function NewOrderPage() {
       return;
     }
     const num = parseInt(value, 10);
+    if (isNaN(num)) {
+        return; 
+    }
     updateQuantity(productId, num);
   };
 
@@ -264,7 +261,7 @@ export default function NewOrderPage() {
       const product = selectedProducts.find(p => p.id === productId);
       if (product) {
         if (!groupedByModel[product.modelNo]) groupedByModel[product.modelNo] = [];
-        groupedByModel[product.modelNo].push({ ...product, qty: qty });
+        groupedByModel[product.modelNo].push({ ...product, qty: qty as number });
       }
     });
 
@@ -287,9 +284,15 @@ export default function NewOrderPage() {
               }
           });
 
-          const finalVariants = Object.values(variantsMap);
-          const totalQty = finalVariants.reduce((sum: number, v: any) => sum + v.quantity, 0);
-          updatedCart[existingItemIndex] = { ...existingItem, totalQty: totalQty, variants: finalVariants };
+          const finalVariants = Object.values(variantsMap).filter((v: any) => v.quantity !== 0);
+          
+          if (finalVariants.length === 0) {
+              updatedCart.splice(existingItemIndex, 1);
+          } else {
+              const totalQty = finalVariants.reduce((sum: number, v: any) => sum + v.quantity, 0);
+              updatedCart[existingItemIndex] = { ...existingItem, totalQty: totalQty, variants: finalVariants };
+          }
+
       } else {
           const finalVariants = newVariants.map((v: any) => ({
               productId: v.id, quantity: v.qty, price: v.price, color: v.color, productDiscount: v.discount 
@@ -389,10 +392,11 @@ export default function NewOrderPage() {
     
     if (!userId) { alert("خطأ هوية"); return; }
     
-    if (depositVal > 0) {
+    if (depositVal !== 0) {
       const splitsTotal = depositSplits.reduce((sum, s) => sum + (s.amount || 0), 0);
       if (Math.abs(splitsTotal - depositVal) > 0.01) {
-        alert(`⚠️ مجموع تقسيمات العربون (${splitsTotal.toFixed(2)}) لا يساوي قيمة العربون (${depositVal.toFixed(2)})!`);
+        const amountType = depositVal > 0 ? 'العربون' : 'المبلغ المرتجع';
+        alert(`⚠️ مجموع تقسيمات المبلغ (${splitsTotal.toFixed(2)}) لا يساوي قيمة ${amountType} (${depositVal.toFixed(2)})!`);
         return;
       }
       if (depositSplits.some(s => !s.safeId)) {
@@ -411,7 +415,7 @@ export default function NewOrderPage() {
           items: cleanCart, 
           total, 
           deposit: depositVal, 
-          depositSplits: depositVal > 0 ? depositSplits : [],
+          depositSplits: depositVal !== 0 ? depositSplits.filter(s => s.amount !== 0) : [],
           voucherAmount: voucherVal,
           currency: currency,
           notes: hasReturnItems ? `${notes ? notes + ' | ' : ''}يحتوي على مرتجع (كميات سالبة)` : notes
@@ -682,11 +686,10 @@ export default function NewOrderPage() {
                                           +
                                         </button>
                                         <input 
-                                          type="number"
+                                          type="text" // Changed to text to allow '-'
                                           value={qty}
                                           onChange={(e) => handleQuantityInput(prod.id, e.target.value)}
                                           className="w-14 text-center font-bold outline-none text-sm border rounded"
-                                          step="1"
                                         />
                                         <button 
                                           onClick={() => updateQuantity(prod.id, (Number(qty) || 0) - 1)} 
@@ -716,10 +719,10 @@ export default function NewOrderPage() {
                     <div className="p-3 bg-gray-50 border-t text-center">
                       <button 
                         onClick={handleAddToCart} 
-                        disabled={Object.keys(selectionMap).length === 0} 
+                        disabled={Object.values(selectionMap).every(v => v === '' || v === '-' || v === 0)}
                         className="w-full bg-black text-white py-3 rounded-lg font-bold disabled:opacity-50 hover:bg-gray-800 transition"
                       >
-                        إضافة للسلة ({Object.keys(selectionMap).filter(k => typeof selectionMap[k] === 'number' && selectionMap[k] !== 0).length} صنف)
+                        إضافة للسلة ({Object.values(selectionMap).filter(v => typeof v === 'number' && v !== 0).length} صنف)
                       </button>
                     </div>
                   </div>
@@ -866,10 +869,12 @@ export default function NewOrderPage() {
                   </select>
                </div>
 
-               {depositVal > 0 && (
+               {depositVal !== 0 && (
                   <div className="mb-4 animate-in slide-in-from-top duration-300">
                      <div className="flex justify-between items-center mb-2">
-                        <label className="block text-yellow-400 text-sm font-bold">📥 تقسيم العربون على الخزنات:</label>
+                        <label className="block text-yellow-400 text-sm font-bold">
+                           {depositVal > 0 ? '📥 تقسيم العربون على الخزنات' : '📤 تحديد خزنة الصرف'}:
+                        </label>
                         <button 
                           type="button"
                           onClick={() => {
@@ -903,7 +908,8 @@ export default function NewOrderPage() {
                                 value={split.amount || ''}
                                 onChange={(e) => {
                                   const newSplits = [...depositSplits];
-                                  newSplits[idx] = { ...newSplits[idx], amount: parseFloat(e.target.value) || 0 };
+                                  const newAmount = parseFloat(e.target.value) || 0;
+                                  newSplits[idx] = { ...newSplits[idx], amount: newAmount };
                                   setDepositSplits(newSplits);
                                 }}
                                 className="w-28 p-3 rounded-xl bg-slate-800 text-white font-bold text-lg border border-slate-700 text-center"

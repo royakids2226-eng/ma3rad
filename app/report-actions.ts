@@ -11,7 +11,7 @@ export async function getInventoryReport() {
         orderItems: {
           include: { 
             order: { include: { customer: true } },
-            returnItems: true  // ✅ نجلب المرتجعات
+            returnItems: true
           }
         }
       }
@@ -20,17 +20,14 @@ export async function getInventoryReport() {
     const report = products.map(p => {
         const initial = p.stockQty || 0;
         
-        // إجمالي المباع من الأوردرات
         const totalSoldFromOrders = p.orderItems.reduce(
             (acc, item) => acc + (item.quantity || 0), 0
         );
         
-        // إجمالي المرتجع
         const totalReturned = p.orderItems.reduce(
             (acc, item) => acc + (item.returnItems?.reduce((sum, ret) => sum + ret.quantity, 0) || 0), 0
         );
         
-        // الصافي = المباع - المرتجع
         const totalSoldPieces = totalSoldFromOrders - totalReturned;
         const logicalCurrentStock = initial - totalSoldPieces;
 
@@ -40,7 +37,7 @@ export async function getInventoryReport() {
             vendor: p.vendor,
             color: p.color,
             initialStock: initial,
-            totalSold: totalSoldPieces,  // ✅ الصافي بعد المرتجع
+            totalSold: totalSoldPieces,
             currentStock: logicalCurrentStock,
             totalSoldValue: p.orderItems.reduce((acc, item) => {
                 const itemSold = (item.quantity || 0) - (item.returnItems?.reduce((sum, ret) => sum + ret.quantity, 0) || 0);
@@ -93,20 +90,8 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
       where: {
         OR: [ { safeId: safeId }, { targetSafeId: safeId } ],
         createdAt: startDate || endDate ? dateFilter : undefined,
-        type: {
-          notIn: ['PAYMENT_COLLECTION']
-        }
       },
       include: { customer: true, user: true, safe: true, targetSafe: true }
-    });
-
-    const orders = await prisma.order.findMany({
-      where: { 
-          safeId, 
-          deposit: { gt: 0 }, 
-          createdAt: startDate || endDate ? dateFilter : undefined 
-      },
-      include: { customer: true, user: true }
     });
 
     let transactions: any[] = [];
@@ -138,7 +123,15 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
                 desc = `تحويل من: ${sourceName} - ${p.description || ''}`;
                 inAmt = p.amount;
              }
+        } else if (p.type === 'PAYMENT_COLLECTION') {
+            typeLabel = 'تحصيل أوردر';
+            desc = p.description;
+            inAmt = p.amount;
+        } else if (p.type === 'VOUCHER') {
+            // نتجاهل قسائم المشتريات لأنها خصم ظاهري ولا تؤثر على النقدية
+            return;
         }
+
 
         if (typeLabel) {
             transactions.push({
@@ -152,19 +145,6 @@ export async function getSafeLedger(safeId: string, startDate?: string, endDate?
                 user: p.user.name
             });
         }
-    });
-
-    orders.forEach(o => {
-        transactions.push({
-            id: o.id, 
-            date: o.createdAt, 
-            type: 'عربون أوردر',
-            description: `أوردر #${o.orderNo} - ${o.customer.name}`,
-            currency: o.currency || 'EGP',
-            inAmount: o.deposit, 
-            outAmount: 0, 
-            user: o.user.name
-        });
     });
 
     transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -214,7 +194,6 @@ export async function getEmployeePerformance() {
                         const discountPct = item.discountPercent;
                         const originalPrice = finalPrice / (1 - (discountPct / 100));
                         const discountPerPiece = originalPrice - finalPrice;
-                        // ✅ بدون ضرب في 4
                         totalDiscountValue += (discountPerPiece * (item.quantity || 0));
                     }
                 });
