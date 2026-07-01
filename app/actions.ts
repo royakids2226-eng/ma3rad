@@ -1488,17 +1488,26 @@ export async function getCustomerLedger(customerId: string) {
 // ========================================
 // ملخص اليوم
 // ========================================
-export async function getTodaySummary() {
+export async function getSummaryByDateRange(startDate?: string, endDate?: string) {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    let start, end;
 
-    // 1. Fetch today's data in parallel
+    if (startDate && endDate) {
+      start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+    } else {
+      start = new Date();
+      start.setHours(0, 0, 0, 0);
+      end = new Date();
+      end.setHours(23, 59, 59, 999);
+    }
+
+    // 1. Fetch data in parallel within the date range
     const [orders, payments, returns] = await Promise.all([
       prisma.order.findMany({
-        where: { createdAt: { gte: today, lt: tomorrow } },
+        where: { createdAt: { gte: start, lt: end } },
         include: {
           customer: true,
           items: { include: { product: true } },
@@ -1506,13 +1515,13 @@ export async function getTodaySummary() {
         orderBy: { createdAt: "desc" },
       }),
       prisma.payment.findMany({
-        where: { createdAt: { gte: today, lt: tomorrow } },
+        where: { createdAt: { gte: start, lt: end } },
         include: { safe: true, customer: true, vendor: true },
         orderBy: { createdAt: "desc" },
       }),
       prisma.returnOrder.findMany({
         where: {
-          createdAt: { gte: today, lt: tomorrow },
+          createdAt: { gte: start, lt: end },
           status: "COMPLETED",
         },
         include: {
@@ -1622,7 +1631,10 @@ export async function getTodaySummary() {
     return {
       success: true,
       data: {
-        date: today.toISOString().split("T")[0],
+        dateRange: { 
+            start: start.toISOString().split('T')[0], 
+            end: end.toISOString().split('T')[0] 
+        },
         orders: {
           total: totalOrdersAmount,
           count: orders.length,
@@ -1650,7 +1662,7 @@ export async function getTodaySummary() {
       },
     };
   } catch (error: any) {
-    console.error("Error in getTodaySummary:", error);
+    console.error("Error in getSummaryByDateRange:", error);
     return { success: false, error: error.message };
   }
 }

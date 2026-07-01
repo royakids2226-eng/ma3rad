@@ -1,7 +1,6 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getCurrentUser, getTodaySummary } from "./actions"; 
 import { authOptions } from "@/auth";
 import NotificationBell from "./admin/NotificationBell";
 import TestOrderButton from "./TestOrderButton";
@@ -54,7 +53,9 @@ export default async function Home() {
     redirect("/login");
   }
 
-  const user = await getCurrentUser(session.user.image as string);
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.image as string }
+  });
   
   if (!user) {
      redirect("/api/auth/signout");
