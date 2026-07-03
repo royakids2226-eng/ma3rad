@@ -207,7 +207,7 @@ export async function getAdminStockAlerts() {
 // ==========================================
 
 export async function createOrder(data: any, userId: string) {
-  const { customerId, items, total, deposit, depositSplits, voucherAmount, currency, notes } = data;
+  const { customerId, items, total, deposit, depositSplits, voucherAmount, currency, notes, createdAt } = data;
 
   // التحقق من الـ splits لو فيه عربون أو مرتجع
   if (deposit !== 0) {
@@ -281,6 +281,7 @@ export async function createOrder(data: any, userId: string) {
             currency: currency || "EGP",
             notes: notes,
             safeId: null, // تم إزالة المنطق الخاطئ من هنا
+            createdAt: createdAt ? new Date(createdAt) : new Date(),
           },
           include: { customer: true },
         });
@@ -473,6 +474,29 @@ export async function deleteOrder(orderId: string) {
           const query = `UPDATE "Product" SET "currentStock" = CASE ${caseStatement} END WHERE id IN (${idList})`;
 
           await tx.$executeRawUnsafe(query);
+        }
+
+        // Step 4.5: Delete dependent records before deleting order items
+        const orderItemIds = order.items.map((item) => item.id);
+
+        // Delete associated ReturnOrders, which will cascade to ReturnItems,
+        // resolving constraints on both Order and OrderItem.
+        await tx.returnOrder.deleteMany({
+            where: {
+                OR: [
+                    { originalOrderId: orderId },
+                    { newOrderId: orderId },
+                ]
+            }
+        });
+
+        if (orderItemIds.length > 0) {
+          // Delete any fulfillment logs associated with the order items
+          await tx.fulfillmentLog.deleteMany({
+            where: {
+              orderItemId: { in: orderItemIds },
+            },
+          });
         }
 
         // Step 5: Delete order items and the order itself
@@ -1124,7 +1148,7 @@ export async function cancelReturnOrder(returnId: string) {
         await tx.payment.deleteMany({
           where: {
             description: { contains: `استرداد مرتجع #${returnOrder.returnNo}` },
-            type: "REFUND",
+            type: "OUT",
           },
         });
       }

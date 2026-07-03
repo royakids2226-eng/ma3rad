@@ -65,6 +65,7 @@ export default function NewOrderPage() {
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const productSearchInputRef = useRef<HTMLInputElement>(null);
   const [showDiscountOptions, setShowDiscountOptions] = useState(false);
+  const [orderDate, setOrderDate] = useState(new Date());
 
   const handleDepositChange = (value: string) => {
     setDeposit(value);
@@ -190,26 +191,6 @@ export default function NewOrderPage() {
     return Array.from(new Set(searchResults.map(p => p.modelNo)))
   }, [searchResults])
 
-  const toggleSelection = (productId: string, isChecked: boolean) => {
-    setSelectionMap(prev => {
-      const newMap = { ...prev };
-      if (isChecked) {
-        newMap[productId] = 1;
-      } else {
-        delete newMap[productId];
-      }
-      return newMap;
-    });
-  };
-
-  const removeProductFromSelection = (productId: string) => {
-    setSelectionMap(prev => {
-      const newMap = { ...prev };
-      delete newMap[productId];
-      return newMap;
-    });
-  };
-
   const updateQuantity = (productId: string, newQty: number) => {
     if (isNaN(newQty)) return;
 
@@ -250,71 +231,63 @@ export default function NewOrderPage() {
     updateQuantity(productId, num);
   };
 
-  const handleAddToCart = () => {
-    const validSelection = Object.entries(selectionMap).filter(([, qty]) => typeof qty === 'number' && qty !== 0);
-    if (validSelection.length === 0) return;
+  const handleAddItemToCart = (productToAdd: Product, quantity: number) => {
+    if (!productToAdd || quantity === 0) return true;
 
-    const selectedProducts = allProducts.filter(p => selectionMap.hasOwnProperty(p.id));
-    
-    const groupedByModel: {[key: string]: any[]} = {};
-    validSelection.forEach(([productId, qty]) => {
-      const product = selectedProducts.find(p => p.id === productId);
-      if (product) {
-        if (!groupedByModel[product.modelNo]) groupedByModel[product.modelNo] = [];
-        groupedByModel[product.modelNo].push({ ...product, qty: qty as number });
-      }
-    });
-
-    let updatedCart = [...cart];
-
-    Object.keys(groupedByModel).forEach(modelNo => {
-      const newVariants = groupedByModel[modelNo];
-      let existingItemIndex = updatedCart.findIndex(i => i.modelNo === modelNo && i.type === 'product');
-
-      if (existingItemIndex > -1) {
-          const existingItem = updatedCart[existingItemIndex];
-          const variantsMap: any = {};
-          existingItem.variants.forEach((v: any) => { variantsMap[v.productId] = { ...v }; });
-
-          newVariants.forEach((nv: any) => {
-              if (variantsMap[nv.id]) {
-                variantsMap[nv.id].quantity += nv.qty;
-              } else {
-                variantsMap[nv.id] = { productId: nv.id, quantity: nv.qty, price: nv.price, color: nv.color, productDiscount: nv.discount }; 
-              }
-          });
-
-          const finalVariants = Object.values(variantsMap).filter((v: any) => v.quantity !== 0);
-          
-          if (finalVariants.length === 0) {
-              updatedCart.splice(existingItemIndex, 1);
-          } else {
-              const totalQty = finalVariants.reduce((sum: number, v: any) => sum + v.quantity, 0);
-              updatedCart[existingItemIndex] = { ...existingItem, totalQty: totalQty, variants: finalVariants };
-          }
-
-      } else {
-          const finalVariants = newVariants.map((v: any) => ({
-              productId: v.id, quantity: v.qty, price: v.price, color: v.color, productDiscount: v.discount 
-          }));
-          const totalQty = finalVariants.reduce((sum: any, v: any) => sum + v.quantity, 0);
-          const originalPrice = newVariants[0].price;
-          updatedCart.unshift({
-            type: 'product', id: Date.now() + Math.random(), modelNo: modelNo,
-            baseDescription: newVariants[0].description, totalQty: totalQty,
-            unitPrice: originalPrice, variants: finalVariants
-          });
-      }
-    });
-
-    setCart(updatedCart);
-    setSelectionMap({});
-    setSearchTerm('');
-    if (window.innerWidth < 768) {
-        setShowScanner(true);
+    if (quantity > 0 && productToAdd.status === 'CLOSED') {
+        const availableStock = productToAdd.currentStock;
+        if (quantity > availableStock) {
+            alert(`الكمية المتاحة من هذا الصنف المغلق هي ${availableStock} قطعة فقط.`);
+            return false;
+        }
+        if (quantity === availableStock) {
+            alert("🛎️ تنبيه: تم بيع آخر كمية متاحة. من فضلك، شيل شماعة الموديل.");
+        }
     }
+
+    setCart(currentCart => {
+        let updatedCart = [...currentCart];
+        const existingItemIndex = updatedCart.findIndex(i => i.modelNo === productToAdd.modelNo && i.type === 'product');
+
+        if (existingItemIndex > -1) {
+            const existingItem = { ...updatedCart[existingItemIndex] };
+            let newVariants = [...existingItem.variants];
+            const variantIndex = newVariants.findIndex(v => v.productId === productToAdd.id);
+
+            if (variantIndex > -1) {
+                newVariants[variantIndex] = { ...newVariants[variantIndex], quantity: newVariants[variantIndex].quantity + quantity };
+            } else {
+                newVariants.push({ productId: productToAdd.id, quantity, price: productToAdd.price, color: productToAdd.color, productDiscount: productToAdd.discount });
+            }
+
+            existingItem.variants = newVariants.filter(v => v.quantity !== 0);
+
+            if (existingItem.variants.length === 0) {
+                updatedCart.splice(existingItemIndex, 1);
+            } else {
+                existingItem.totalQty = existingItem.variants.reduce((sum: number, v: { quantity: number }) => sum + v.quantity, 0);
+                updatedCart[existingItemIndex] = existingItem;
+            }
+        } else {
+            updatedCart.unshift({
+                type: 'product', id: Date.now() + Math.random(), modelNo: productToAdd.modelNo,
+                baseDescription: productToAdd.description, totalQty: quantity,
+                unitPrice: productToAdd.price,
+                variants: [{ productId: productToAdd.id, quantity, price: productToAdd.price, color: productToAdd.color, productDiscount: productToAdd.discount }],
+            });
+        }
+        return updatedCart;
+    });
+
+    setSelectionMap(prev => {
+        const newMap = {...prev};
+        delete newMap[productToAdd.id];
+        return newMap;
+    });
+
     if (failedItems.length > 0) setFailedItems([]);
     setShowOnlyFailed(false);
+    return true;
   };
 
   const handleAddDiscount = (percent: number) => {
@@ -349,12 +322,21 @@ export default function NewOrderPage() {
 
   const handleEditItem = async (item: any) => {
     if (item.type === 'discount') return;
+
+    // Remove from cart
+    setCart(cart => cart.filter(c => c.id !== item.id));
+
+    // Restore quantities to selectionMap for editing
     const restoredSelection: {[key: string]: number} = {};
-    item.variants.forEach((v: any) => { restoredSelection[v.productId] = v.quantity; });
-    setSelectionMap(restoredSelection);
+    item.variants.forEach((v: any) => {
+        restoredSelection[v.productId] = v.quantity;
+    });
+    setSelectionMap(prev => ({...prev, ...restoredSelection}));
+
+    // Focus on the model in search
     setSearchTerm(item.modelNo);
-    setCart(cart.filter(c => c.id !== item.id));
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    productSearchInputRef.current?.focus();
   };
 
   const handleScan = (code: string) => {
@@ -368,7 +350,7 @@ export default function NewOrderPage() {
           if (item.type === 'discount') activeDiscount = item.percent;
           else {
               const discountedPrice = item.unitPrice * (1 - activeDiscount / 100);
-              const totalPrice = item.variants.reduce((sum: number, v: any) => sum + (v.quantity * discountedPrice), 0);
+              const totalPrice = item.variants.reduce((sum: number, v: { quantity: number }) => sum + (v.quantity * discountedPrice), 0);
               processedItems.push({
                   ...item, appliedDiscount: activeDiscount, finalPrice: discountedPrice, totalLinePrice: totalPrice,
                   variants: item.variants.map((v: any) => ({ ...v, price: discountedPrice, discountPercent: activeDiscount }))
@@ -418,7 +400,8 @@ export default function NewOrderPage() {
           depositSplits: depositVal !== 0 ? depositSplits.filter(s => s.amount !== 0) : [],
           voucherAmount: voucherVal,
           currency: currency,
-          notes: hasReturnItems ? `${notes ? notes + ' | ' : ''}يحتوي على مرتجع (كميات سالبة)` : notes
+          notes: hasReturnItems ? `${notes ? notes + ' | ' : ''}يحتوي على مرتجع (كميات سالبة)` : notes,
+          createdAt: orderDate
         }, userId);
 
         if (result.success && result.data?.id) {
@@ -632,78 +615,57 @@ export default function NewOrderPage() {
                                 const isSoldOut = prod.status !== 'OPEN' && prod.currentStock <= 0
                                 const availableStock = prod.currentStock
                                 const isLastOne = availableStock === 1 && prod.status === 'CLOSED'
-                                const isSelected = selectionMap.hasOwnProperty(prod.id);
                                 const qty = selectionMap[prod.id];
                                 
                                 return (
                                   <div 
                                     key={prod.id} 
-                                    className={`p-3 flex items-center justify-between rounded-lg transition-colors ${
-                                      isSoldOut ? 'bg-gray-100 opacity-60' : 
-                                      (isSelected ? 'bg-blue-50 border border-blue-200' : 'bg-white border border-gray-100')
-                                    } ${isLastOne ? 'bg-red-50' : ''}`}
+                                    className={`p-3 flex items-center justify-between rounded-lg transition-colors ${isSoldOut ? 'bg-gray-100 opacity-60' : 'bg-white border border-gray-100'} ${isLastOne ? 'bg-red-50' : ''}`}
                                   >
-                                    <div className="flex items-center gap-3 flex-1">
-                                      <input 
-                                        type="checkbox" 
-                                        checked={isSelected} 
-                                        onChange={(e) => toggleSelection(prod.id, e.target.checked)} 
-                                        disabled={isSoldOut}
-                                        className="w-5 h-5" 
-                                      />
-                                      <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
-                                        <div className={`font-bold ${isLastOne ? 'text-red-700' : ''} ${Number(qty) < 0 ? 'text-red-600' : ''}`}>
-                                          {Number(qty) < 0 && <span className="text-xs bg-red-100 text-red-700 px-1 rounded mr-1">مرتجع</span>}
-                                          {prod.color}
-                                        </div>
-                                        <div className="text-xs text-gray-500">
-                                          {prod.price} ج.م | متاح: {availableStock}
-                                        </div>
-                                        {prod.discount > 0 && (
-                                          <div className="text-[10px] text-red-600 font-bold">
-                                            خصم صنف: {prod.discount}%
-                                          </div>
-                                        )}
-                                        {isLastOne && (
-                                          <div className="text-red-700 text-xs font-bold animate-pulse mt-1">
-                                            🔥 آخر قطعة!
-                                          </div>
-                                        )}
-                                        {isSoldOut && (
-                                          <span className="text-[10px] text-red-600 font-bold block">
-                                            نفذت الكمية
-                                          </span>
-                                        )}
+                                    <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
+                                      <div className={`font-bold ${isLastOne ? 'text-red-700' : ''} ${Number(qty) < 0 ? 'text-red-600' : ''}`}>
+                                        {Number(qty) < 0 && <span className="text-xs bg-red-100 text-red-700 px-1 rounded mr-1">مرتجع</span>}
+                                        {prod.color}
                                       </div>
+                                      <div className="text-xs text-gray-500">
+                                        {prod.price} ج.م | متاح: {availableStock}
+                                      </div>
+                                      {prod.discount > 0 && (
+                                        <div className="text-[10px] text-red-600 font-bold">
+                                          خصم صنف: {prod.discount}%
+                                        </div>
+                                      )}
+                                      {isLastOne && (
+                                        <div className="text-red-700 text-xs font-bold animate-pulse mt-1">
+                                          🔥 آخر قطعة!
+                                        </div>
+                                      )}
+                                      {isSoldOut && (
+                                        <span className="text-[10px] text-red-600 font-bold block">
+                                          نفذت الكمية
+                                        </span>
+                                      )}
                                     </div>
-                                    {isSelected && !isSoldOut && (
-                                      <div className="flex items-center gap-1 bg-white rounded-lg border px-2 py-1 shadow-sm">
-                                        <button 
-                                          onClick={() => updateQuantity(prod.id, (Number(qty) || 0) + 1)} 
-                                          className="w-7 h-7 bg-gray-200 rounded font-bold text-sm hover:bg-gray-300"
-                                          title="زيادة"
-                                        >
-                                          +
-                                        </button>
+                                    {!isSoldOut && (
+                                      <div className="flex items-center gap-1 bg-white rounded-lg border px-1 py-1 shadow-sm">
+                                        <button onClick={() => updateQuantity(prod.id, (Number(qty) || 0) - 1)} className="w-7 h-7 bg-gray-200 rounded font-bold text-lg hover:bg-gray-300" title="تقليل">-</button>
                                         <input 
-                                          type="text" // Changed to text to allow '-'
-                                          value={qty}
+                                          type="text"
+                                          value={qty ?? ''}
                                           onChange={(e) => handleQuantityInput(prod.id, e.target.value)}
-                                          className="w-14 text-center font-bold outline-none text-sm border rounded"
+                                          className="w-12 text-center font-bold outline-none text-sm border-y-0 border-x"
+                                          placeholder="1"
                                         />
+                                        <button onClick={() => updateQuantity(prod.id, (Number(qty) || 0) + 1)} className="w-7 h-7 bg-gray-200 rounded font-bold text-lg hover:bg-gray-300" title="زيادة">+</button>
                                         <button 
-                                          onClick={() => updateQuantity(prod.id, (Number(qty) || 0) - 1)} 
-                                          className="w-7 h-7 bg-gray-200 rounded font-bold text-sm hover:bg-gray-300"
-                                          title="تقليل"
+                                          onClick={() => {
+                                            const qtyToAdd = (typeof qty === 'number' && qty !== 0) ? qty : 1;
+                                            handleAddItemToCart(prod, qtyToAdd as number);
+                                          }}
+                                          className="w-12 h-7 bg-blue-600 text-white rounded font-bold text-xs hover:bg-blue-700 mr-1"
+                                          title="إضافة للسلة"
                                         >
-                                          -
-                                        </button>
-                                        <button 
-                                          onClick={() => removeProductFromSelection(prod.id)}
-                                          className="w-7 h-7 bg-red-100 text-red-600 rounded font-bold text-sm hover:bg-red-200 mr-1"
-                                          title="حذف من التحديد"
-                                        >
-                                          ✕
+                                          إضافة
                                         </button>
                                       </div>
                                     )}
@@ -714,16 +676,6 @@ export default function NewOrderPage() {
                           </div>
                         )
                       })}
-                    </div>
-                    
-                    <div className="p-3 bg-gray-50 border-t text-center">
-                      <button 
-                        onClick={handleAddToCart} 
-                        disabled={Object.values(selectionMap).every(v => v === '' || v === '-' || v === 0)}
-                        className="w-full bg-black text-white py-3 rounded-lg font-bold disabled:opacity-50 hover:bg-gray-800 transition"
-                      >
-                        إضافة للسلة ({Object.values(selectionMap).filter(v => typeof v === 'number' && v !== 0).length} صنف)
-                      </button>
                     </div>
                   </div>
                 )}
@@ -772,13 +724,15 @@ export default function NewOrderPage() {
                         : 'border-gray-100 bg-white';
 
                     const processedItem = processedDisplayCart.find((p:any) => p.id === item.id) || item;
+                    const totalQty = item.variants.reduce((sum: number, v: { quantity: number }) => sum + v.quantity, 0);
+
                     return (
                         <div key={item.id} className={`p-4 rounded-xl shadow-sm border relative overflow-hidden transition-all hover:border-blue-200 ${itemContainerClass}`}>
                             {processedItem.appliedDiscount > 0 && <div className="absolute top-0 left-0 bg-red-500 text-white text-[10px] px-2 py-1 rounded-br font-bold">خصم {processedItem.appliedDiscount}%</div>}
                             <div className="flex justify-between mb-2">
                                 <div><span className="text-xl font-bold block">{item.modelNo}</span><span className="text-xs text-gray-500">{item.baseDescription}</span></div>
                                 <div className="text-left font-bold text-green-700">
-                                    {processedItem.appliedDiscount > 0 && <div className="text-xs text-gray-400 line-through">{(processedItem.unitPrice * processedItem.totalQty).toFixed(0)}</div>}
+                                    {processedItem.appliedDiscount > 0 && <div className="text-xs text-gray-400 line-through">{(processedItem.unitPrice * totalQty).toFixed(0)}</div>}
                                     <span>{processedItem.totalLinePrice?.toFixed(0)} ج.م</span>
                                 </div>
                             </div>
@@ -796,7 +750,7 @@ export default function NewOrderPage() {
                                 })}
                             </div>
                             <div className="flex justify-between items-center pt-2 border-t">
-                                <span className="text-xs font-bold text-gray-500">الكمية: {item.totalQty} قطعة</span>
+                                <span className="text-xs font-bold text-gray-500">الكمية: {totalQty} قطعة</span>
                                 <div className="flex gap-2">
                                     <button onClick={() => handleEditItem(item)} className="text-xs bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded font-bold">تعديل ✏️</button>
                                     <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded font-bold">حذف 🗑️</button>
@@ -825,6 +779,15 @@ export default function NewOrderPage() {
             <div className="flex justify-between mb-4 text-sm bg-gray-50 p-3 rounded">
               <span className="text-gray-500 font-bold">العميل المختص:</span>
               <span className="font-bold text-blue-800">{selectedCustomer?.name}</span>
+            </div>
+             <div className="flex justify-between items-center mb-4 text-sm bg-gray-50 p-3 rounded">
+                <span className="text-gray-500 font-bold">تاريخ الأوردر:</span>
+                <input
+                    type="date"
+                    value={orderDate.toISOString().split('T')[0]}
+                    onChange={(e) => setOrderDate(new Date(e.target.value))}
+                    className="font-bold text-blue-800 border-none bg-transparent text-right p-0 focus:ring-0"
+                />
             </div>
             <div className="space-y-4 mb-6 max-h-60 overflow-y-auto border p-2 rounded bg-slate-50">
               {getProcessedCart().map((item:any, idx) => (
