@@ -299,6 +299,14 @@ export default function NewOrderPage() {
       setShowDiscountOptions(false);
   };
 
+  const handleItemPriceChange = (itemId: string, newPrice: number) => {
+    setCart(cart.map(item => 
+      (item.id === itemId && item.type === 'product')
+        ? { ...item, unitPrice: newPrice }
+        : item
+    ));
+  };
+
   const handleApplyAutoProductDiscounts = () => {
     let newCart: any[] = [];
     cart.forEach(item => {
@@ -349,10 +357,11 @@ export default function NewOrderPage() {
       cart.forEach(item => {
           if (item.type === 'discount') activeDiscount = item.percent;
           else {
-              const discountedPrice = item.unitPrice * (1 - activeDiscount / 100);
+              const unitPrice = typeof item.unitPrice === 'number' ? item.unitPrice : 0;
+              const discountedPrice = unitPrice * (1 - activeDiscount / 100);
               const totalPrice = item.variants.reduce((sum: number, v: { quantity: number }) => sum + (v.quantity * discountedPrice), 0);
               processedItems.push({
-                  ...item, appliedDiscount: activeDiscount, finalPrice: discountedPrice, totalLinePrice: totalPrice,
+                  ...item, unitPrice, appliedDiscount: activeDiscount, finalPrice: discountedPrice, totalLinePrice: totalPrice,
                   variants: item.variants.map((v: any) => ({ ...v, price: discountedPrice, discountPercent: activeDiscount }))
               });
           }
@@ -729,11 +738,26 @@ export default function NewOrderPage() {
                     return (
                         <div key={item.id} className={`p-4 rounded-xl shadow-sm border relative overflow-hidden transition-all hover:border-blue-200 ${itemContainerClass}`}>
                             {processedItem.appliedDiscount > 0 && <div className="absolute top-0 left-0 bg-red-500 text-white text-[10px] px-2 py-1 rounded-br font-bold">خصم {processedItem.appliedDiscount}%</div>}
-                            <div className="flex justify-between mb-2">
-                                <div><span className="text-xl font-bold block">{item.modelNo}</span><span className="text-xs text-gray-500">{item.baseDescription}</span></div>
-                                <div className="text-left font-bold text-green-700">
-                                    {processedItem.appliedDiscount > 0 && <div className="text-xs text-gray-400 line-through">{(processedItem.unitPrice * totalQty).toFixed(0)}</div>}
-                                    <span>{processedItem.totalLinePrice?.toFixed(0)} ج.م</span>
+                            <div className="flex justify-between items-start mb-2">
+                                <div>
+                                    <span className="text-xl font-bold block">{item.modelNo}</span>
+                                    <span className="text-xs text-gray-500">{item.baseDescription}</span>
+                                </div>
+                                <div className="text-left">
+                                    <div className="flex items-center justify-end gap-2">
+                                        <label htmlFor={`price-${item.id}`} className="text-xs font-bold text-gray-500">سعر القطعة:</label>
+                                        <input
+                                            id={`price-${item.id}`}
+                                            type="number"
+                                            value={item.unitPrice}
+                                            onChange={(e) => handleItemPriceChange(item.id, parseFloat(e.target.value) || 0)}
+                                            className="w-24 p-1 border rounded-lg text-center font-bold text-gray-800 bg-yellow-50 focus:ring-2 focus:ring-yellow-400"
+                                        />
+                                    </div>
+                                    <div className="text-left font-bold text-green-700 mt-1 text-lg">
+                                        {processedItem.appliedDiscount > 0 && <div className="text-xs text-gray-400 line-through">{(item.unitPrice * totalQty).toFixed(0)} ج.م</div>}
+                                        <span>الإجمالي: {processedItem.totalLinePrice?.toFixed(0)} ج.م</span>
+                                    </div>
                                 </div>
                             </div>
                             <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded mb-2 border border-gray-200">
