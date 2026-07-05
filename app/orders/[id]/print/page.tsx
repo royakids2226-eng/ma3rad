@@ -13,7 +13,10 @@ export default async function OrderPrintPage({ params }: { params: Promise<{ id:
     where: { id: resolvedParams.id },
     include: {
       customer: true,
-      items: { include: { product: true } },
+      items: { 
+        include: { product: true },
+        orderBy: { product: { modelNo: 'asc' } } // Sort items for consistent display
+      },
     },
   });
 
@@ -23,47 +26,56 @@ export default async function OrderPrintPage({ params }: { params: Promise<{ id:
     notFound();
   }
 
-  // ✅ الحسابات على القطعة مباشرة (بدون ضرب في 4)
-  const grossTotal = order.items.reduce((acc, item) => {
-    return acc + (item.quantity * item.product.price);
+  // Correctly group items by model, price, and discount to handle manual price changes
+  const groupedItems = order.items.reduce((acc, item) => {
+    // Use a composite key to group items only if model, price, and discount are identical
+    const key = `${item.product.modelNo}|${item.price.toFixed(2)}|${item.discountPercent.toFixed(2)}`;
+    
+    if (!acc[key]) {
+      acc[key] = {
+        modelNo: item.product.modelNo,
+        description: item.product.description || '',
+        items: [],
+        totalQuantity: 0,
+        unitPrice: item.price, // Use the price from the OrderItem, which may be manual
+        discountPercent: item.discountPercent,
+      };
+    }
+    
+    acc[key].items.push(item);
+    acc[key].totalQuantity += item.quantity;
+    return acc;
+  }, {} as Record<string, { modelNo: string, description: string, items: any[], totalQuantity: number, unitPrice: number, discountPercent: number }>);
+
+  // --- Start Corrected Total Calculations ---
+
+  // Calculate totals based on the grouped items to ensure consistency
+  const grossTotal = Object.values(groupedItems).reduce((acc, group) => {
+    return acc + (group.totalQuantity * group.unitPrice);
   }, 0);
 
-  const totalItemsDiscount = order.items.reduce((acc, item) => {
-    const itemGrossTotal = item.quantity * item.product.price;
-    const discountAmount = itemGrossTotal * (item.discountPercent / 100);
+  const totalItemsDiscount = Object.values(groupedItems).reduce((acc, group) => {
+    const groupGrossTotal = group.totalQuantity * group.unitPrice;
+    const discountAmount = groupGrossTotal * (group.discountPercent / 100);
     return acc + discountAmount;
   }, 0);
-
-  const orderLevelDiscount = order.discount;
+  
+  // Order-level discount is deprecated in new logic but kept for old orders
+  const orderLevelDiscount = order.discount; 
   const totalDiscount = totalItemsDiscount + orderLevelDiscount;
   const netTotal = grossTotal - totalDiscount;
 
   const depositPaid = order.deposit;
-  const depositDeducted = order.currency === 'EGP' ? depositPaid : 0;
+  // This logic seems specific. I'll keep it.
+  const depositDeducted = order.currency === 'EGP' ? depositPaid : 0; 
   const remainingAmount = netTotal - depositDeducted;
 
-  // ✅ تجميع الأصناف حسب الموديل
-  const groupedItems = order.items.reduce((acc, item) => {
-    const modelNo = item.product.modelNo;
-    if (!acc[modelNo]) {
-      acc[modelNo] = {
-        items: [],
-        totalQuantity: 0,
-        unitPrice: item.product.price,
-        description: item.product.description || '',
-        discountPercent: item.discountPercent,
-      };
-    }
-    acc[modelNo].items.push(item);
-    acc[modelNo].totalQuantity += item.quantity;
-    return acc;
-  }, {} as Record<string, { items: any[], totalQuantity: number, unitPrice: number, description: string, discountPercent: number }>);
+  // --- End Corrected Total Calculations ---
 
   return (
     <div className="bg-gray-100 min-h-screen" dir="rtl">
       <PrintStyles siteName={settings?.siteName || ''} customerName={order.customer.name} />
       
-      {/* أزرار التحكم - مخفية عند الطباعة */}
       <div className="no-print flex flex-wrap justify-center gap-2 md:gap-4 p-4 bg-white shadow-md mb-4 md:mb-8">
         <PrintButton />
         <HomeButton />
@@ -75,7 +87,6 @@ export default async function OrderPrintPage({ params }: { params: Promise<{ id:
         />
       </div>
 
-      {/* محتوى الفاتورة */}
       <div id="invoice-content" className="bg-white text-gray-800 p-4 md:p-8 font-sans text-sm max-w-4xl mx-auto my-4 md:my-8 shadow-lg border-t-8 border-blue-600">
 
         {/* --- Header --- */}
@@ -88,7 +99,7 @@ export default async function OrderPrintPage({ params }: { params: Promise<{ id:
             <table className="w-full">
                 <tbody>
                     <tr>
-                        <td><span className="font-semibold">رقم الفاتورة:</span> {order.id.slice(-6)}</td>
+                        <td><span className="font-semibold">رقم الفاتورة:</span> {order.orderNo}</td>
                         <td><span className="font-semibold">التاريخ:</span> {new Date(order.createdAt).toLocaleDateString('ar-EG')}</td>
                     </tr>
                     <tr>
@@ -116,24 +127,22 @@ export default async function OrderPrintPage({ params }: { params: Promise<{ id:
               </tr>
             </thead>
             <tbody>
-              {Object.keys(groupedItems).map((modelNo, index) => {
-                const group = groupedItems[modelNo];
-                const totalQuantity = group.totalQuantity;
-                const unitPrice = group.unitPrice;
+              {Object.values(groupedItems).map((group, index) => {
                 const details = group.items.map(item => `${item.quantity} ${item.product.color}`).join(' + ');
-                const rowGrossTotal = totalQuantity * unitPrice;
+                const rowGrossTotal = group.totalQuantity * group.unitPrice;
+                const rowNetTotal = rowGrossTotal * (1 - group.discountPercent / 100); // Calculate net total for the row
 
                 return (
-                  <tr key={modelNo} className="hover:bg-gray-50">
+                  <tr key={index} className="hover:bg-gray-50">
                     <td className="p-3 border border-gray-300 text-center">{index + 1}</td>
-                    <td className="p-3 border border-gray-300 text-right font-medium text-gray-800">{modelNo}</td>
+                    <td className="p-3 border border-gray-300 text-right font-medium text-gray-800">{group.modelNo}</td>
                     <td className="p-3 border border-gray-300 text-right text-sm text-gray-600">
                       {group.description} ({details})
                     </td>
-                    <td className="p-3 border border-gray-300 text-center">{totalQuantity}</td>
-                    <td className="p-3 border border-gray-300 text-center">{unitPrice.toFixed(2)}</td>
+                    <td className="p-3 border border-gray-300 text-center">{group.totalQuantity}</td>
+                    <td className="p-3 border border-gray-300 text-center">{group.unitPrice.toFixed(2)}</td>
                     <td className="p-3 border border-gray-300 text-center text-red-500">{group.discountPercent.toFixed(2)}</td>
-                    <td className="p-3 border border-gray-300 text-center font-semibold">{rowGrossTotal.toFixed(2)}</td>
+                    <td className="p-3 border border-gray-300 text-center font-semibold">{rowNetTotal.toFixed(2)}</td>
                   </tr>
                 );
               })}

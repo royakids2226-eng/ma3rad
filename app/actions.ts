@@ -286,13 +286,21 @@ export async function createOrder(data: any, userId: string) {
           include: { customer: true },
         });
 
-        const orderItemsData = allVariants.map((variant) => ({
-          orderId: order.id,
-          productId: variant.productId,
-          quantity: variant.quantity,
-          price: variant.price,
-          discountPercent: variant.discountPercent || 0,
-        }));
+        const orderItemsData = allVariants.map((variant) => {
+            const discount = variant.discountPercent || 0;
+            // Reverse calculate the base price from the final price sent by the client
+            const basePrice = (discount > 0 && discount < 100)
+              ? variant.price / (1 - discount / 100)
+              : variant.price;
+      
+            return {
+              orderId: order.id,
+              productId: variant.productId,
+              quantity: variant.quantity,
+              price: basePrice, // Save the correct base price
+              discountPercent: discount,
+            };
+        });
 
         await tx.orderItem.createMany({ data: orderItemsData });
 
@@ -620,13 +628,19 @@ export async function updateOrder(orderId: string, data: any) {
             where: { id: itemToAdd.productId },
             data: { currentStock: { decrement: requestedPieces } },
           });
+          
+          const discount = itemToAdd.discountPercent || 0;
+          const basePrice = (discount > 0 && discount < 100)
+              ? itemToAdd.price / (1 - discount / 100)
+              : itemToAdd.price;
+
           await tx.orderItem.create({
             data: {
               orderId: orderId,
               productId: itemToAdd.productId,
               quantity: itemToAdd.quantity,
-              price: itemToAdd.price,
-              discountPercent: itemToAdd.discountPercent,
+              price: basePrice, // Use corrected base price
+              discountPercent: discount,
             },
           });
         }
@@ -662,12 +676,17 @@ export async function updateOrder(orderId: string, data: any) {
             data: { currentStock: { decrement: stockDifference } },
           });
 
+          const discount = newItem.discountPercent || 0;
+          const basePrice = (discount > 0 && discount < 100)
+              ? newItem.price / (1 - discount / 100)
+              : newItem.price;
+
           await tx.orderItem.update({
             where: { id: oldItem.id },
             data: {
               quantity: newItem.quantity,
-              price: newItem.price,
-              discountPercent: newItem.discountPercent,
+              price: basePrice, // Use corrected base price
+              discountPercent: discount,
             },
           });
         }

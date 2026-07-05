@@ -1,14 +1,11 @@
 'use client'
 import { useState, useEffect, useRef, use } from 'react';
 import { getOrderById, searchProducts, updateOrder, getSafes, searchCustomers } from '@/app/actions';
-import { addCustomer } from '@/app/admin-actions'; 
+import { addCustomer } from '@/app/admin-actions';
 import { useRouter } from 'next/navigation';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import Link from 'next/link';
 
-// ❌ حذف: const PIECES_PER_UNIT = 4;
-
-// Define the Safe type
 interface Safe {
   id: string;
   name: string;
@@ -24,81 +21,87 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
   const [safes, setSafes] = useState<Safe[]>([]);
   const [order, setOrder] = useState<any>(null);
   
-  // Customer Search
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const [customerResults, setCustomerResults] = useState<any[]>([]);
   const [showCustomerList, setShowCustomerList] = useState(false);
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
 
-  // Product Search
   const [searchTerm, setSearchTerm] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectionMap, setSelectionMap] = useState<{[key: string]: number}>({});
 
-  // Cart & Discount Logic
   const [cart, setCart] = useState<any[]>([]);
   const [cartSearchTerm, setCartSearchTerm] = useState('');
   const [deposit, setDeposit] = useState<string>('');
   const [selectedSafeId, setSelectedSafeId] = useState<string>('');
   const [showDiscountOptions, setShowDiscountOptions] = useState(false);
 
-  // Quick Add Customer States
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [newCust, setNewCust] = useState({ name: '', phone: '', phone2: '', code: '', address: '' });
   const [isSavingCust, setIsSavingCust] = useState(false);
 
+  // When the component mounts, fetch the order data and populate the state.
   useEffect(() => {
     getSafes().then((fetchedSafes: Safe[]) => {
         setSafes(fetchedSafes);
         
         getOrderById(id).then(res => {
-            if (!res) return router.push('/orders/list');
+            if (!res) {
+                alert("لم يتم العثور على الأوردر!");
+                return router.push('/orders/list');
+            }
             setOrder(res);
             setSelectedCustomer(res.customer);
             setCustomerSearchTerm(res.customer.name);
             setDeposit(res.deposit.toString());
 
+            // Set the safe, defaulting to the main safe or the first available one.
             if (res.safeId) {
                 setSelectedSafeId(res.safeId);
             } else if (fetchedSafes.length > 0) {
                 const mainSafe = fetchedSafes.find(safe => safe.name === 'الخزنة الرئيسية');
-                if (mainSafe) {
-                    setSelectedSafeId(mainSafe.id);
-                } else {
-                    setSelectedSafeId(fetchedSafes[0].id);
-                }
+                setSelectedSafeId(mainSafe?.id || fetchedSafes[0].id);
             }
             
+            // *** CORE FIX: Correctly rebuild the cart from order items ***
             const initialCart: any[] = [];
-            const modelGroups: {[key: string]: any} = {};
+            // Group items by a composite key of model number AND price to separate manually priced items.
+            const itemGroups: {[key: string]: any} = {};
             
             res.items.forEach((item: any) => {
-                const modelNo = item.product.modelNo;
-                if (!modelGroups[modelNo]) {
-                    modelGroups[modelNo] = {
+                // Use the price from the OrderItem, not the original product price.
+                const unitPrice = item.price;
+                const key = `${item.product.modelNo}|${unitPrice.toFixed(2)}|${item.discountPercent}`;
+
+                if (!itemGroups[key]) {
+                    itemGroups[key] = {
                         type: 'product',
                         id: Math.random(),
-                        modelNo: modelNo,
+                        modelNo: item.product.modelNo,
                         baseDescription: item.product.description,
-                        unitPrice: item.product.price,
-                        variants: []
+                        unitPrice: unitPrice, // Set the correct unit price for the group.
+                        variants: [],
+                        // Store the discount from the first item of the group.
+                        // This assumes discounts are applied per-group in the UI.
+                        discountPercent: item.discountPercent 
                     };
                 }
-                modelGroups[modelNo].variants.push({
+                itemGroups[key].variants.push({
                     productId: item.productId,
                     quantity: item.quantity,
-                    price: item.price,
+                    price: unitPrice, // Pass the correct price down to the variant.
                     color: item.product.color,
-                    discountPercent: item.discountPercent,
                     productDiscount: item.product.discount
                 });
             });
 
-            Object.values(modelGroups).forEach((item: any) => {
-                if (item.variants[0].discountPercent > 0) {
-                    initialCart.push({ type: 'discount', percent: item.variants[0].discountPercent, id: Math.random(), isAuto: false });
+            // Reconstruct the cart, inserting discount items where they existed.
+            Object.values(itemGroups).forEach((item: any) => {
+                // If the group had a discount, add a discount item before it in the cart.
+                if (item.discountPercent > 0) {
+                    initialCart.push({ type: 'discount', percent: item.discountPercent, id: Math.random(), isAuto: false });
                 }
                 item.totalQty = item.variants.reduce((s:any, v:any) => s + v.quantity, 0);
                 initialCart.push(item);
@@ -112,7 +115,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
-        if (customerSearchTerm.length > 0 && customerSearchTerm !== selectedCustomer.name) {
+        if (customerSearchTerm.length > 0 && customerSearchTerm !== selectedCustomer?.name) {
             setIsSearchingCustomer(true);
             const results = await searchCustomers(customerSearchTerm);
             setCustomerResults(results);
@@ -142,14 +145,13 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     });
   };
 
-  // ✅ تعديل updateQuantity - الكمية بالقطعة
   const updateQuantity = (productId: string, newQty: number) => {
     if (newQty < 1) return;
     const product = searchResults.find(p => p.id === productId);
     if (!product) return;
 
     if (product.status === 'CLOSED') {
-        const availableStock = product.currentStock; // ✅ بدون قسمة
+        const availableStock = product.currentStock; 
         if (newQty > availableStock) {
           alert(`الكمية المتاحة من هذا الصنف المغلق هي ${availableStock} قطعة فقط. لا يمكن بيع كمية أكبر.`);
           return;
@@ -236,7 +238,6 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     setShowDiscountOptions(false);
   };
 
-  // ✅ تعديل getProcessedCart - بدون ضرب في 4
   const getProcessedCart = () => {
       let processed: any[] = [];
       let activeDiscount = 0;
@@ -248,7 +249,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                   ...item, 
                   appliedDiscount: activeDiscount, 
                   finalPrice: discountedPrice, 
-                  totalLinePrice: item.variants.reduce((sum: number, v: any) => sum + (v.quantity * discountedPrice), 0), // ✅ بدون PIECES_PER_UNIT
+                  totalLinePrice: item.variants.reduce((sum: number, v: any) => sum + (v.quantity * discountedPrice), 0),
                   variants: item.variants.map((v: any) => ({ ...v, price: discountedPrice, discountPercent: activeDiscount }))
               });
           }
@@ -273,6 +274,9 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     if (result.success) {
         alert("تم تحديث الأوردر والعميل بنجاح ✅");
         router.push('/orders/list');
+    } else {
+        alert(`فشل التحديث: ${result.error}`);
+        setIsSaving(false);
     }
   };
 
@@ -297,6 +301,14 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
 
   const handleScan = (code: string) => {
       if (code) { setSearchTerm(code); setShowScanner(false); }
+  };
+
+  const handleItemPriceChange = (itemId: string, newPrice: number) => {
+    setCart(cart.map(item => 
+      (item.id === itemId && item.type === 'product')
+        ? { ...item, unitPrice: newPrice }
+        : item
+    ));
   };
 
   if (loading) return <div className="p-10 text-center font-bold">جاري تحميل بيانات الأوردر...</div>;
@@ -393,7 +405,6 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                           />
                           <div className={isSoldOut ? 'line-through decoration-red-500 decoration-2' : ''}> 
                               <div className="font-bold">{prod.color}</div>
-                              {/* ✅ تعديل: عرض الكمية بالقطعة */}
                               <div className="text-xs text-gray-500">{prod.price} ج.م | متاح: {prod.currentStock} قطعة</div>
                               {isSoldOut && <span className="text-[10px] text-red-600 font-bold block">نفذت الكمية</span>}
                           </div>
@@ -444,9 +455,26 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                     return (
                         <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative overflow-hidden transition-all hover:border-blue-200">
                             {proc.appliedDiscount > 0 && <div className="absolute top-0 left-0 bg-red-500 text-white text-[10px] px-2 py-1 rounded-br font-bold">خصم {proc.appliedDiscount}%</div>}
-                            <div className="flex justify-between mb-2">
-                                <div><span className="text-xl font-bold block">{item.modelNo}</span></div>
-                                <div className="text-left font-bold text-green-700">{proc.totalLinePrice?.toFixed(0)} ج.م</div>
+                            <div className="flex justify-between items-start mb-2">
+                                <div>
+                                    <span className="text-xl font-bold block">{item.modelNo}</span>
+                                </div>
+                                 <div className="text-left">
+                                    <div className="flex items-center justify-end gap-2">
+                                        <label htmlFor={`price-${item.id}`} className="text-xs font-bold text-gray-500">سعر القطعة:</label>
+                                        <input
+                                            id={`price-${item.id}`}
+                                            type="number"
+                                            value={item.unitPrice}
+                                            onChange={(e) => handleItemPriceChange(item.id, parseFloat(e.target.value) || 0)}
+                                            className="w-24 p-1 border rounded-lg text-center font-bold text-gray-800 bg-yellow-50 focus:ring-2 focus:ring-yellow-400"
+                                        />
+                                    </div>
+                                    <div className="text-left font-bold text-green-700 mt-1 text-lg">
+                                        {proc.appliedDiscount > 0 && <div className="text-xs text-gray-400 line-through">{(item.unitPrice * proc.totalQty).toFixed(0)} ج.م</div>}
+                                        <span>الإجمالي: {proc.totalLinePrice?.toFixed(0)} ج.م</span>
+                                    </div>
+                                </div>
                             </div>
                             <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded mb-2 border border-gray-200 flex flex-wrap gap-1">
                                 {item.variants.map((v:any, i:number) => (
@@ -454,8 +482,7 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                                 ))}
                             </div>
                             <div className="flex justify-between items-center pt-2 border-t">
-                                {/* ✅ تعديل: عرض الكمية بالقطعة */}
-                                <span className="text-xs font-bold text-gray-500">الإجمالي: {item.totalQty} قطعة</span>
+                                <span className="text-xs font-bold text-gray-500">الإجمالي: {proc.totalQty} قطعة</span>
                                 <div className="flex gap-2">
                                     <button onClick={() => handleEditCartItem(item)} className="text-xs bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded font-bold">تعديل ✏️</button>
                                     <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded font-bold">حذف 🗑️</button>
