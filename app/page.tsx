@@ -3,19 +3,18 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/auth";
 import NotificationBell from "./admin/NotificationBell";
-import TestOrderButton from "./TestOrderButton";
 import TrialBanner from '@/components/TrialBanner';
 import { prisma } from '@/lib/prisma';
 
 async function TodaySummaryButton() {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const tomorrow = new Date(today)
-  tomorrow.setDate(tomorrow.getDate() + 1)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
 
   const ordersCount = await prisma.order.count({
     where: { createdAt: { gte: today, lt: tomorrow } },
-  })
+  });
 
   return (
     <div className="scale-in" style={{ animationDelay: '0.05s' }}>
@@ -43,7 +42,7 @@ async function TodaySummaryButton() {
         </div>
       </Link>
     </div>
-  )
+  );
 }
 
 export default async function Home() {
@@ -62,8 +61,7 @@ export default async function Home() {
   }
 
   const isAllowedInAdmin = user?.role === 'ADMIN' || user?.role === 'OWNER' || user?.role === 'ACCOUNTANT';
-  const isTestUser = user?.role === 'ADMIN' || user?.role === 'OWNER';
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'OWNER';
+  const isPowerUser = user?.role === 'ADMIN' || user?.role === 'OWNER'; // Changed from isTestUser
 
   return (
     <div className="min-h-screen bg-slate-900 relative overflow-hidden" dir="rtl">
@@ -116,9 +114,19 @@ export default async function Home() {
             
             <div className="flex items-center gap-3 flex-wrap">
               {isAllowedInAdmin && <NotificationBell isDark={true} />}
-              {isTestUser && <TestOrderButton userId={user.id} />}
               
-              {isAdmin && (
+              {/* NEW: Bulk Upload Button - replaces TestOrderButton */}
+              {isPowerUser && (
+                 <Link 
+                  href="/orders/bulk-upload"
+                  className="glass text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-white/10 transition-all flex items-center gap-2"
+                >
+                   <span>📄</span>
+                  <span>فاتورة مجمعة</span>
+                </Link>
+              )}
+              
+              {isPowerUser && (
                 <Link 
                   href="/admin" 
                   className="glass text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-white/10 transition-all flex items-center gap-2"
@@ -234,7 +242,7 @@ export default async function Home() {
             )}
 
             {/* Admin Panel - Only for Admin */}
-            {isAdmin && (
+            {isPowerUser && (
               <div className="scale-in" style={{ animationDelay: '0.5s' }}>
                 <Link 
                   href="/admin" 
