@@ -144,6 +144,72 @@ export default function NewOrderPage() {
   }, []);
 
   useEffect(() => {
+    // This effect runs once after products are loaded to check for bulk data.
+    if (isProductsLoading) {
+      return; // Do nothing if products are still loading.
+    }
+
+    const bulkDataString = sessionStorage.getItem('bulkOrderData');
+    if (!bulkDataString) {
+      return; // No bulk data, do nothing.
+    }
+
+    try {
+      const bulkData = JSON.parse(bulkDataString);
+
+      // 1. Set the customer
+      if (bulkData.customer) {
+        setSelectedCustomer(bulkData.customer);
+        setCustomerSearchTerm(bulkData.customer.name);
+      }
+
+      // 2. Build the cart from bulk items
+      if (bulkData.items && Array.isArray(bulkData.items) && bulkData.items.length > 0) {
+        
+        const groupedItems = bulkData.items.reduce((acc: any, item: any) => {
+          const modelNo = item.modelNo;
+          if (!acc[modelNo]) {
+            const productInfo = allProducts.find(p => p.modelNo === modelNo);
+            acc[modelNo] = {
+              type: 'product',
+              id: `bulk-${modelNo}-${Date.now()}`,
+              modelNo: modelNo,
+              baseDescription: productInfo?.description || '',
+              unitPrice: item.price,
+              variants: [],
+              totalQty: 0
+            };
+          }
+
+          acc[modelNo].variants.push({
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price,
+            color: item.color,
+            productDiscount: item.discountPercent || 0
+          });
+
+          acc[modelNo].totalQty += item.quantity;
+          
+          return acc;
+        }, {});
+
+        const newCart = Object.values(groupedItems);
+        
+        if (newCart.length > 0) {
+          setCart(newCart as any);
+          alert('تم تحميل الأصناف من الملف بنجاح!');
+        }
+      }
+    } catch (error) {
+      console.error("Error processing bulk data from sessionStorage:", error);
+      alert("حدث خطأ أثناء معالجة بيانات الفاتورة المجمعة.");
+    } finally {
+      sessionStorage.removeItem('bulkOrderData');
+    }
+  }, [isProductsLoading, allProducts]);
+
+  useEffect(() => {
       const delayDebounceFn = setTimeout(async () => {
         if (customerSearchTerm.length > 0) {
             setIsSearchingCustomer(true);
@@ -185,7 +251,7 @@ export default function NewOrderPage() {
         acc[product.modelNo].push(product);
         return acc;
     }, {} as { [key: string]: Product[] });
-  }, [searchResults]);
+  }, [searchResults])
 
   const uniqueModelNos = useMemo(() => {
     return Array.from(new Set(searchResults.map(p => p.modelNo)))

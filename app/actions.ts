@@ -530,8 +530,17 @@ export async function deleteOrder(orderId: string) {
 
 export async function updateOrder(orderId: string, data: any) {
   const { customerId, items, total, deposit, safeId, currency, notes } = data;
+  const newDepositAmount = parseFloat(deposit) || 0;
 
   try {
+    const existingOrder = await prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!existingOrder) {
+      throw new Error("لم يتم العثور على الطلب المراد تحديثه.");
+    }
+
     await prisma.$transaction(
       async (tx) => {
         // 1. Fetch old items (including product details for error messages)
@@ -691,15 +700,64 @@ export async function updateOrder(orderId: string, data: any) {
           });
         }
 
-        // 7. Update the order itself
+        // 7. Handle the financial (Payment) record associated with the deposit.
+        const paymentDescriptionFragment = `للأوردر رقم #${existingOrder.orderNo}`;
+        
+        const existingPayment = await tx.payment.findFirst({
+            where: {
+                description: { contains: paymentDescriptionFragment },
+                type: 'PAYMENT_COLLECTION'
+            }
+        });
+
+        let newCustomerName = '';
+        if (newDepositAmount > 0) {
+            const customer = await tx.customer.findUnique({ where: { id: customerId }});
+            if (customer) {
+                newCustomerName = customer.name;
+            }
+        }
+        const newPaymentDescription = `تحصيل دفعة للأوردر رقم #${existingOrder.orderNo} للعميل: ${newCustomerName}`;
+
+        if (newDepositAmount === 0 && existingPayment) {
+            await tx.payment.delete({ where: { id: existingPayment.id } });
+        }
+
+        if (newDepositAmount > 0) {
+            if (existingPayment) {
+                await tx.payment.update({
+                    where: { id: existingPayment.id },
+                    data: {
+                        amount: newDepositAmount,
+                        safeId: safeId,
+                        customerId: customerId, 
+                        description: newPaymentDescription,
+                    }
+                });
+            } else {
+                await tx.payment.create({
+                    data: {
+                        type: 'PAYMENT_COLLECTION',
+                        amount: newDepositAmount,
+                        currency: currency || 'EGP',
+                        safeId: safeId,
+                        userId: existingOrder.userId,
+                        customerId: customerId,
+                        description: newPaymentDescription,
+                    }
+                });
+            }
+        }
+        
+        // 8. Update the order record itself.
         await tx.order.update({
           where: { id: orderId },
           data: {
             customerId: customerId,
             totalAmount: total,
-            deposit: deposit || 0,
+            deposit: newDepositAmount,
             currency: currency || "EGP",
-            safeId: deposit > 0 ? safeId : null,
+            safeId: newDepositAmount > 0 ? safeId : null,
             notes: notes,
           },
         });
@@ -713,6 +771,9 @@ export async function updateOrder(orderId: string, data: any) {
     revalidatePath(`/orders/list`);
     revalidatePath(`/orders/${orderId}/edit`);
     revalidatePath("/admin/notifications");
+    revalidatePath("/admin/cash-management");
+    revalidatePath(`/admin/reports/customer/${customerId}`);
+    
     return { success: true };
   } catch (error: any) {
     console.error("Error updating order:", error);
