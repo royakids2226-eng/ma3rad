@@ -65,13 +65,10 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                 setSelectedSafeId(mainSafe?.id || fetchedSafes[0].id);
             }
             
-            // *** CORE FIX: Correctly rebuild the cart from order items ***
             const initialCart: any[] = [];
-            // Group items by a composite key of model number AND price to separate manually priced items.
             const itemGroups: {[key: string]: any} = {};
             
             res.items.forEach((item: any) => {
-                // Use the price from the OrderItem, not the original product price.
                 const unitPrice = item.price;
                 const key = `${item.product.modelNo}|${unitPrice.toFixed(2)}|${item.discountPercent}`;
 
@@ -81,25 +78,21 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
                         id: Math.random(),
                         modelNo: item.product.modelNo,
                         baseDescription: item.product.description,
-                        unitPrice: unitPrice, // Set the correct unit price for the group.
+                        unitPrice: unitPrice, 
                         variants: [],
-                        // Store the discount from the first item of the group.
-                        // This assumes discounts are applied per-group in the UI.
                         discountPercent: item.discountPercent 
                     };
                 }
                 itemGroups[key].variants.push({
                     productId: item.productId,
                     quantity: item.quantity,
-                    price: unitPrice, // Pass the correct price down to the variant.
+                    price: unitPrice, 
                     color: item.product.color,
                     productDiscount: item.product.discount
                 });
             });
 
-            // Reconstruct the cart, inserting discount items where they existed.
             Object.values(itemGroups).forEach((item: any) => {
-                // If the group had a discount, add a discount item before it in the cart.
                 if (item.discountPercent > 0) {
                     initialCart.push({ type: 'discount', percent: item.discountPercent, id: Math.random(), isAuto: false });
                 }
@@ -179,33 +172,68 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     const selectedIds = Object.keys(selectionMap);
     if (selectedIds.length === 0) return;
     const selectedProducts = searchResults.filter(p => selectedIds.includes(p.id));
-    const groupedByModel: {[key: string]: any[]} = {};
-    selectedProducts.forEach(p => {
-      if (!groupedByModel[p.modelNo]) groupedByModel[p.modelNo] = [];
-      groupedByModel[p.modelNo].push({ ...p, qty: selectionMap[p.id] });
-    });
 
     let updatedCart = [...cart];
-    Object.keys(groupedByModel).forEach(modelNo => {
-      const newVariants = groupedByModel[modelNo];
-      let existingItemIndex = updatedCart.findIndex(i => i.modelNo === modelNo && i.type === 'product');
-      if (existingItemIndex > -1) {
-          const variantsMap: any = {};
-          newVariants.forEach((nv: any) => {
-              variantsMap[nv.id] = { productId: nv.id, quantity: nv.qty, price: nv.price, color: nv.color, productDiscount: nv.discount };
-          });
-          updatedCart[existingItemIndex].variants = Object.values(variantsMap);
-          updatedCart[existingItemIndex].totalQty = updatedCart[existingItemIndex].variants.reduce((s:any, v:any)=>s+v.quantity, 0);
-      } else {
-          const finalVariants = newVariants.map((v: any) => ({ productId: v.id, quantity: v.qty, price: v.price, color: v.color, productDiscount: v.discount }));
-          updatedCart.unshift({
-            type: 'product', id: Date.now() + Math.random(), modelNo: modelNo,
-            baseDescription: newVariants[0].description, totalQty: finalVariants.reduce((s:any,v:any)=>s+v.quantity,0),
-            unitPrice: newVariants[0].price, variants: finalVariants
-          });
-      }
+
+    selectedProducts.forEach(productToAdd => {
+        const quantity = selectionMap[productToAdd.id] || 0;
+        if (quantity === 0) return; // Skip if quantity is zero
+
+        // Use a consistent price for grouping. Here, we use the product's default price.
+        const unitPrice = productToAdd.price;
+        
+        let existingItemIndex = updatedCart.findIndex(
+            i => i.type === 'product' && i.modelNo === productToAdd.modelNo && i.unitPrice === unitPrice
+        );
+
+        if (existingItemIndex > -1) {
+            // Item with same modelNo and price exists, update its variants
+            const existingItem = { ...updatedCart[existingItemIndex] };
+            let newVariants = [...existingItem.variants];
+            const variantIndex = newVariants.findIndex(v => v.productId === productToAdd.id);
+
+            if (variantIndex > -1) {
+                // Variant (color) exists, just update quantity
+                newVariants[variantIndex].quantity += quantity;
+            } else {
+                // Variant does not exist, add it
+                newVariants.push({
+                    productId: productToAdd.id,
+                    quantity: quantity,
+                    price: unitPrice,
+                    color: productToAdd.color,
+                    productDiscount: productToAdd.discount,
+                });
+            }
+            
+            existingItem.variants = newVariants;
+            existingItem.totalQty = newVariants.reduce((sum, v) => sum + v.quantity, 0);
+            updatedCart[existingItemIndex] = existingItem;
+
+        } else {
+            // No item with this modelNo and price, add a new one
+            updatedCart.unshift({
+                type: 'product',
+                id: Date.now() + Math.random(),
+                modelNo: productToAdd.modelNo,
+                baseDescription: productToAdd.description,
+                totalQty: quantity,
+                unitPrice: unitPrice,
+                variants: [{
+                    productId: productToAdd.id,
+                    quantity: quantity,
+                    price: unitPrice,
+                    color: productToAdd.color,
+                    productDiscount: productToAdd.discount,
+                }],
+            });
+        }
     });
-    setCart(updatedCart); setSelectionMap({}); setSearchTerm(''); setSearchResults([]);
+
+    setCart(updatedCart);
+    setSelectionMap({});
+    setSearchTerm('');
+    setSearchResults([]);
   };
 
   const handleEditCartItem = (item: any) => {
