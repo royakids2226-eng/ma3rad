@@ -3,13 +3,17 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { getUserOrders, deleteOrder, getSettings } from '@/app/actions';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-// مكتبات الطباعة
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+// 1. استيراد كليينت Supabase (تأكد من مسار الملف عندك في المشروع)
+import { createClient, RealtimePostgresChangesPayload } from '@supabase/supabase-js'; 
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const PIECES_PER_UNIT = 4;
 
-// دالة تجميع الأصناف (المحدثة للخصم)
 function groupOrderItems(items: any[]) {
     const grouped: any = {};
     items?.forEach((item: any) => {
@@ -46,56 +50,77 @@ export default function OrdersListPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [printRange, setPrintRange] = useState([0, 0]);
-  const [newOrderAlert, setNewOrderAlert] = useState(false); // تنبيه الأوردر الجديد
+  const [newOrderAlert, setNewOrderAlert] = useState(false); 
   const [settings, setSettings] = useState<any>(null);
 
-  // حالات طباعة PDF
   const [pdfOrder, setPdfOrder] = useState<any>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const hiddenInvoiceRef = useRef<HTMLDivElement>(null);
-
-  // لحساب قيمة الخصم الكلية للـ PDF
   const [pdfTotalDiscount, setPdfTotalDiscount] = useState(0);
 
-  // --- دالة جلب البيانات (محدثة لدعم التحديث التلقائي) ---
+  // مرجع للاحتفاظ بقيمة الأوردرات الحالية داخل الـ Realtime لتجنب مشاكل الـ Closures
+  const ordersRef = useRef(orders);
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
+
+  // دالة جلب البيانات الأساسية والتحديث
   const fetchOrdersData = useCallback(async (isRefresh = false) => {
-    if (session?.user?.image) { // Corrected: Use .image to get user ID
+    if (session?.user?.image) { 
       const res = await getUserOrders(session.user.image);
       
-      if (isRefresh && res.orders.length > orders.length && orders.length > 0) {
+      // إذا كان تحديث ووجدنا أوردرات جديدة
+      if (isRefresh && res.orders.length > ordersRef.current.length && ordersRef.current.length > 0) {
         setNewOrderAlert(true);
         setTimeout(() => setNewOrderAlert(false), 6000);
       }
 
       setOrders(res.orders);
       // @ts-ignore
-      setUserRole(session.user?.role || 'EMPLOYEE'); // Corrected: Use role from session
+      setUserRole(session.user?.role || 'EMPLOYEE'); 
       if(!isRefresh) setLoading(false);
     }
-  }, [session, orders.length]);
+  }, [session]);
 
-  // التحميل الأول للملف
+  // التحميل الأول للبيانات والـ Settings
   useEffect(() => {
-    if (session) { // Ensure session exists before fetching data
+    if (session) { 
         fetchOrdersData();
         getSettings().then(setSettings);
     }
   }, [session, fetchOrdersData]);
 
-  // --- إضافة التحديث التلقائي (كل 7 ثواني) ---
+  // --- 🌟 التعديل الجوهري: تشغيل الـ Realtime وإلغاء الـ Interval 🌟 ---
   useEffect(() => {
-    if (session) { // Ensure session exists before starting interval
-        const interval = setInterval(() => {
+    if (!session) return;
+
+    // الاشتراك في جدول الأوردرات لحظياً عند حدوث إدخال جديد فقط (INSERT)
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'Order', // ⚠️ تأكد من اسم الجدول عندك في الداتا بيز (Order أو orders) كابيتال أو سمول
+        },
+        (payload: RealtimePostgresChangesPayload<{ [key: string]: any }>) => {
+          console.log('أوردر جديد تم تسجيله في الداتا بيز:', payload);
+          // استدعاء دالة التحديث فوراً وبدون Loops
           fetchOrdersData(true);
-        }, 7000); 
-        return () => clearInterval(interval);
-    }
+        }
+      )
+      .subscribe();
+
+    // دالة التنظيف (Cleanup) لمنع تسريب الاتصالات عند مغادرة الصفحة
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [session, fetchOrdersData]);
 
   // مراقب الطباعة
   useEffect(() => {
     if (pdfOrder && hiddenInvoiceRef.current) {
-        // حساب إجمالي الخصم للفاتورة الحالية
         const grouped = groupOrderItems(pdfOrder.items);
         const discountVal = grouped.reduce((acc: number, item: any) => {
             const totalOriginal = item.originalPrice * (item.totalQty * PIECES_PER_UNIT);
@@ -103,7 +128,6 @@ export default function OrdersListPage() {
             return acc + (totalOriginal - totalFinal);
         }, 0);
         setPdfTotalDiscount(discountVal);
-
         generateAndSharePdf();
     }
   }, [pdfOrder]);
@@ -217,7 +241,6 @@ export default function OrdersListPage() {
             onChange={(e) => setSearchTerm(e.target.value)}
         />
 
-        {/* لوحة تحكم الطباعة الجماعية */}
         <div className="bg-blue-50 p-4 rounded-2xl mb-6 border border-blue-100 flex flex-wrap items-center gap-4 print:hidden">
             <span className="font-bold text-blue-800 text-sm">🖨️ طباعة النتائج الظاهرة:</span>
             
@@ -462,8 +485,8 @@ export default function OrdersListPage() {
                     <div className="prose prose-sm max-w-none mt-4 text-center" dangerouslySetInnerHTML={{ __html: settings.footer }}></div>
                 )}
             </div>
-            )}
-        )}
+            )
+        })}
     </div>
 
       <div style={{ position: 'fixed', top: 0, left: '-10000px', width: '210mm', zIndex: -100, visibility: 'hidden' }}>
