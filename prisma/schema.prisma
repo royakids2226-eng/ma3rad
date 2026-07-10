@@ -26,18 +26,19 @@ enum ReturnStatus {
 // ==================== Models الأساسية ====================
 
 model User {
-  id        String    @id @default(cuid())
-  code      String    @unique
-  name      String
-  password  String
-  role      String    @default("EMPLOYEE")
-  orders    Order[]
-  payments  Payment[]
-  returns   ReturnOrder[]
-  createdAt DateTime  @default(now())
+  id                  String                @id @default(cuid())
+  code                String                @unique
+  name                String
+  password            String
+  role                String                @default("EMPLOYEE")
+  orders              Order[]
+  payments            Payment[]
+  returns             ReturnOrder[]
+  createdAt           DateTime              @default(now())
   
-  // ✅ علاقة جديدة: حركات الموردين
-  vendorTransactions VendorTransaction[]
+  // العلاقات الجديدة
+  vendorTransactions  VendorTransaction[]
+  employeeTransactions EmployeeTransaction[] // <--- السطر الجديد هنا
 }
 
 model Customer {
@@ -52,9 +53,9 @@ model Customer {
   payments  Payment[]
 }
 
-// ========================================
+// =======================================
 // ✅ نموذج الموردين (جديد)
-// ========================================
+// =======================================
 
 model Vendor {
   id          String   @id @default(cuid())
@@ -67,17 +68,17 @@ model Vendor {
   source      String   @default("MANUAL") // MANUAL, IMPORT
   
   // العلاقات
-  products    Product[]                    // المنتجات المرتبطة بالمورد
-  payments    Payment[]                    // سندات الدفع للمورد
-  transactions VendorTransaction[]        // حركات المورد (دفتر الأستاذ)
+  products    Product[]
+  payments    Payment[]
+  transactions VendorTransaction[]
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
-// ========================================
+// =======================================
 // ✅ حركات المورد - دفتر الأستاذ (جديد)
-// ========================================
+// =======================================
 
 model VendorTransaction {
   id          String   @id @default(cuid())
@@ -104,7 +105,7 @@ model Product {
   id               String      @id @default(cuid())
   modelNo          String
   description      String?
-  vendor           String?     // ⚠️ حقل قديم (نصي) - احتفظنا به للتوافق
+  vendor           String?
   color            String
   stockQty         Int         @default(0)
   currentStock     Int         @default(0)
@@ -120,7 +121,6 @@ model Product {
   returnItems      ReturnItem[] @relation("ReturnProduct")
   exchangedItems   ReturnItem[] @relation("ExchangedProduct")
 
-  // ✅ علاقات جديدة للموردين
   vendorId         String?
   vendorRef        Vendor?     @relation(fields: [vendorId], references: [id])
   vendorTransactions VendorTransaction[]
@@ -129,13 +129,15 @@ model Product {
 }
 
 model Safe {
-  id                String    @id @default(cuid())
-  name              String
-  orders            Order[]
-  payments          Payment[] @relation("SourceSafe")
-  incomingTransfers Payment[] @relation("TargetSafe")
-  returns           ReturnOrder[]
-  createdAt         DateTime  @default(now())
+  id                  String                @id @default(cuid())
+  name                String
+  orders              Order[]
+  payments            Payment[]             @relation("SourceSafe")
+  incomingTransfers   Payment[]             @relation("TargetSafe")
+  returns             ReturnOrder[]
+  createdAt           DateTime              @default(now())
+  
+  employeeTransactions EmployeeTransaction[] // <--- السطر الجديد هنا
 }
 
 // ==================== الأوردرات ====================
@@ -159,7 +161,6 @@ model Order {
   items       OrderItem[]
   notes       String?
 
-  // العلاقات مع المرتجعات
   originalReturns ReturnOrder[] @relation("OriginalOrderReturns")
   exchangeFromReturn ReturnOrder[] @relation("ExchangeNewOrder")
 }
@@ -198,7 +199,7 @@ model Payment {
   amount       Float
   currency     String   @default("EGP") 
 
-  type         String   @default("IN") // القيم الممكنة: IN, OUT, PAYMENT_COLLECTION, REFUND, TRANSFER, VOUCHER, VENDOR_PAYMENT
+  type         String   @default("IN")
   description  String?  
 
   customerId   String?  
@@ -213,7 +214,6 @@ model Payment {
   targetSafeId String?  
   targetSafe   Safe?    @relation("TargetSafe", fields: [targetSafeId], references: [id])
   
-  // ✅ علاقة جديدة: الدفع للمورد
   vendorId     String?
   vendor       Vendor?  @relation(fields: [vendorId], references: [id])
 }
@@ -359,4 +359,34 @@ model WarehouseSyncRecord {
   receipt           WarehouseReceipt       @relation(fields: [warehouseReceiptId], references: [uniqueid])
 
   @@index([syncOperationId])
+}
+
+// Employee and Payroll Management
+model Employee {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  phone         String?
+  defaultSalary Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  transactions EmployeeTransaction[]
+}
+
+model EmployeeTransaction {
+  id          String    @id @default(cuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  
+  amount      Float
+  description String
+
+  safeId      String?
+  safe        Safe?     @relation(fields: [safeId], references: [id])
+
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  
+  transactionDate DateTime @default(now())
+  createdAt       DateTime @default(now())
 }

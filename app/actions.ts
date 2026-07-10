@@ -1770,3 +1770,190 @@ export async function getSummaryByDateRange(startDate?: string, endDate?: string
     return { success: false, error: error.message };
   }
 }
+
+// ==========================================
+// 7. إدارة الموظفين والرواتب
+// ==========================================
+
+export async function getEmployees() {
+  try {
+    const employees = await prisma.employee.findMany({
+      include: {
+        _count: {
+          select: { transactions: true },
+        },
+      },
+      orderBy: { name: "asc" },
+    });
+    return { success: true, data: JSON.parse(JSON.stringify(employees)) };
+  } catch (error: any) {
+    console.error("Error fetching employees:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function addEmployee(data: { name: string; phone?: string; defaultSalary?: number }) {
+  try {
+    const { name, phone, defaultSalary } = data;
+    if (!name) {
+      return { success: false, error: "اسم الموظف مطلوب." };
+    }
+    const employee = await prisma.employee.create({
+      data: {
+        name,
+        phone,
+        defaultSalary: defaultSalary || 0,
+      },
+    });
+    revalidatePath("/admin/employees");
+    return { success: true, data: JSON.parse(JSON.stringify(employee)) };
+  } catch (error: any) {
+    console.error("Error adding employee:", error);
+    if (error.code === 'P2002') {
+        return { success: false, error: "يوجد موظف بنفس الاسم بالفعل." };
+    }
+    return { success: false, error: error.message };
+  }
+}
+
+export async function updateEmployee(id: string, data: { name?: string; phone?: string; defaultSalary?: number }) {
+  try {
+    const { name, phone, defaultSalary } = data;
+    const employee = await prisma.employee.update({
+      where: { id },
+      data: {
+        name,
+        phone,
+        defaultSalary,
+      },
+    });
+    revalidatePath("/admin/employees");
+    revalidatePath(`/admin/employees/${id}/ledger`);
+    return { success: true, data: JSON.parse(JSON.stringify(employee)) };
+  } catch (error: any) {
+    console.error("Error updating employee:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function createEmployeePayment(data: { employeeId: string; amount: number; description: string; safeId: string; transactionDate: Date; }, createdById: string) {
+    const { employeeId, amount, description, safeId, transactionDate } = data;
+    if (!employeeId || !amount || !safeId) {
+        return { success: false, error: "بيانات غير مكتملة." };
+    }
+
+    try {
+        const result = await prisma.$transaction(async (tx) => {
+            // 1. Create a negative transaction for the employee (Debit)
+            const transaction = await tx.employeeTransaction.create({
+                data: {
+                    employeeId,
+                    amount: -Math.abs(amount), // Negative for debit
+                    description,
+                    safeId,
+                    createdById,
+                    transactionDate
+                }
+            });
+
+            // 2. Create a corresponding general OUT payment from the safe
+            await tx.payment.create({
+                data: {
+                    type: 'OUT',
+                    amount: Math.abs(amount),
+                    currency: 'EGP', 
+                    safeId,
+                    userId: createdById,
+                    description: `صرف للموظف: ${description}`,
+                    createdAt: transactionDate
+                },
+            });
+
+            return transaction;
+        });
+
+        revalidatePath("/admin/employees");
+        revalidatePath(`/admin/employees/${employeeId}/ledger`);
+        revalidatePath('/admin/cash-management');
+        return { success: true, data: result };
+
+    } catch (error: any) {
+        console.error("Error creating employee payment:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function createSalaryCredit(data: { employeeId: string; amount: number; description: string; transactionDate: Date; }, createdById: string) {
+    const { employeeId, amount, description, transactionDate } = data;
+    if (!employeeId || !amount) {
+        return { success: false, error: "بيانات غير مكتملة." };
+    }
+
+    try {
+        const transaction = await prisma.employeeTransaction.create({
+            data: {
+                employeeId,
+                amount: Math.abs(amount), // Positive for credit
+                description,
+                createdById,
+                transactionDate,
+                safeId: null // Not a cash transaction
+            }
+        });
+
+        revalidatePath("/admin/employees");
+        revalidatePath(`/admin/employees/${employeeId}/ledger`);
+        return { success: true, data: transaction };
+
+    } catch (error: any) {
+        console.error("Error creating salary credit:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function getEmployeeLedger(employeeId: string) {
+  if (!employeeId) return { success: false, error: 'لم يتم تحديد الموظف' };
+
+  try {
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+
+    if (!employee) {
+      return { success: false, error: 'الموظف غير موجود' };
+    }
+
+    const transactions = await prisma.employeeTransaction.findMany({
+      where: { employeeId },
+      include: {
+        safe: true,
+        createdBy: true,
+      },
+      orderBy: { transactionDate: 'asc' },
+    });
+
+    let runningBalance = 0;
+    const transactionsWithBalance = transactions.map(t => {
+      runningBalance += t.amount;
+      return { ...t, balance: runningBalance };
+    });
+    
+    const summary = {
+      totalCredit: transactions.filter(t => t.amount > 0).reduce((sum, t) => sum + t.amount, 0),
+      totalDebit: transactions.filter(t => t.amount < 0).reduce((sum, t) => sum + t.amount, 0),
+      currentBalance: runningBalance
+    };
+
+    return {
+      success: true,
+      data: {
+        employee: JSON.parse(JSON.stringify(employee)),
+        transactions: JSON.parse(JSON.stringify(transactionsWithBalance.reverse())),
+        summary,
+      },
+    };
+  } catch (error: any) {
+    console.error('Error in getEmployeeLedger:', error);
+    return { success: false, error: error.message || 'فشل جلب البيانات' };
+  }
+}
