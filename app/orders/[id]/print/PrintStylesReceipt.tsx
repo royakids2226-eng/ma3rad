@@ -2,146 +2,132 @@
 
 const PrintStylesReceipt = ({ siteName, customerName }: { siteName: string, customerName: string }) => (
   <style jsx global>{`
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
-
     @media print {
+
+        /* --- Page & Body Core Setup --- */
         @page {
-            size: 80mm auto;  /* ✅ عرض 80mm - طول تلقائي */
-            margin: 3mm;
+            size: 80mm auto;
+            margin: 0; /* Let the body handle all spacing */
         }
 
-        body {
+        body.receipt-print {
             font-family: 'Cairo', sans-serif !important;
-            background: #ffffff !important;
-            color: #000000 !important;
-            font-size: 11px !important;
-            width: 74mm !important;
+            background: #fff !important;
+            color: #000 !important;
+            font-size: 10px !important;
+            width: 100% !important; /* Use the full printable area */
+            padding: 0 2.5mm;      /* Create safe internal margins */
+            box-sizing: border-box; /* Include padding in the width calculation */
             margin: 0 !important;
-            padding: 0 !important;
         }
 
-        .no-print {
+        .receipt-print .no-print {
             display: none !important;
         }
 
-        #invoice-content {
-            width: 74mm !important;
-            max-width: 74mm !important;
-            padding: 2mm !important;
+        .receipt-print #invoice-content {
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 0 !important;
             margin: 0 !important;
             box-shadow: none !important;
             border: none !important;
-            border-top: none !important;
         }
 
-        /* Header مخصص للطابعة الحرارية */
-        header {
-            margin-bottom: 4mm !important;
+        /* --- Header --- */
+        .receipt-print header {
             text-align: center !important;
+            margin-bottom: 4mm !important;
+            padding-top: 2mm;
         }
-
-        header h1 {
-            font-size: 14px !important;
-            margin: 0 !important;
+        .receipt-print header h1 {
+            font-size: 16px !important;
+            margin: 0 0 2mm 0 !important;
         }
-
-        header p {
+        .receipt-print header p {
             font-size: 10px !important;
             margin: 1mm 0 !important;
         }
-
-        header table {
-            font-size: 10px !important;
-        }
-
-        header table td {
-            padding: 1mm 0 !important;
+        .receipt-print header table,
+        .receipt-print header tbody,
+        .receipt-print header tr {
             display: block !important;
-            text-align: center !important;
+            width: 100% !important;
         }
-
-        /* جدول الأصناف - عمودي */
-        table {
+        .receipt-print header table td {
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            text-align: right !important;
+            padding: 2.5px 0 !important;
+            border: none !important;
+            border-bottom: 1px solid #eee !important; /* Softer, cleaner line */
             width: 100% !important;
             font-size: 10px !important;
-            border-collapse: collapse !important;
+        }
+        .receipt-print header table td span {
+          font-weight: bold;
         }
 
-        th, td {
-            padding: 1mm !important;
-            border: 1px solid #333 !important;
+        /* --- Items Table --- */
+        .receipt-print #invoice-content > div > table {
+            font-size: 10px !important;
+            border-collapse: collapse !important; 
+            width: 100% !important;
+        }
+        .receipt-print #invoice-content > div > table th, 
+        .receipt-print #invoice-content > div > table td {
+            padding: 2mm 1mm !important;
+            border: 1px solid #ccc !important;
+            text-align: center !important;
+            vertical-align: middle;
+        }
+        .receipt-print #invoice-content > div > table th {
+            background: #f0f0f0 !important;
+            -webkit-print-color-adjust: exact !important;
+        }
+        .receipt-print #invoice-content > div > table th:nth-child(3),
+        .receipt-print #invoice-content > div > table td:nth-child(3) {
+            display: none !important; /* Hide details column */
+        }
+        .receipt-print #invoice-content > div > table th:nth-child(2),
+        .receipt-print #invoice-content > div > table td:nth-child(2) {
             text-align: right !important;
         }
 
-        th {
-            background: #f0f0f0 !important;
-            font-size: 9px !important;
-            -webkit-print-color-adjust: exact !important;
-        }
-
-        /* إخفاء أعمدة غير مهمة */
-        th:nth-child(1), td:nth-child(1) { /* رقم م */
-            width: 8% !important;
-        }
-        th:nth-child(2), td:nth-child(2) { /* الموديل */
-            width: 25% !important;
-        }
-        th:nth-child(3), td:nth-child(3) { /* التفاصيل */
-            display: none !important; /* ✅ إخفاء التفاصيل */
-        }
-        th:nth-child(4), td:nth-child(4) { /* الكمية */
-            width: 12% !important;
-        }
-        th:nth-child(5), td:nth-child(5) { /* السعر */
-            width: 18% !important;
-        }
-        th:nth-child(6), td:nth-child(6) { /* خصم */
-            width: 12% !important;
-        }
-        th:nth-child(7), td:nth-child(7) { /* الإجمالي */
-            width: 25% !important;
-        }
-
-        /* Footer totals */
-        footer {
+        /* --- Footer & Totals --- */
+        .receipt-print footer {
             margin-top: 4mm !important;
             padding-top: 2mm !important;
             border-top: 2px dashed #333 !important;
         }
-
-        footer > div:first-child {
-            display: none !important; /* ✅ إخفاء الملاحظات */
+        .receipt-print footer > div:first-child { 
+            display: none !important; /* Hide notes section */
         }
-
-        footer > div:last-child {
-            width: 100% !important;
+        .receipt-print footer > div:last-child { 
+            width: 100% !important; 
         }
-
-        footer > div:last-child > div {
+        .receipt-print footer div[class*="p-6"] {
             border: none !important;
-            padding: 1mm 0 !important;
+            padding: 0 !important;
         }
-
-        footer .flex {
+        .receipt-print footer div[class*="p-6"] > div {
+            display: flex !important;
+            justify-content: space-between !important;
             font-size: 11px !important;
             margin-bottom: 1mm !important;
+            padding: 1.5mm 0 !important;
+            border-bottom: 1px solid #eee !important; /* Softer, cleaner line */
+        }
+        .receipt-print footer .text-xl {
+          border-top: 2px solid #333;
+          border-bottom: none !important;
+          font-size: 16px !important;
+          font-weight: 700 !important;
+          color: #000 !important;
+          padding-top: 2mm !important;
         }
 
-        /* خط فاصل */
-        hr, .separator {
-            border: none !important;
-            border-top: 1px dashed #333 !important;
-            margin: 2mm 0 !important;
-        }
-
-        /* منع page-break */
-        tr, td, th {
-            page-break-inside: avoid !important;
-        }
-
-        thead {
-            display: table-header-group !important;
-        }
     }
   `}</style>
 );

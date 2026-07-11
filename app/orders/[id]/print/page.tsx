@@ -6,6 +6,7 @@ import HomeButton from "./HomeButton";
 import NewOrderButton from "./NewOrderButton";
 import SharePdfButton from "./SharePdfButton";
 import PrintStyles from "./PrintStyles";
+import PrintStylesReceipt from "./PrintStylesReceipt";
 
 export default async function OrderPrintPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
@@ -75,6 +76,7 @@ export default async function OrderPrintPage({ params }: { params: Promise<{ id:
   return (
     <div className="bg-gray-100 min-h-screen" dir="rtl">
       <PrintStyles siteName={settings?.siteName || ''} customerName={order.customer.name} />
+      <PrintStylesReceipt siteName={settings?.siteName || ''} customerName={order.customer.name} />
       
       <div className="no-print flex flex-wrap justify-center gap-2 md:gap-4 p-4 bg-white shadow-md mb-4 md:mb-8">
         <PrintButton />
