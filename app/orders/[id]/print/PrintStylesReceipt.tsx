@@ -7,20 +7,19 @@ const PrintStylesReceipt = ({ siteName, customerName }: { siteName: string, cust
         /* --- Page & Body Core Setup --- */
         @page {
             size: 80mm auto;
-            margin: 0; /* Let the body handle all spacing */
+            margin: 0;
         }
 
         body.receipt-print {
             font-family: 'Cairo', sans-serif !important;
             background: #fff !important;
-            color: #000 !important; /* Force black for all text */
-            font-size: 11px !important; /* Slightly larger base font */
-            font-weight: 600 !important; /* Bolder base font for thermal print */
+            color: #000 !important; 
+            font-size: 12px !important; /* Larger base font for clarity */
+            font-weight: 700 !important; /* BOLD text by default */
             width: 100% !important; 
             padding: 0 3mm;      
             box-sizing: border-box; 
             margin: 0 !important;
-            /* --- Anti-aliasing & Rendering Fixes for Pixelation --- */
             text-rendering: geometricPrecision;
             -webkit-font-smoothing: none;
         }
@@ -45,12 +44,12 @@ const PrintStylesReceipt = ({ siteName, customerName }: { siteName: string, cust
             padding-top: 3mm;
         }
         .receipt-print header h1 {
-            font-size: 17px !important;
+            font-size: 18px !important;
             margin: 0 0 2mm 0 !important;
-            font-weight: 700 !important;
+            font-weight: 900 !important; /* EXTRA BOLD Title */
         }
         .receipt-print header p {
-            font-size: 11px !important;
+            font-size: 12px !important;
             margin: 1mm 0 !important;
         }
         .receipt-print header table td {
@@ -58,33 +57,31 @@ const PrintStylesReceipt = ({ siteName, customerName }: { siteName: string, cust
             justify-content: space-between !important;
             align-items: center !important;
             padding: 3px 0 !important;
-            border-bottom: 1px dashed #000 !important; /* Black dashed line */
-            font-size: 11px !important;
-        }
-        .receipt-print header table td span {
-          font-weight: 700; /* Bolder label */
+            border-bottom: 1px solid #000 !important; /* Solid black line */
+            font-size: 12px !important;
         }
 
         /* --- Items Table --- */
         .receipt-print #invoice-content > div > table {
             border-collapse: collapse !important; 
             width: 100% !important;
+            margin: 4mm 0 !important;
         }
-        .receipt-print #invoice-content > div > table th, 
+        .receipt-print #invoice-content > div > table th,
         .receipt-print #invoice-content > div > table td {
             padding: 2mm 1mm !important;
-            border: 1px solid #000 !important; /* Black borders */
+            border: 1px solid #000 !important;
             text-align: center !important;
-            font-weight: 600 !important;
+            font-weight: 700 !important; /* BOLD table content */
         }
         .receipt-print #invoice-content > div > table th {
-            background: #f0f0f0 !important;
+            background: #fff !important; /* NO gray background */
             -webkit-print-color-adjust: exact !important;
-            font-weight: 700 !important;
+            font-weight: 900 !important; /* EXTRA BOLD header */
         }
         .receipt-print #invoice-content > div > table th:nth-child(3),
         .receipt-print #invoice-content > div > table td:nth-child(3) {
-            display: none !important; /* Hide details column */
+            display: none !important;
         }
         .receipt-print #invoice-content > div > table th:nth-child(2),
         .receipt-print #invoice-content > div > table td:nth-child(2) {
@@ -95,13 +92,13 @@ const PrintStylesReceipt = ({ siteName, customerName }: { siteName: string, cust
         .receipt-print footer {
             margin-top: 4mm !important;
             padding-top: 2mm !important;
-            border-top: 1px solid #000 !important; /* Solid black line */
+            border-top: 2px solid #000 !important; /* Thicker solid line */
         }
-        .receipt-print footer > div:first-child { 
-            display: none !important; /* Hide notes section */
+        .receipt-print footer > div:first-child {
+            display: none !important;
         }
-        .receipt-print footer > div:last-child { 
-            width: 100% !important; 
+        .receipt-print footer > div:last-child {
+            width: 100% !important;
         }
         .receipt-print footer div[class*="p-6"] {
             border: none !important;
@@ -110,18 +107,17 @@ const PrintStylesReceipt = ({ siteName, customerName }: { siteName: string, cust
         .receipt-print footer div[class*="p-6"] > div {
             display: flex !important;
             justify-content: space-between !important;
-            font-size: 12px !important;
+            font-size: 13px !important;
             margin-bottom: 1mm !important;
             padding: 2mm 0 !important;
-            border-bottom: 1px dashed #000 !important; /* Black dashed line */
+            border-bottom: 1px solid #000 !important; /* Solid black line */
         }
         .receipt-print footer .text-xl {
-          border-top: 2px double #000 !important; /* Stronger double line */
-          border-bottom: none !important;
-          font-size: 18px !important;
-          font-weight: 700 !important;
-          color: #000 !important;
-          padding-top: 2mm !important;
+            border-top: 3px double #000 !important; /* STRONGEST line */
+            border-bottom: none !important;
+            font-size: 19px !important;   /* LARGEST font */
+            font-weight: 900 !important; /* HEAVIEST weight */
+            padding-top: 3mm !important;
         }
 
     }
