@@ -94,9 +94,31 @@ const PrintStylesReceipt = ({ siteName, customerName }: { siteName: string, cust
             padding-top: 2mm !important;
             border-top: 2px solid #000 !important; /* Thicker solid line */
         }
+
+        /* --- Notes Section --- */
         .receipt-print footer > div:first-child {
-            display: none !important;
+            display: block !important; /* RE-ENABLE the notes section */
+            text-align: right !important;
+            padding: 2mm !important;
+            margin-bottom: 3mm !important;
+            border: 1px solid #000 !important;
+            border-radius: 4px;
         }
+        .receipt-print footer > div:first-child h3 {
+            font-weight: 900 !important;
+            font-size: 13px !important;
+            margin: 0 0 1.5mm 0 !important;
+            text-align: center !important;
+            border-bottom: 1px solid #000;
+            padding-bottom: 1mm;
+        }
+        .receipt-print footer > div:first-child p {
+            font-size: 11px !important;
+            font-weight: 700 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
         .receipt-print footer > div:last-child {
             width: 100% !important;
         }
