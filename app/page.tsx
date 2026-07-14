@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/auth";
 import NotificationBell from "./admin/NotificationBell";
-import TrialBanner from '@/components/TrialBanner';
 import { prisma } from '@/lib/prisma';
 
 async function TodaySummaryButton() {
@@ -85,9 +84,6 @@ export default async function Home() {
 
       {/* Main Content */}
       <div className="relative z-10 min-h-screen p-4 md:p-8">
-        <div className="max-w-4xl mx-auto mb-6">
-          <TrialBanner />
-        </div>
         {/* Header */}
         <header className="glass rounded-2xl p-4 md:p-6 mb-8 slide-up">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
