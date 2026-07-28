@@ -4,7 +4,6 @@ import { getOrderById, searchProducts, updateOrder, getSafes, searchCustomers } 
 import { addCustomer } from '@/app/admin-actions';
 import { useRouter } from 'next/navigation';
 import { Scanner } from '@yudiel/react-qr-scanner';
-import Link from 'next/link';
 
 interface Safe {
   id: string;
@@ -35,14 +34,29 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
   const [cart, setCart] = useState<any[]>([]);
   const [cartSearchTerm, setCartSearchTerm] = useState('');
   const [deposit, setDeposit] = useState<string>('');
-  const [selectedSafeId, setSelectedSafeId] = useState<string>('');
+  const [depositSplits, setDepositSplits] = useState<Array<{safeId: string, amount: number}>>([]);
+  const [voucherAmount, setVoucherAmount] = useState<string>('');
+  const [showVoucherInput, setShowVoucherInput] = useState(false);
+  const [notes, setNotes] = useState('');
+
   const [showDiscountOptions, setShowDiscountOptions] = useState(false);
 
-  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
-  const [newCust, setNewCust] = useState({ name: '', phone: '', phone2: '', code: '', address: '' });
-  const [isSavingCust, setIsSavingCust] = useState(false);
+  const handleDepositChange = (value: string) => {
+    setDeposit(value);
+    const depositVal = parseFloat(value) || 0;
 
-  // When the component mounts, fetch the order data and populate the state.
+    if (depositVal !== 0) {
+        if (depositSplits.length === 0 && safes.length > 0) {
+            const mainSafe = safes.find(s => s.name === 'الخزنة الرئيسية') || safes[0];
+            setDepositSplits([{ safeId: mainSafe.id, amount: depositVal }]);
+        } else if (depositSplits.length === 1) {
+            setDepositSplits(splits => [{ ...splits[0], amount: depositVal }]);
+        }
+    } else {
+        setDepositSplits(splits => splits.map(s => ({ ...s, amount: 0 })));
+    }
+  };
+
   useEffect(() => {
     getSafes().then((fetchedSafes: Safe[]) => {
         setSafes(fetchedSafes);
@@ -56,14 +70,18 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
             setSelectedCustomer(res.customer);
             setCustomerSearchTerm(res.customer.name);
             setDeposit(res.deposit.toString());
+            handleDepositChange(res.deposit.toString());
 
-            // Set the safe, defaulting to the main safe or the first available one.
-            if (res.safeId) {
-                setSelectedSafeId(res.safeId);
-            } else if (fetchedSafes.length > 0) {
-                const mainSafe = fetchedSafes.find(safe => safe.name === 'الخزنة الرئيسية');
-                setSelectedSafeId(mainSafe?.id || fetchedSafes[0].id);
+            if (res.depositSplits && res.depositSplits.length > 0) {
+              setDepositSplits(res.depositSplits);
+            } else if (res.deposit > 0) {
+              const mainSafe = fetchedSafes.find(safe => safe.id === res.safeId) || fetchedSafes.find(s => s.name === 'الخزنة الرئيسية') || fetchedSafes[0];
+              setDepositSplits([{ safeId: mainSafe.id, amount: res.deposit }])
             }
+
+            setVoucherAmount((res.voucherAmount || '').toString());
+            if(res.voucherAmount > 0) setShowVoucherInput(true);
+            setNotes(res.notes || '');
             
             const initialCart: any[] = [];
             const itemGroups: {[key: string]: any} = {};
@@ -177,9 +195,8 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
 
     selectedProducts.forEach(productToAdd => {
         const quantity = selectionMap[productToAdd.id] || 0;
-        if (quantity === 0) return; // Skip if quantity is zero
+        if (quantity === 0) return;
 
-        // Use a consistent price for grouping. Here, we use the product's default price.
         const unitPrice = productToAdd.price;
         
         let existingItemIndex = updatedCart.findIndex(
@@ -187,16 +204,13 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
         );
 
         if (existingItemIndex > -1) {
-            // Item with same modelNo and price exists, update its variants
             const existingItem = { ...updatedCart[existingItemIndex] };
             let newVariants = [...existingItem.variants];
             const variantIndex = newVariants.findIndex(v => v.productId === productToAdd.id);
 
             if (variantIndex > -1) {
-                // Variant (color) exists, just update quantity
                 newVariants[variantIndex].quantity += quantity;
             } else {
-                // Variant does not exist, add it
                 newVariants.push({
                     productId: productToAdd.id,
                     quantity: quantity,
@@ -211,7 +225,6 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
             updatedCart[existingItemIndex] = existingItem;
 
         } else {
-            // No item with this modelNo and price, add a new one
             updatedCart.unshift({
                 type: 'product',
                 id: Date.now() + Math.random(),
@@ -289,13 +302,31 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
     setIsSaving(true);
     const processedItems = getProcessedCart();
     const currentTotal = processedItems.reduce((acc, item) => acc + item.totalLinePrice, 0);
+    const depositVal = parseFloat(deposit) || 0;
+    const voucherVal = parseFloat(voucherAmount) || 0;
+
+    if (depositVal !== 0) {
+      const splitsTotal = depositSplits.reduce((sum, s) => sum + (s.amount || 0), 0);
+      if (Math.abs(splitsTotal - depositVal) > 0.01) {
+        alert(`⚠️ مجموع تقسيمات العربون (${splitsTotal.toFixed(2)}) لا يساوي قيمة العربون (${depositVal.toFixed(2)})!`);
+        setIsSaving(false);
+        return;
+      }
+      if (depositSplits.some(s => !s.safeId)) {
+        alert("⚠️ يجب اختيار خزنة لكل تقسيمة!");
+        setIsSaving(false);
+        return;
+      }
+    }
     
     const result = await updateOrder(id, {
         customerId: selectedCustomer.id,
         items: processedItems,
         total: currentTotal,
-        deposit: parseFloat(deposit),
-        safeId: selectedSafeId,
+        deposit: depositVal,
+        depositSplits: depositVal !== 0 ? depositSplits.filter(s => s.amount !== 0) : [],
+        voucherAmount: voucherVal,
+        notes: notes,
         currency: order.currency
     });
     
@@ -306,25 +337,6 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
         alert(`فشل التحديث: ${result.error}`);
         setIsSaving(false);
     }
-  };
-
-  const handleQuickAddCustomer = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if(!newCust.name) return alert('الاسم مطلوب');
-      setIsSavingCust(true);
-      const res = await addCustomer({ ...newCust, source: 'QUICK' });
-      if (res.warning) {
-          setIsSavingCust(false);
-          if (confirm(`رقم الهاتف مسجل مسبقاً باسم: (${res.existingName}). هل تريد الاستمرار؟`)) {
-              setIsSavingCust(true);
-              const resF = await addCustomer({ ...newCust, source: 'QUICK', force: true });
-              if (resF.success) { setIsQuickAddOpen(false); }
-          }
-          return;
-      }
-      if(res.success) { setIsQuickAddOpen(false); }
-      else { alert("خطأ: " + res.error); }
-      setIsSavingCust(false);
   };
 
   const handleScan = (code: string) => {
@@ -343,6 +355,10 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
 
   const processedDisplayCart = getProcessedCart(); 
   const currentTotal = processedDisplayCart.reduce((acc, i) => acc + i.totalLinePrice, 0);
+  const depositVal = parseFloat(deposit) || 0;
+  const voucherVal = parseFloat(voucherAmount) || 0;
+  const displayRemaining = currentTotal - depositVal - voucherVal;
+
   const filteredDisplayList = cart.filter(item => {
       if (item.type === 'discount') return true;
       return item.modelNo.toLowerCase().includes(cartSearchTerm.toLowerCase());
@@ -534,22 +550,127 @@ export default function EditOrderPage({ params }: { params: Promise<{ id: string
         {step === 2 && (
           <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
             <h3 className="text-center font-bold text-xl mb-6 border-b pb-4">مراجعة الحساب قبل الحفظ</h3>
+
             <div className="bg-slate-900 text-white p-5 rounded-2xl mb-6 shadow-md">
                <div className="flex justify-between text-lg mb-4 border-b border-slate-700 pb-2"><span>صافي الفاتورة:</span><span className="font-bold text-yellow-400 text-2xl">{currentTotal.toFixed(2)}</span></div>
+               
                <div className="mb-4">
                   <label className="block text-slate-400 text-sm mb-2 font-bold">💵 العربون / المدفوع:</label>
-                  <input type="number" value={deposit} onChange={(e) => setDeposit(e.target.value)} className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-2xl outline-none" />
+                  <input 
+                    type="number" 
+                    value={deposit}
+                    onChange={(e) => handleDepositChange(e.target.value)}
+                    className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-2xl outline-none" 
+                  />
                </div>
-               {parseFloat(deposit) > 0 && (
+
+               {depositVal !== 0 && (
                   <div className="mb-4 animate-in slide-in-from-top duration-300">
-                     <label className="block text-yellow-400 text-sm mb-2 font-bold">📥 توريد إلى الخزنة:</label>
-                     <select value={selectedSafeId} onChange={(e) => setSelectedSafeId(e.target.value)} className="w-full p-4 rounded-xl bg-slate-800 text-white font-bold text-lg border border-slate-700">
-                        {safes.map(safe => (<option key={safe.id} value={safe.id}>{safe.name}</option>))}
-                     </select>
+                     <div className="flex justify-between items-center mb-2">
+                        <label className="block text-yellow-400 text-sm font-bold">
+                           {depositVal > 0 ? '📥 تقسيم العربون على الخزنات' : '📤 تحديد خزنة الصرف'}:
+                        </label>
+                        <button 
+                          type="button"
+                          onClick={() => setDepositSplits([...depositSplits, { safeId: safes[0]?.id || '', amount: 0 }])}
+                          className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg font-bold hover:bg-blue-700"
+                        >
+                          + إضافة خزنة
+                        </button>
+                     </div>
+                     <div className="space-y-2">
+                        {depositSplits.map((split, idx) => (
+                          <div key={idx} className="flex gap-2 items-center">
+                            <select 
+                              value={split.safeId} 
+                              onChange={(e) => {
+                                const newSplits = [...depositSplits];
+                                newSplits[idx] = { ...newSplits[idx], safeId: e.target.value };
+                                setDepositSplits(newSplits);
+                              }}
+                              className="flex-1 p-3 rounded-xl bg-slate-800 text-white font-bold text-sm border border-slate-700"
+                            >
+                              {safes.map(safe => (<option key={safe.id} value={safe.id}>{safe.name}</option>))}
+                            </select>
+                            <input 
+                              type="number" 
+                              value={split.amount || ''}
+                              onChange={(e) => {
+                                const newSplits = [...depositSplits];
+                                const newAmount = parseFloat(e.target.value) || 0;
+                                newSplits[idx] = { ...newSplits[idx], amount: newAmount };
+                                setDepositSplits(newSplits);
+                              }}
+                              className="w-28 p-3 rounded-xl bg-slate-800 text-white font-bold text-lg border border-slate-700 text-center"
+                            />
+                            {depositSplits.length > 1 && (
+                              <button 
+                                type="button"
+                                onClick={() => setDepositSplits(depositSplits.filter((_, i) => i !== idx))}
+                                className="bg-red-600 text-white w-10 h-10 rounded-xl font-bold hover:bg-red-700"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                     </div>
+                     <div className="mt-2 text-xs text-slate-400 flex justify-between">
+                       <span>المجموع الموزع: {depositSplits.reduce((sum, s) => sum + (s.amount || 0), 0).toFixed(2)}</span>
+                       <span className={Math.abs(depositSplits.reduce((sum, s) => sum + (s.amount || 0), 0) - depositVal) > 0.01 ? 'text-red-400 font-bold' : 'text-green-400'}>
+                         المتبقي للتوزيع: {(depositVal - depositSplits.reduce((sum, s) => sum + (s.amount || 0), 0)).toFixed(2)}
+                       </span>
+                     </div>
                   </div>
                )}
-               <div className="flex justify-between text-xl font-bold pt-4 border-t border-slate-700 text-red-400"><span>المتبقي الجديد:</span><span>{(currentTotal - parseFloat(deposit || '0')).toFixed(2)}</span></div>
+
+               <div className="mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-slate-400 text-sm font-bold">🎟️ قسيمة مشتريات (خصم ظاهري):</label>
+                    <button 
+                      type="button"
+                      onClick={() => { setShowVoucherInput(!showVoucherInput); if (showVoucherInput) setVoucherAmount(''); }}
+                      className={`text-xs px-3 py-1 rounded-lg font-bold ${showVoucherInput ? 'bg-red-600 text-white' : 'bg-purple-600 text-white hover:bg-purple-700'}`}
+                    >
+                      {showVoucherInput ? '✕ إلغاء' : '+ إضافة قسيمة'}
+                    </button>
+                  </div>
+                  {showVoucherInput && (
+                    <div className="animate-in slide-in-from-top duration-300">
+                      <input 
+                        type="number" 
+                        value={voucherAmount}
+                        onChange={(e) => setVoucherAmount(e.target.value)}
+                        className="w-full p-4 rounded-xl bg-purple-900/30 text-white font-bold text-2xl outline-none border-2 border-purple-500 focus:border-purple-400"
+                        placeholder="0.00"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-slate-400 text-sm mb-1 font-bold">ملحوظة الفاتورة</label>
+                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-3 rounded-xl bg-slate-800 text-white font-bold outline-none border border-slate-700" placeholder="اكتب هنا أي ملاحظات إضافية..."></textarea>
+               </div>
+
+               <div className="space-y-2 pt-4 border-t border-slate-700">
+                  <div className="flex justify-between text-base font-bold text-slate-300">
+                    <span>المتبقي الفعلي (على العميل):</span>
+                    <span className="text-red-400">{(currentTotal - depositVal).toFixed(2)}</span>
+                  </div>
+                  {voucherVal > 0 && (
+                    <div className="flex justify-between text-base font-bold text-purple-300">
+                      <span>قسيمة المشتريات (ظاهري):</span>
+                      <span>- {voucherVal.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-xl font-bold text-yellow-400">
+                    <span>المطلوب تحصيله الآن:</span>
+                    <span>{displayRemaining.toFixed(2)}</span>
+                  </div>
+                </div>
             </div>
+
             <button 
                 onClick={handleUpdateOrder} 
                 disabled={isSaving}

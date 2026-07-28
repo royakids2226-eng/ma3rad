@@ -529,16 +529,29 @@ export async function deleteOrder(orderId: string) {
 }
 
 export async function updateOrder(orderId: string, data: any) {
-  const { customerId, items, total, deposit, safeId, currency, notes } = data;
+  const { customerId, items, total, deposit, depositSplits, voucherAmount, currency, notes } = data;
   const newDepositAmount = parseFloat(deposit) || 0;
+  const newVoucherAmount = parseFloat(voucherAmount) || 0;
 
   try {
     const existingOrder = await prisma.order.findUnique({
       where: { id: orderId },
+      include: { customer: true }
     });
 
     if (!existingOrder) {
       throw new Error("لم يتم العثور على الطلب المراد تحديثه.");
+    }
+    
+    // Validate deposit splits
+    if (newDepositAmount !== 0) {
+        if (!depositSplits || depositSplits.length === 0) {
+             throw new Error('عند وجود حركة نقدية، يجب تحديد الخزنة.');
+        }
+        const splitsTotal = depositSplits.reduce((sum: number, s: any) => sum + (parseFloat(s.amount) || 0), 0);
+        if (Math.abs(splitsTotal - newDepositAmount) > 0.01) {
+            throw new Error('مجموع تقسيمات المبلغ لا يساوي القيمة الإجمالية للحركة النقدية.');
+        }
     }
 
     await prisma.$transaction(
@@ -546,19 +559,11 @@ export async function updateOrder(orderId: string, data: any) {
         // 1. Fetch old items (including product details for error messages)
         const oldItems = await tx.orderItem.findMany({
           where: { orderId },
-          include: { product: true }, // Include product for error messages and logic
+          include: { product: true },
         });
 
         // 2. Prepare a map of new items for easy lookup
-        const newItemsMap = new Map<
-          string,
-          {
-            quantity: number;
-            price: number;
-            discountPercent: number;
-            productId: string;
-          }
-        >();
+        const newItemsMap = new Map<string, { quantity: number; price: number; discountPercent: number; productId: string; }>();
         for (const cartItem of items) {
           for (const variant of cartItem.variants) {
             const key = variant.productId;
@@ -590,10 +595,13 @@ export async function updateOrder(orderId: string, data: any) {
         for (const [productId, newItem] of newItemsMap.entries()) {
           if (oldItemsMap.has(productId)) {
             const oldItem = oldItemsMap.get(productId)!;
+            const newDiscount = newItem.discountPercent || 0;
+            const newBasePrice = (newDiscount > 0 && newDiscount < 100) ? newItem.price / (1 - newDiscount / 100) : newItem.price;
+
             if (
               oldItem.quantity !== newItem.quantity ||
-              oldItem.price !== newItem.price ||
-              oldItem.discountPercent !== newItem.discountPercent
+              Math.abs(oldItem.price - newBasePrice) > 0.01 || 
+              oldItem.discountPercent !== newDiscount
             ) {
               itemsToUpdate.push({ oldItem, newItem });
             }
@@ -648,7 +656,7 @@ export async function updateOrder(orderId: string, data: any) {
               orderId: orderId,
               productId: itemToAdd.productId,
               quantity: itemToAdd.quantity,
-              price: basePrice, // Use corrected base price
+              price: basePrice,
               discountPercent: discount,
             },
           });
@@ -694,59 +702,77 @@ export async function updateOrder(orderId: string, data: any) {
             where: { id: oldItem.id },
             data: {
               quantity: newItem.quantity,
-              price: basePrice, // Use corrected base price
+              price: basePrice,
               discountPercent: discount,
             },
           });
         }
 
-        // 7. Handle the financial (Payment) record associated with the deposit.
+        // 7. Handle Financial Records (Payments & Vouchers)
+        const newCustomer = await tx.customer.findUnique({ where: { id: customerId } });
+        const customerName = newCustomer?.name || existingOrder.customer.name;
+
+        // 7a. Deposit Splits (Payments)
         const paymentDescriptionFragment = `للأوردر رقم #${existingOrder.orderNo}`;
-        
-        const existingPayment = await tx.payment.findFirst({
+        await tx.payment.deleteMany({
             where: {
                 description: { contains: paymentDescriptionFragment },
                 type: 'PAYMENT_COLLECTION'
             }
         });
 
-        let newCustomerName = '';
-        if (newDepositAmount > 0) {
-            const customer = await tx.customer.findUnique({ where: { id: customerId }});
-            if (customer) {
-                newCustomerName = customer.name;
+        if (newDepositAmount !== 0 && depositSplits && depositSplits.length > 0) {
+            for (const split of depositSplits) {
+                const splitAmount = parseFloat(split.amount) || 0;
+                if (splitAmount === 0) continue;
+
+                const type = splitAmount > 0 ? 'PAYMENT_COLLECTION' : 'OUT';
+                const description = `${splitAmount > 0 ? 'تحصيل دفعة' : 'مرتجع نقدي'} للأوردر رقم #${existingOrder.orderNo} للعميل: ${customerName}`;
+                
+                await tx.payment.create({
+                    data: {
+                        type,
+                        amount: Math.abs(splitAmount),
+                        currency: currency || 'EGP',
+                        safeId: split.safeId,
+                        userId: existingOrder.userId,
+                        customerId,
+                        description
+                    }
+                });
             }
         }
-        const newPaymentDescription = `تحصيل دفعة للأوردر رقم #${existingOrder.orderNo} للعميل: ${newCustomerName}`;
 
-        if (newDepositAmount === 0 && existingPayment) {
-            await tx.payment.delete({ where: { id: existingPayment.id } });
-        }
+        // 7b. Voucher Handling
+        const voucherDescription = `قسيمة مشتريات للأوردر رقم #${existingOrder.orderNo} - خصم ظاهري`;
+        const existingVoucher = await tx.payment.findFirst({
+            where: {
+                description: voucherDescription,
+                type: 'VOUCHER'
+            }
+        });
 
-        if (newDepositAmount > 0) {
-            if (existingPayment) {
+        if (newVoucherAmount > 0) {
+            if (existingVoucher) {
                 await tx.payment.update({
-                    where: { id: existingPayment.id },
-                    data: {
-                        amount: newDepositAmount,
-                        safeId: safeId,
-                        customerId: customerId, 
-                        description: newPaymentDescription,
-                    }
+                    where: { id: existingVoucher.id },
+                    data: { amount: newVoucherAmount, customerId } 
                 });
             } else {
                 await tx.payment.create({
                     data: {
-                        type: 'PAYMENT_COLLECTION',
-                        amount: newDepositAmount,
+                        type: 'VOUCHER',
+                        amount: newVoucherAmount,
                         currency: currency || 'EGP',
-                        safeId: safeId,
+                        safeId: null,
                         userId: existingOrder.userId,
-                        customerId: customerId,
-                        description: newPaymentDescription,
+                        customerId,
+                        description: voucherDescription
                     }
                 });
             }
+        } else if (existingVoucher) {
+            await tx.payment.delete({ where: { id: existingVoucher.id } });
         }
         
         // 8. Update the order record itself.
@@ -757,7 +783,7 @@ export async function updateOrder(orderId: string, data: any) {
             totalAmount: total,
             deposit: newDepositAmount,
             currency: currency || "EGP",
-            safeId: newDepositAmount > 0 ? safeId : null,
+            safeId: null, // This is deprecated, deposit splits are used instead
             notes: notes,
           },
         });
@@ -780,6 +806,7 @@ export async function updateOrder(orderId: string, data: any) {
     return { success: false, error: error.message };
   }
 }
+
 
 export async function getUserOrders(userId: string) {
   try {

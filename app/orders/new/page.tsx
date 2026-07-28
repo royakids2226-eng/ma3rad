@@ -353,6 +353,7 @@ export default function NewOrderPage() {
 
     if (failedItems.length > 0) setFailedItems([]);
     setShowOnlyFailed(false);
+    setSearchTerm(''); // Clear search term after adding to cart
     return true;
   };
 
