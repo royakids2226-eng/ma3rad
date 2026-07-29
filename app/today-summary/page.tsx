@@ -121,10 +121,22 @@ export default function SummaryPage() {
                                 <div className="text-sm text-green-700 font-bold">{formatMoney(data.total)} ج.م</div>
                             </div>
                             {data.orders.map((order: any) => (
-                              <Link key={order.id} href={`/orders/${order.id}/print`} className="flex justify-between items-center text-xs bg-gray-50 hover:bg-blue-50 p-1.5 rounded">
-                                <div>فاتورة #{order.orderNo} <span className="text-gray-400">• {formatTime(order.time)}</span></div>
-                                <span className="font-bold">{formatMoney(order.total)} ج.م</span>
-                              </Link>
+                               <div key={order.id} className="bg-gray-50 hover:bg-blue-50 p-1.5 rounded-md">
+                                <Link href={`/orders/${order.id}/print`} className="flex justify-between items-center text-xs">
+                                    <div>فاتورة #{order.orderNo} <span className="text-gray-400">• {formatTime(order.time)}</span></div>
+                                    <span className="font-bold">{formatMoney(order.total)} ج.م</span>
+                                </Link>
+                                {order.payments && order.payments.length > 0 && (
+                                    <div className="text-right mt-1 space-y-0.5">
+                                        {order.payments.map((p: any, i: number) => (
+                                            <div key={i} className="text-xs text-gray-600">
+                                                <span className="font-semibold">💰 {p.safe}:</span>
+                                                <span className="font-bold text-green-600 mr-1">{formatMoney(p.amount)} ج.م</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                </div>
                             ))}
                         </div>
                     ))}

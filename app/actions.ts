@@ -1663,7 +1663,26 @@ export async function getSummaryByDateRange(startDate?: string, endDate?: string
       }),
     ]);
 
-    // 2. Process Orders
+    // NEW: Create a map of payments for each order
+    const paymentsByOrderNo: { [key: number]: any[] } = {};
+    payments.forEach((p) => {
+      // We are interested in payments collected for an order
+      if (p.type === 'PAYMENT_COLLECTION' && p.description) {
+        const match = p.description.match(/#(\d+)/);
+        if (match && match[1]) {
+          const orderNo = parseInt(match[1], 10);
+          if (!paymentsByOrderNo[orderNo]) {
+            paymentsByOrderNo[orderNo] = [];
+          }
+          paymentsByOrderNo[orderNo].push({
+            amount: p.amount,
+            safe: p.safe?.name || 'غير محدد',
+          });
+        }
+      }
+    });
+
+    // 2. Process Orders (with payment details)
     const ordersByCustomer: any = {};
     const totalOrdersAmount = orders.reduce((sum, order) => {
       const customerName = order.customer?.name || "عميل نقدي";
@@ -1672,14 +1691,20 @@ export async function getSummaryByDateRange(startDate?: string, endDate?: string
       }
       ordersByCustomer[customerName].count += 1;
       ordersByCustomer[customerName].total += order.totalAmount;
+
+      // Get payments for this specific order using the map
+      const orderPayments = paymentsByOrderNo[order.orderNo] || [];
+
       ordersByCustomer[customerName].orders.push({
         id: order.id,
         orderNo: order.orderNo,
         total: order.totalAmount,
         time: order.createdAt,
+        payments: orderPayments, // Attach payment details
       });
       return sum + order.totalAmount;
     }, 0);
+
 
     // 3. Process Payments (including refunds)
     const paymentsBySafe: any = {};
