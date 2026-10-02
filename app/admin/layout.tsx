@@ -4,7 +4,18 @@ import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 import { authOptions } from "@/auth";
 import NotificationBell from "./NotificationBell";
-import { HomeIcon, UsersIcon, UserGroupIcon, ArchiveBoxIcon, ChartBarIcon, ShoppingCartIcon, BanknotesIcon } from '@heroicons/react/24/outline';
+import { 
+  HomeIcon, 
+  UsersIcon, 
+  UserGroupIcon, 
+  ArchiveBoxIcon, 
+  ChartBarIcon, 
+  ShoppingCartIcon, 
+  BanknotesIcon, 
+  BuildingStorefrontIcon, 
+  DocumentPlusIcon,
+  TagIcon 
+} from '@heroicons/react/24/outline';
 
 const prisma = new PrismaClient();
 
@@ -48,6 +59,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <HomeIcon className="w-5 h-5" /> <span className="hidden lg:inline">الرئيسية</span>
             </Link>
             
+            {/* زر فاتورة المشتريات */}
+            <Link href="/admin/purchases/new" className="px-3 py-2 rounded-xl bg-purple-600/30 text-purple-300 hover:bg-purple-600 hover:text-white transition-colors flex items-center gap-2 border border-purple-500/40">
+              <DocumentPlusIcon className="w-5 h-5" /> <span className="hidden lg:inline">فاتورة مشتريات</span>
+            </Link>
+
+            {/* زر إدارة العروض الجديد (للمحاسب والمدير وصاحب العمل) */}
+            <Link href="/admin/offers" className="px-3 py-2 rounded-xl bg-pink-600/20 text-pink-300 hover:bg-pink-600 hover:text-white transition-colors flex items-center gap-2 border border-pink-500/30">
+              <TagIcon className="w-5 h-5" /> <span className="hidden lg:inline">إدارة العروض</span>
+            </Link>
+
+            <Link href="/admin/vendors" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
+              <BuildingStorefrontIcon className="w-5 h-5" /> <span className="hidden lg:inline">الموردين</span>
+            </Link>
+
             {user.role !== 'ACCOUNTANT' && (
               <Link href="/admin/users" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
                 <UsersIcon className="w-5 h-5" /> <span className="hidden lg:inline">الموظفين</span>

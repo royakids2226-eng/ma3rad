@@ -140,7 +140,7 @@ export default function BulkUploadForm({ userId }: { userId: string }) {
       if (matches.length === 1) {
         const product = matches[0];
         if (row.quantity > 0 && row.quantity > product.currentStock) {
-          return { ...row, status: 'error', errorMessage: `الكمية أكبر من المتاح (${product.currentStock})` };
+          return { ...row, status: 'found', productMatches: matches, selectedProductId: product.id, errorMessage: `الكمية أكبر من المتاح (${product.currentStock})` };
         }
         return { ...row, status: 'found', productMatches: matches, selectedProductId: product.id };
       }
@@ -163,7 +163,7 @@ export default function BulkUploadForm({ userId }: { userId: string }) {
         if (row.id === rowId) {
           const product = allProducts.find(p => p.id === selectedProductId);
           if (product && row.quantity > 0 && row.quantity > product.currentStock) {
-            return { ...row, selectedProductId, status: 'error' as const, errorMessage: `الكمية أكبر من المتاح (${product.currentStock})` };
+            return { ...row, selectedProductId, status: 'found' as const, errorMessage: `الكمية أكبر من المتاح (${product.currentStock})` };
           }
           return { ...row, selectedProductId, status: 'found' as const, errorMessage: undefined };
         }
@@ -298,7 +298,11 @@ export default function BulkUploadForm({ userId }: { userId: string }) {
                           {row.status === 'error' && <span className="font-bold text-red-500">❌ {row.errorMessage}</span>}
                           {row.status === 'found' && (
                             <div className="flex items-center gap-2">
-                                <span className="font-bold text-green-500">✔️ جاهز</span>
+                                {row.errorMessage ? (
+                                    <span className="font-bold text-orange-500">⚠️ {row.errorMessage}</span>
+                                ) : (
+                                    <span className="font-bold text-green-500">✔️ جاهز</span>
+                                )}
                                 {row.productMatches.length === 1 && <span className="text-xs text-gray-500">({row.productMatches[0].color})</span>}
                             </div>
                           )}

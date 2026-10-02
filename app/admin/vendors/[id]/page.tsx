@@ -13,7 +13,7 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'ALL' | 'PURCHASE' | 'PAYMENT' | 'RETURN'>('ALL')
   
-  // حالات مودال فاتورة الشراء
+  // حالات مودال فاتورة الشراء اليدوية السريعة
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
   const [invoiceNo, setInvoiceNo] = useState('')
   const [invoiceAmount, setInvoiceAmount] = useState('')
@@ -178,11 +178,18 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
 
       {/* أزرار الإجراءات */}
       <div className="flex gap-2 mb-6 no-print flex-wrap">
+        <Link
+          href={`/admin/purchases/new`}
+          className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 shadow flex items-center gap-1"
+        >
+          <span>🛒</span>
+          <span>فاتورة مشتريات مفصلة</span>
+        </Link>
         <button
           onClick={() => setShowInvoiceModal(true)}
           className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 shadow"
         >
-          📄 تسجيل فاتورة شراء
+          📄 تسجيل فاتورة سريعة
         </button>
         <button
           onClick={() => router.push(`/payments/new`)}

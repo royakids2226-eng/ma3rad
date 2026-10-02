@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
+import NotificationBell from './NotificationBell'
 
 export default function AdminDashboard() {
   const router = useRouter()
@@ -14,10 +15,12 @@ export default function AdminDashboard() {
 
   const menuItems = [
     { id: 'orders', title: 'الأوردرات', icon: '🛒', color: 'from-blue-500 to-blue-700', href: '/orders/new' },
+    { id: 'purchases', title: 'فاتورة مشتريات', icon: '📥', color: 'from-violet-600 to-purple-800', href: '/admin/purchases/new' },
+    { id: 'offers', title: 'إدارة العروض', icon: '🏷️', color: 'from-pink-500 to-rose-600', href: '/admin/offers' },
     { id: 'cash', title: 'النقدية', icon: '💰', color: 'from-green-500 to-green-700', href: '/payments/new' },
     { id: 'inventory', title: 'المخزون', icon: '📦', color: 'from-purple-500 to-purple-700', href: '/admin/products' },
-    { id: 'customers', title: 'العملاء', icon: '', color: 'from-orange-500 to-orange-700', href: '/admin/customers' },
-    { id: 'vendors', title: 'الموردين', icon: '🏪', color: 'from-pink-500 to-rose-700', href: '/admin/vendors' },
+    { id: 'customers', title: 'العملاء', icon: '👥', color: 'from-orange-500 to-orange-700', href: '/admin/customers' },
+    { id: 'vendors', title: 'الموردين', icon: '🏪', color: 'from-amber-500 to-amber-700', href: '/admin/vendors' },
     { id: 'reports', title: 'التقارير', icon: '📊', color: 'from-cyan-500 to-cyan-700', href: '/admin/reports' },
     { id: 'returns', title: 'المرتجعات', icon: '↩️', color: 'from-red-500 to-red-700', href: '/admin/returns' },
     { id: 'users', title: 'الموظفين', icon: '👔', color: 'from-indigo-500 to-indigo-700', href: '/admin/users' },
@@ -45,6 +48,7 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <NotificationBell isDark={true} />
             <div className="text-left">
               <div className="text-white font-bold">{session?.user?.name || 'مدير النظام'}</div>
               <div className="text-xs text-gray-400">{session?.user?.email || 'ADMIN'}</div>
@@ -128,7 +132,7 @@ export default function AdminDashboard() {
         </div>
 
         <div className="md:hidden grid grid-cols-2 gap-4 max-w-2xl mx-auto">
-          {menuItems.map((item, index) => (
+          {menuItems.map((item) => (
             <button
               key={item.id}
               onClick={() => router.push(item.href)}

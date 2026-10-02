@@ -25,7 +25,7 @@ async function TodaySummaryButton() {
         
         <div className="relative z-10">
           <div className="bg-gradient-to-br from-amber-500/20 to-orange-500/20 w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300">
-            <span className="text-3xl"></span>
+            <span className="text-3xl">📊</span>
           </div>
           <span className="text-white font-bold text-sm md:text-base block">
             ملخص اليوم
@@ -59,8 +59,9 @@ export default async function Home() {
      redirect("/api/auth/signout");
   }
 
+  // السماح للمدير وصاحب العمل والمحاسب فقط
   const isAllowedInAdmin = user?.role === 'ADMIN' || user?.role === 'OWNER' || user?.role === 'ACCOUNTANT';
-  const isPowerUser = user?.role === 'ADMIN' || user?.role === 'OWNER'; // Changed from isTestUser
+  const isPowerUser = user?.role === 'ADMIN' || user?.role === 'OWNER';
 
   return (
     <div className="min-h-screen bg-slate-900 relative overflow-hidden" dir="rtl">
@@ -111,7 +112,18 @@ export default async function Home() {
             <div className="flex items-center gap-3 flex-wrap">
               {isAllowedInAdmin && <NotificationBell isDark={true} />}
               
-              {/* NEW: Bulk Upload Button - replaces TestOrderButton */}
+              {/* زر فاتورة المشتريات السريع للمدير والمحاسب */}
+              {isAllowedInAdmin && (
+                <Link 
+                  href="/admin/purchases/new"
+                  className="bg-purple-600/30 text-purple-200 border border-purple-500/40 px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-purple-600 hover:text-white transition-all flex items-center gap-2"
+                >
+                  <span>📥</span>
+                  <span>فاتورة مشتريات</span>
+                </Link>
+              )}
+
+              {/* Bulk Upload Button */}
               {isPowerUser && (
                  <Link 
                   href="/orders/bulk-upload"
@@ -197,6 +209,26 @@ export default async function Home() {
               </Link>
             </div>
 
+            {/* فاتورة مشتريات (للمحاسب والمدير وصاحب العمل) */}
+            {isAllowedInAdmin && (
+              <div className="scale-in" style={{ animationDelay: '0.25s' }}>
+                <Link 
+                  href="/admin/purchases/new" 
+                  className="action-card block glass rounded-2xl p-6 text-center group border border-purple-500/30 hover:border-purple-500/60"
+                >
+                  <div className="bg-gradient-to-br from-purple-500/20 to-indigo-500/20 w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300">
+                    <span className="text-3xl">📥</span>
+                  </div>
+                  <span className="text-white font-bold text-sm md:text-base">
+                    فاتورة مشتريات
+                  </span>
+                  <div className="text-purple-300 text-xs mt-1">
+                    وارد ومرتجع موردين
+                  </div>
+                </Link>
+              </div>
+            )}
+
             {/* Cash Management */}
             {user?.role !== 'EMPLOYEE' && (
               <div className="scale-in" style={{ animationDelay: '0.3s' }}>
@@ -217,7 +249,7 @@ export default async function Home() {
               </div>
             )}
 
-            {/* Returns - NEW */}
+            {/* Returns */}
             {isAllowedInAdmin && (
               <div className="scale-in" style={{ animationDelay: '0.4s' }}>
                 <Link 
@@ -237,7 +269,7 @@ export default async function Home() {
               </div>
             )}
 
-            {/* Admin Panel - Only for Admin */}
+            {/* Admin Panel - Only for Admin & Owner */}
             {isPowerUser && (
               <div className="scale-in" style={{ animationDelay: '0.5s' }}>
                 <Link 
