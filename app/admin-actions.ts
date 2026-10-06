@@ -160,6 +160,92 @@ export async function addBulkProducts(products: any[]) {
     }
 }
 
+// =========================================================================
+// تعديل كميات الأصناف الأولية مع حساب المبيعات وكل المرتجعات السابقة بدقة
+// =========================================================================
+export async function updateInitialStockBulk(items: { modelNo: string; color: string; stockQty: number }[]) {
+  try {
+    let updatedCount = 0;
+    let notFoundCount = 0;
+
+    for (const item of items) {
+      if (!item.modelNo || !item.color) continue;
+
+      const modelNoStr = String(item.modelNo).trim();
+      const colorStr = String(item.color).trim();
+      const newInitialStock = parseInt(String(item.stockQty), 10);
+
+      if (isNaN(newInitialStock)) continue;
+
+      // جلب الصنف مع علاقات الأوردرات والمرتجعات ومرتجعات الموردين
+      const product = await prisma.product.findUnique({
+        where: {
+          modelNo_color: {
+            modelNo: modelNoStr,
+            color: colorStr
+          }
+        },
+        include: {
+          orderItems: {
+            include: {
+              returnItems: true
+            }
+          },
+          returnItems: true,       // الأصناف المرتجعة من العملاء
+          exchangedItems: true,    // الأصناف المستبدلة التي خرجت للعملاء
+          vendorTransactions: true // حركات الموردين بما فيها مرتجع المشتريات
+        }
+      });
+
+      if (!product) {
+        notFoundCount++;
+        continue;
+      }
+
+      // 1. حساب مبيعات العملاء:
+      // في OrderItem، الكمية quantity مسجلة إما بالقطع أو الوحدات
+      const totalSoldToCustomers = product.orderItems.reduce((acc, oi) => acc + (oi.quantity || 0), 0);
+
+      // 2. حساب مرتجعات العملاء المباشرة على هذا الصنف
+      const totalReturnedFromCustomers = product.returnItems.reduce((acc, ri) => acc + (ri.quantity || 0), 0);
+
+      // 3. حساب الأصناف المستبدلة التي خرجت كبديل للعملاء
+      const totalExchangedOut = product.exchangedItems.reduce((acc, ei) => acc + (ei.exchangedQty || 0), 0);
+
+      // صافي المبيعات للعملاء = المباع - المرتجع + المستبدل
+      const netCustomerSales = totalSoldToCustomers - totalReturnedFromCustomers + totalExchangedOut;
+
+      // 4. حساب مرتجعات المشتريات للموردين السابقة (VendorTransaction حيث type = RETURN)
+      const totalVendorReturns = product.vendorTransactions
+        .filter(vt => vt.type === 'RETURN')
+        .reduce((acc, vt) => acc + (vt.quantity || 0), 0);
+
+      // المعادلة الدقيقة للرصيد المتاح:
+      // الرصيد المتاح = الكمية الأولية الجديدة - صافي مبيعات العملاء - مرتجعات الموردين
+      const newCurrentStock = newInitialStock - netCustomerSales - totalVendorReturns;
+
+      await prisma.product.update({
+        where: { id: product.id },
+        data: {
+          stockQty: newInitialStock,
+          currentStock: newCurrentStock
+        }
+      });
+
+      updatedCount++;
+    }
+
+    revalidatePath('/admin/products');
+    revalidatePath('/admin/reports');
+    revalidatePath('/admin/notifications');
+    revalidatePath('/sorting');
+
+    return { success: true, updatedCount, notFoundCount };
+  } catch (error: any) {
+    console.error('Error updating initial stock bulk:', error);
+    return { success: false, error: error.message || 'حدث خطأ أثناء تحديث الكميات الأولية' };
+  }
+}
 
 // ==========================================
 // قسم المزامنة مع جوجل شيت (Google Sheets Sync)
@@ -335,10 +421,6 @@ export async function getProducts() {
   const products = await prisma.product.findMany({ orderBy: { id: 'desc' }, take: 5000 });
   return JSON.parse(JSON.stringify(products));
 }
-
-// ... (rest of the file remains the same)
-
-
 
 // ==========================================
 // 3. إدارة العملاء (Customers)
@@ -569,7 +651,6 @@ export async function getPayments() {
         return { success: false, error: 'Failed to fetch payments.' };
     }
 }
-
 
 export async function updatePayment(id: string, data: any) {
     try {

@@ -1,16 +1,17 @@
 'use client'
-// ... (الاستيرادات السابقة)
+
 import { 
     addProduct, 
     getProducts, 
     deleteProduct, 
     addBulkProducts, 
     deleteBulkProducts, 
-    deleteAllProducts,
+    deleteAllProducts, 
     updateProduct, 
-    syncFromGoogleSheets,
-    getSyncOperations,      // <--- استيراد جديد
-    revertSyncOperation     // <--- استيراد جديد
+    syncFromGoogleSheets, 
+    getSyncOperations, 
+    revertSyncOperation,
+    updateInitialStockBulk
 } from '@/app/admin-actions';
 import { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
@@ -39,7 +40,7 @@ function AdminSyncControl({ onRefresh }: { onRefresh: () => void }) {
         if (result.success) {
             alert(result.message);
             loadHistory();
-            onRefresh(); // تحديث المنتجات في الصفحة الرئيسية
+            onRefresh();
         } else {
             alert("فشل المزامنة: " + result.error);
         }
@@ -56,7 +57,7 @@ function AdminSyncControl({ onRefresh }: { onRefresh: () => void }) {
         if (res.success) {
             alert("تم التراجع بنجاح وإلغاء العملية.");
             loadHistory();
-            onRefresh(); // تحديث المنتجات
+            onRefresh();
         } else {
             alert("خطأ: " + res.error);
         }
@@ -88,7 +89,6 @@ function AdminSyncControl({ onRefresh }: { onRefresh: () => void }) {
                 </button>
             </div>
 
-            {/* عرض سجل عمليات المزامنة */}
             {syncHistory.length > 0 && (
                 <div className="w-full">
                     <h4 className="text-xs font-bold text-gray-500 mb-2">أحدث عمليات المزامنة:</h4>
@@ -137,7 +137,7 @@ function AdminSyncControl({ onRefresh }: { onRefresh: () => void }) {
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [searchTerm, setSearchTerm] = useState(''); // حالة البحث اللايف
+  const [searchTerm, setSearchTerm] = useState('');
   
   // Adding States
   const [modelNo, setModelNo] = useState('');
@@ -145,7 +145,7 @@ export default function ProductsPage() {
   const [vendor, setVendor] = useState('');
   const [price, setPrice] = useState('');
   const [cost, setCost] = useState('');
-  const [discount, setDiscount] = useState('0'); // 👈 حقل الخصم الجديد
+  const [discount, setDiscount] = useState('0');
   const [status, setStatus] = useState('OPEN');
   const [colors, setColors] = useState([{ color: '', stock: '' }]);
 
@@ -153,10 +153,15 @@ export default function ProductsPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
 
-  // Upload States
+  // Upload Bulk Products States
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatusText, setUploadStatusText] = useState('');
+
+  // Upload Initial Stock Adjustment States
+  const [isUpdatingStock, setIsUpdatingStock] = useState(false);
+  const [stockProgress, setStockProgress] = useState(0);
+  const [stockStatusText, setStockStatusText] = useState('');
 
   // Deleting State
   const [isDeleting, setIsDeleting] = useState(false);
@@ -172,7 +177,6 @@ export default function ProductsPage() {
     });
   };
 
-  // منطق تصفية الأصناف (Live Search)
   const filteredProducts = useMemo(() => {
     return products.filter(p => 
         p.modelNo.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -196,7 +200,7 @@ export default function ProductsPage() {
     if (!modelNo || !price) return alert('أكمل البيانات');
 
     const res = await addProduct({
-        modelNo, description, vendor, price, cost, discount, status, colors // 👈 إرسال الخصم
+        modelNo, description, vendor, price, cost, discount, status, colors
     });
 
     if (res.success) {
@@ -209,7 +213,7 @@ export default function ProductsPage() {
     }
   };
 
-  // --- Excel Logic ---
+  // --- Excel Templates ---
   const downloadTemplate = () => {
     const templateData = [
         { modelNo: "1001", description: "وصف", vendor: "مورد", color: "أحمر", price: 150, cost: 120, discount: 10, stockQty: 50, status: "OPEN" },
@@ -221,7 +225,20 @@ export default function ProductsPage() {
     XLSX.writeFile(wb, "Products_Template.xlsx");
   };
 
-  // 👇 تعديل منطق الرفع ليكون أكثر تحملاً للأعداد الكبيرة (1700+) 👇
+  // نموذج تعديل المخزون الأولي المطلوب (الموديل، اللون، المخزون)
+  const downloadStockTemplate = () => {
+    const templateData = [
+        { "الموديل": "1001", "اللون": "أحمر", "المخزون": 100 },
+        { "الموديل": "1001", "اللون": "أزرق", "المخزون": 75 },
+        { "الموديل": "2002", "اللون": "أسود", "المخزون": 50 }
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "InitialStock");
+    XLSX.writeFile(wb, "Initial_Stock_Template.xlsx");
+  };
+
+  // رفع وإضافة الأصناف الجديدة
   const handleFileUpload = (e: any) => {
     const file = e.target.files[0];
     if(!file) return;
@@ -239,7 +256,7 @@ export default function ProductsPage() {
         
         if(confirm(`تم قراءة ${data.length} صنف. هل تريد البدء في الرفع؟`)) {
             setIsUploading(true);
-            const BATCH_SIZE = 100; // تقليل الحجم لضمان سرعة الاستجابة وتفادي التوقف
+            const BATCH_SIZE = 100;
             let successCount = 0;
             let failCount = 0;
             const total = data.length;
@@ -253,7 +270,6 @@ export default function ProductsPage() {
                     if (res.success) {
                         successCount += (res.count || 0);
                     } else {
-                        // لو السيرفر رفض مجموعة لأي سبب (مثل خطأ داتا)، نسجل الفشل ونكمل الباقي
                         console.error("Batch failure:", res.error);
                         failCount += chunk.length;
                     }
@@ -272,6 +288,87 @@ export default function ProductsPage() {
             refreshProducts();
             e.target.value = '';
         }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // رفع ومعالجة ملف تعديل الكميات الأولية
+  const handleStockAdjustmentUpload = (e: any) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setStockProgress(0);
+    setStockStatusText('');
+
+    const reader = new FileReader();
+    reader.onload = async (evt: any) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const rawData = XLSX.utils.sheet_to_json(ws) as any[];
+
+        if (!rawData || rawData.length === 0) {
+          alert("الملف فارغ أو لا يحتوي على صفوف بيانات صالحة");
+          e.target.value = '';
+          return;
+        }
+
+        // استخراج الأعمدة بمرونة سواء بالعربية أو الإنجليزية
+        const parsedItems = rawData.map(row => {
+          const modelNo = String(row['الموديل'] || row['modelNo'] || row['كود_الموديل'] || row['الكود'] || '').trim();
+          const color = String(row['اللون'] || row['color'] || '').trim();
+          const stockQty = Number(row['المخزون'] || row['stockQty'] || row['الكمية'] || row['كمية'] || 0);
+
+          return { modelNo, color, stockQty };
+        }).filter(item => item.modelNo !== '' && item.color !== '' && !isNaN(item.stockQty));
+
+        if (parsedItems.length === 0) {
+          alert("لم يتم العثور على أعمدة صحيحة. تأكد أن الملف يحتوي على: (الموديل، اللون، المخزون)");
+          e.target.value = '';
+          return;
+        }
+
+        const confirmMsg = `تم استخراج ${parsedItems.length} صنف من الملف.\nسيتم تغيير وتحديث الكميات الأولية لجميع هذه الأصناف وإعادة ضبط الرصيد الحالي.\nهل أنت متأكد من الاستمرار؟`;
+        if (!confirm(confirmMsg)) {
+          e.target.value = '';
+          return;
+        }
+
+        setIsUpdatingStock(true);
+        const BATCH_SIZE = 100;
+        let totalUpdated = 0;
+        let totalNotFound = 0;
+        const total = parsedItems.length;
+
+        for (let i = 0; i < total; i += BATCH_SIZE) {
+          const chunk = parsedItems.slice(i, i + BATCH_SIZE);
+          setStockStatusText(`جاري تحديث المخزون من ${i + 1} إلى ${Math.min(i + BATCH_SIZE, total)}...`);
+
+          const res = await updateInitialStockBulk(chunk);
+          if (res.success) {
+            totalUpdated += (res.updatedCount || 0);
+            totalNotFound += (res.notFoundCount || 0);
+          } else {
+            console.error("Stock update error:", res.error);
+          }
+
+          const percent = Math.round(((i + chunk.length) / total) * 100);
+          setStockProgress(percent);
+        }
+
+        setIsUpdatingStock(false);
+        setStockStatusText(`✅ تم الانتهاء بنجاح: تم تحديث ${totalUpdated} صنف | لم يتم العثور على ${totalNotFound} صنف.`);
+        alert(`✅ تم تحديث الكميات الأولية بنجاح:\n- تم التحديث: ${totalUpdated} صنف.\n- غير موجودين: ${totalNotFound} صنف.`);
+        refreshProducts();
+        e.target.value = '';
+      } catch (err: any) {
+        console.error(err);
+        alert("حدث خطأ أثناء قراءة الملف");
+        setIsUpdatingStock(false);
+        e.target.value = '';
+      }
     };
     reader.readAsBinaryString(file);
   };
@@ -367,7 +464,6 @@ export default function ProductsPage() {
         </div>
         
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
-            {/* حقل البحث اللايف الجديد */}
             <div className="w-full md:w-64">
                 <input 
                     type="text" 
@@ -398,13 +494,61 @@ export default function ProductsPage() {
       {/* Sync Section */}
       <AdminSyncControl onRefresh={refreshProducts} />
 
-      {/* Upload Section */}
+      {/* قسم تعديل الكميات الأولية الجديد بالكامل */}
+      <div className="bg-amber-50 p-4 rounded-xl border-2 border-amber-300 shadow-sm">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-2">
+            <div>
+                <h3 className="font-black text-amber-900 text-base md:text-lg flex items-center gap-2">
+                  <span>📊</span>
+                  <span>تعديل كميات الأصناف الأولية (من ملف Excel)</span>
+                </h3>
+                <p className="text-xs text-amber-700 mt-1">
+                  ارفع ملفاً يحتوي على أعمدة: <b>(الموديل، اللون، المخزون)</b> ليتم ضبط الكمية الأولية للأصناف وتحديث رصيدها فوراً.
+                </p>
+            </div>
+            
+            <div className="flex items-center gap-3 w-full md:w-auto">
+                <button 
+                  onClick={downloadStockTemplate} 
+                  type="button"
+                  className="text-xs bg-white text-amber-900 border border-amber-300 hover:bg-amber-100 font-bold px-3 py-2 rounded-lg transition shadow-sm"
+                >
+                  📥 تحميل نموذج تعديل المخزون
+                </button>
+                <label className="text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold px-4 py-2 rounded-lg cursor-pointer transition shadow-md flex items-center gap-2">
+                  <span>📄</span>
+                  <span>{isUpdatingStock ? 'جاري التعديل...' : 'رفع ملف تعديل الكميات'}</span>
+                  <input 
+                    type="file" 
+                    accept=".xlsx, .xls" 
+                    onChange={handleStockAdjustmentUpload} 
+                    disabled={isUpdatingStock || isDeleting} 
+                    className="hidden" 
+                  />
+                </label>
+            </div>
+          </div>
+
+          {(isUpdatingStock || stockProgress > 0) && (
+             <div className="w-full bg-white p-3 rounded-lg shadow-sm border border-amber-200 mt-3">
+                <div className="flex justify-between text-xs font-bold text-amber-900 mb-1">
+                    <span>{stockStatusText}</span>
+                    <span>{stockProgress}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                    <div className="bg-amber-600 h-2.5 rounded-full transition-all duration-300 ease-in-out" style={{ width: `${stockProgress}%` }}></div>
+                </div>
+             </div>
+          )}
+      </div>
+
+      {/* Upload Section - إضافة واستيراد أصناف جديدة */}
       <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-2">
             <div className="w-full">
-                <h3 className="font-bold text-blue-800 text-sm md:text-lg">📥 استيراد Excel (يدعم الأعداد الكبيرة)</h3>
+                <h3 className="font-bold text-blue-800 text-sm md:text-lg">📥 استيراد أصناف جديدة (Excel)</h3>
                 <div className="flex justify-between items-center mt-1">
-                    <button onClick={downloadTemplate} className="text-xs text-blue-700 underline font-bold">تحميل النموذج</button>
+                    <button onClick={downloadTemplate} className="text-xs text-blue-700 underline font-bold">تحميل النموذج الكامل</button>
                     <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} disabled={isUploading || isDeleting} className="text-xs bg-white p-2 rounded border cursor-pointer w-1/2" />
                 </div>
             </div>
@@ -417,7 +561,7 @@ export default function ProductsPage() {
                     <span>{uploadProgress}%</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                    <div className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-in-out striped-progress" style={{ width: `${uploadProgress}%` }}></div>
+                    <div className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-in-out" style={{ width: `${uploadProgress}%` }}></div>
                 </div>
              </div>
           )}
@@ -487,7 +631,9 @@ export default function ProductsPage() {
                          </div>
                          <div className="text-left">
                              <div className="font-bold text-blue-600 text-lg">{p.price} ج.م</div>
-                             <div className={`text-xs font-bold ${p.stockQty > 0 ? 'text-green-600' : 'text-red-500'}`}>متاح: {p.stockQty}</div>
+                             <div className={`text-xs font-bold ${p.stockQty > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                أولي: {p.stockQty} | متاح: {p.currentStock}
+                             </div>
                          </div>
                     </div>
                     <div className="flex justify-between items-center border-t pt-2 mt-2">
@@ -515,7 +661,8 @@ export default function ProductsPage() {
                 <th className="p-3">اللون</th>
                 <th className="p-3">المورد</th>
                 <th className="p-3">الحالة</th>
-                <th className="p-3">المخزون</th>
+                <th className="p-3 text-center">المخزون الأولي</th>
+                <th className="p-3 text-center">الرصيد المتاح</th>
                 <th className="p-3">التكلفة</th>
                 <th className="p-3">السعر</th>
                 <th className="p-3">خصم تلقائي</th>
@@ -530,7 +677,8 @@ export default function ProductsPage() {
                     <td className="p-3">{p.color}</td>
                     <td className="p-3">{p.vendor}</td>
                     <td className="p-3">{p.status === 'CLOSED' ? <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">مغلق</span> : <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">مفتوح</span>}</td>
-                    <td className={`p-3 font-bold ${p.stockQty <= 0 ? 'text-red-500' : 'text-blue-600'}`}>{p.stockQty}</td>
+                    <td className="p-3 text-center font-bold text-gray-700">{p.stockQty}</td>
+                    <td className={`p-3 text-center font-bold ${p.currentStock <= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{p.currentStock}</td>
                     <td className="p-3 font-mono">{p.cost}</td>
                     <td className="p-3 font-mono">{p.price}</td>
                     <td className="p-3 font-bold text-red-600">{p.discount}%</td>

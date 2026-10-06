@@ -65,7 +65,50 @@ export async function createPurchaseInvoice(data: PurchaseInvoicePayload) {
     const invoiceDate = data.date ? new Date(data.date) : new Date()
     const invoiceNumber = data.invoiceNo?.trim() || `PUR-${Date.now().toString().slice(-6)}`
 
-    const totalAmount = data.items.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.cost)), 0)
+    // تنظيف وتجميع البنود المتطابقة لتفادي أخطاء التكرار
+    const consolidatedItemsMap = new Map<string, {
+      modelNo: string
+      color: string
+      quantity: number
+      cost: number
+      price: number
+      description?: string
+    }>()
+
+    for (const item of data.items) {
+      const model = String(item.modelNo || '').trim()
+      const color = String(item.color || '').trim() || 'افتراضي'
+      const qty = Number(item.quantity) || 0
+      const cost = Number(item.cost) || 0
+      const price = Number(item.price) || (cost * 1.25)
+
+      if (!model || qty <= 0) continue
+
+      const key = `${model.toLowerCase()}|${color.toLowerCase()}`
+      if (consolidatedItemsMap.has(key)) {
+        const existing = consolidatedItemsMap.get(key)!
+        existing.quantity += qty
+        if (cost > 0) existing.cost = cost
+        if (price > 0) existing.price = price
+      } else {
+        consolidatedItemsMap.set(key, {
+          modelNo: model,
+          color: color,
+          quantity: qty,
+          cost: cost,
+          price: price,
+          description: item.description
+        })
+      }
+    }
+
+    const finalItems = Array.from(consolidatedItemsMap.values())
+
+    if (finalItems.length === 0) {
+      return { success: false, error: 'لا توجد بنود صالحة بكميات صحيحة' }
+    }
+
+    const totalAmount = finalItems.reduce((sum, item) => sum + (item.quantity * item.cost), 0)
 
     if (totalAmount <= 0) {
       return { success: false, error: 'إجمالي الفاتورة يجب أن يكون أكبر من الصفر' }
@@ -75,110 +118,121 @@ export async function createPurchaseInvoice(data: PurchaseInvoicePayload) {
       return { success: false, error: 'يرجى اختيار الخزنة للدفع النقدي' }
     }
 
-    await prisma.$transaction(async (tx) => {
-      for (const item of data.items) {
-        const qty = Number(item.quantity) || 0
-        const itemCost = Number(item.cost) || 0
-        const itemPrice = Number(item.price) || (itemCost * 1.25)
-        const cleanedModelNo = String(item.modelNo).trim()
-        const cleanedColor = String(item.color).trim() || 'افتراضي'
-
-        let product = await tx.product.findUnique({
+    // تنفيذ الـ Transaction
+    await prisma.$transaction(
+      async (tx) => {
+        const modelList = Array.from(new Set(finalItems.map(i => i.modelNo)))
+        const existingProducts = await tx.product.findMany({
           where: {
-            modelNo_color: {
-              modelNo: cleanedModelNo,
-              color: cleanedColor
-            }
+            modelNo: { in: modelList }
           }
         })
 
-        const stockChange = data.invoiceType === 'PURCHASE' ? qty : -qty
+        const productMap = new Map<string, typeof existingProducts[0]>()
+        existingProducts.forEach(p => {
+          const key = `${p.modelNo.toLowerCase().trim()}|${p.color.toLowerCase().trim()}`
+          productMap.set(key, p)
+        })
 
-        if (product) {
-          if (data.invoiceType === 'RETURN' && product.currentStock < qty) {
-            throw new Error(`الرصيد المتاح من الصنف ${cleanedModelNo} (${cleanedColor}) هو ${product.currentStock} فقط، لا يمكن إرجاع ${qty}`)
+        const isPurchase = data.invoiceType === 'PURCHASE'
+
+        for (const item of finalItems) {
+          const key = `${item.modelNo.toLowerCase()}|${item.color.toLowerCase()}`
+          const existingProduct = productMap.get(key)
+
+          if (existingProduct) {
+            // ✅ التصحيح الأساسي هنا:
+            // في الشراء: تزيد الكمية الحالية currentStock والمخزون الكلي
+            // في المرتجع: ينقص فقط الرصيد المتاح currentStock حتى لو بالسالب،
+            // بينما المخزون الأولي stockQty يظل كما هو دون تصفير!
+            const currentStockDelta = isPurchase ? item.quantity : -item.quantity
+            const stockQtyDelta = isPurchase ? item.quantity : 0 // لا نلمس المخزون الأولي بالسالب
+
+            await tx.product.update({
+              where: { id: existingProduct.id },
+              data: {
+                stockQty: { increment: stockQtyDelta },
+                currentStock: { increment: currentStockDelta },
+                cost: item.cost > 0 ? item.cost : existingProduct.cost,
+                vendor: vendor.name,
+                vendorId: vendor.id,
+                description: item.description || existingProduct.description
+              }
+            })
+          } else {
+            // إذا كان صنفاً جديداً تماماً:
+            // في الشراء: رصيده موجب
+            // في المرتجع: رصيده الحالي سالب، والمخزون الأولي يظل صفر كبداية
+            await tx.product.create({
+              data: {
+                modelNo: item.modelNo,
+                color: item.color,
+                stockQty: isPurchase ? item.quantity : 0, // المخزون الأولي لا يكون سالباً
+                currentStock: isPurchase ? item.quantity : -item.quantity, // الرصيد المتاح يسمح بالسالب
+                cost: item.cost,
+                price: item.price,
+                vendor: vendor.name,
+                vendorId: vendor.id,
+                description: item.description || ''
+              }
+            })
           }
+        }
 
-          await tx.product.update({
-            where: { id: product.id },
-            data: {
-              stockQty: { increment: stockChange },
-              currentStock: { increment: stockChange },
-              cost: itemCost > 0 ? itemCost : product.cost,
-              vendor: vendor.name,
-              vendorId: vendor.id,
-              description: item.description || product.description
-            }
-          })
-        } else {
-          if (data.invoiceType === 'RETURN') {
-            throw new Error(`الصنف ${cleanedModelNo} (${cleanedColor}) غير موجود في النظام لعمل مرتجع عليه`)
+        // تسجيل حركة المورد
+        const transType = isPurchase ? 'PURCHASE' : 'RETURN'
+        const transDesc = isPurchase
+          ? `فاتورة مشتريات #${invoiceNumber} (${data.paymentStatus === 'CASH' ? 'نقدي' : 'آجل'}) ${data.notes ? `- ${data.notes}` : ''}`
+          : `مرتجع مشتريات للمورد #${invoiceNumber} (${data.paymentStatus === 'CASH' ? 'نقدي' : 'آجل'}) ${data.notes ? `- ${data.notes}` : ''}`
+
+        await tx.vendorTransaction.create({
+          data: {
+            vendorId: vendor.id,
+            type: transType,
+            amount: totalAmount,
+            description: transDesc,
+            reference: invoiceNumber,
+            userId: user.id,
+            createdAt: invoiceDate
           }
+        })
 
-          await tx.product.create({
-            data: {
-              modelNo: cleanedModelNo,
-              color: cleanedColor,
-              stockQty: qty,
-              currentStock: qty,
-              cost: itemCost,
-              price: itemPrice,
-              vendor: vendor.name,
-              vendorId: vendor.id,
-              description: item.description || ''
-            }
-          })
+        // في حال الدفع النقدي
+        if (data.paymentStatus === 'CASH' && data.safeId) {
+          if (isPurchase) {
+            await tx.payment.create({
+              data: {
+                type: 'OUT',
+                amount: totalAmount,
+                currency: 'EGP',
+                safeId: data.safeId,
+                vendorId: vendor.id,
+                userId: user.id,
+                description: `سداد نقدي لفاتورة مشتريات #${invoiceNumber} للمورد: ${vendor.name}`,
+                createdAt: invoiceDate
+              }
+            })
+          } else {
+            await tx.payment.create({
+              data: {
+                type: 'IN',
+                amount: totalAmount,
+                currency: 'EGP',
+                safeId: data.safeId,
+                vendorId: vendor.id,
+                userId: user.id,
+                description: `استرداد نقدي لمرتجع مشتريات #${invoiceNumber} من المورد: ${vendor.name}`,
+                createdAt: invoiceDate
+              }
+            })
+          }
         }
+      },
+      {
+        maxWait: 30000,
+        timeout: 60000
       }
-
-      const isPurchase = data.invoiceType === 'PURCHASE'
-      const transType = isPurchase ? 'PURCHASE' : 'RETURN'
-      const transDesc = isPurchase
-        ? `فاتورة مشتريات #${invoiceNumber} (${data.paymentStatus === 'CASH' ? 'نقدي' : 'آجل'}) ${data.notes ? `- ${data.notes}` : ''}`
-        : `مرتجع مشتريات للمورد #${invoiceNumber} (${data.paymentStatus === 'CASH' ? 'نقدي' : 'آجل'}) ${data.notes ? `- ${data.notes}` : ''}`
-
-      await tx.vendorTransaction.create({
-        data: {
-          vendorId: vendor.id,
-          type: transType,
-          amount: totalAmount,
-          description: transDesc,
-          reference: invoiceNumber,
-          userId: user.id,
-          createdAt: invoiceDate
-        }
-      })
-
-      if (data.paymentStatus === 'CASH' && data.safeId) {
-        if (isPurchase) {
-          await tx.payment.create({
-            data: {
-              type: 'OUT',
-              amount: totalAmount,
-              currency: 'EGP',
-              safeId: data.safeId,
-              vendorId: vendor.id,
-              userId: user.id,
-              description: `سداد نقدي لفاتورة مشتريات #${invoiceNumber} للمورد: ${vendor.name}`,
-              createdAt: invoiceDate
-            }
-          })
-        } else {
-          await tx.payment.create({
-            data: {
-              type: 'IN',
-              amount: totalAmount,
-              currency: 'EGP',
-              safeId: data.safeId,
-              vendorId: vendor.id,
-              userId: user.id,
-              description: `استرداد نقدي لمرتجع مشتريات #${invoiceNumber} من المورد: ${vendor.name}`,
-              createdAt: invoiceDate
-            }
-          })
-        }
-      }
-    })
+    )
 
     revalidatePath('/admin/products')
     revalidatePath('/admin/vendors')
@@ -230,7 +284,6 @@ export async function searchProductsForPurchase(query: string) {
   }
 }
 
-// دالة جديدة لجلب جميع ألوان الموديل المحدد لاقتراحها في خانة اللون
 export async function getModelColors(modelNo: string) {
   try {
     if (!modelNo || modelNo.trim().length === 0) return []
@@ -254,6 +307,34 @@ export async function getModelColors(modelNo: string) {
     return products
   } catch (error) {
     console.error('Error fetching model colors:', error)
+    return []
+  }
+}
+
+export async function fetchProductsForExcelImport(items: { modelNo: string; color: string }[]) {
+  try {
+    if (!items || items.length === 0) return []
+
+    const modelNos = Array.from(new Set(items.map(i => String(i.modelNo).trim())))
+
+    const dbProducts = await prisma.product.findMany({
+      where: {
+        modelNo: { in: modelNos }
+      },
+      select: {
+        id: true,
+        modelNo: true,
+        color: true,
+        cost: true,
+        price: true,
+        currentStock: true,
+        description: true
+      }
+    })
+
+    return JSON.parse(JSON.stringify(dbProducts))
+  } catch (error) {
+    console.error('Error fetching products for Excel import:', error)
     return []
   }
 }
@@ -309,6 +390,54 @@ export async function createQuickProduct(data: {
 
     revalidatePath('/admin/products')
     return { success: true, product }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+// دالة تصحيح وترميم للأصناف التي تصفّر مخزونها الأولي بالخطأ
+export async function fixCorruptedInitialStock() {
+  try {
+    await checkAuthorizedUser()
+
+    const products = await prisma.product.findMany({
+      where: {
+        stockQty: { lte: 0 },
+        currentStock: { not: 0 }
+      },
+      include: {
+        orderItems: {
+          include: { returnItems: true }
+        }
+      }
+    })
+
+    let fixedCount = 0
+
+    for (const p of products) {
+      const totalSoldFromOrders = p.orderItems.reduce((acc, item) => acc + (item.quantity || 0), 0)
+      const totalReturned = p.orderItems.reduce(
+        (acc, item) => acc + (item.returnItems?.reduce((sum, ret) => sum + ret.quantity, 0) || 0),
+        0
+      )
+      const netSold = totalSoldFromOrders - totalReturned
+
+      // استعادة المخزون الأولي: الرصيد المتاح الحالي + ما تم بيعه
+      const restoredStockQty = Math.max(0, p.currentStock + netSold)
+
+      if (restoredStockQty > 0) {
+        await prisma.product.update({
+          where: { id: p.id },
+          data: { stockQty: restoredStockQty }
+        })
+        fixedCount++
+      }
+    }
+
+    revalidatePath('/admin/products')
+    revalidatePath('/admin/reports')
+
+    return { success: true, message: `تم فحص وترميم المخزون الأولي لـ ${fixedCount} صنف بنجاح` }
   } catch (error: any) {
     return { success: false, error: error.message }
   }
