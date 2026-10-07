@@ -232,7 +232,7 @@ export async function saveBulkBazaarOrders(payload: {
 }
 
 // =========================================================================
-// تقرير البازار الشامل (مع استبعاد وحذف أي نقدية لأوردرات تم حذفها تلقائياً)
+// تقرير البازار الشامل (مطابق 100% مع دفتر أستاذ الخزينة والمصروفات)
 // =========================================================================
 export async function getBazaarReport(startDateStr?: string, endDateStr?: string) {
   try {
@@ -247,6 +247,11 @@ export async function getBazaarReport(startDateStr?: string, endDateStr?: string
 
     const endDate = new Date(endStr)
     endDate.setHours(23, 59, 59, 999)
+
+    // جلب معرف "خزنة البازار"
+    const bazaarSafe = await prisma.safe.findFirst({
+      where: { name: 'خزنة البازار' }
+    })
 
     // 1. جلب فواتير البازار في الفترة المحددة
     const orders = await prisma.order.findMany({
@@ -283,56 +288,116 @@ export async function getBazaarReport(startDateStr?: string, endDateStr?: string
     })
     const existingOrderNos = new Set(allExistingBazaarOrders.map(o => o.orderNo))
 
-    // 3. جلب الحركات النقدية المرتبطة بالبازار في الفترة
+    // 3. جلب جميع الحركات النقدية:
+    // - أي حركة تمت على خزنة البازار (سواء إيراد، أو مصروفات نقدية، أو مرتجعات)
+    // - أو أي حركة تخص عميل البازار أو مبيعات البازار في خزن أخرى (فودافون كاش، انستا باي)
+    const paymentsOrConditions: any[] = [
+      { customer: { name: 'البازار' } },
+      { customer: { source: 'BAZAAR' } },
+      { description: { contains: 'بازار' } }
+    ]
+
+    if (bazaarSafe) {
+      paymentsOrConditions.push({ safeId: bazaarSafe.id })
+      paymentsOrConditions.push({ targetSafeId: bazaarSafe.id })
+    }
+
     const payments = await prisma.payment.findMany({
       where: {
         createdAt: { gte: startDate, lte: endDate },
-        OR: [
-          { customer: { name: 'البازار' } },
-          { customer: { source: 'BAZAAR' } },
-          { description: { contains: 'بازار' } }
-        ]
+        OR: paymentsOrConditions
       },
       include: {
         user: { select: { id: true, name: true, code: true } },
-        safe: true
+        safe: true,
+        targetSafe: true
       },
       orderBy: { createdAt: 'desc' }
     })
 
-    // 4. تصفية الحركات: استبعاد وحذف أي حركة لأوردر تم حذفه سابقاً
+    // 4. تصفية الحركات: استبعاد وحذف أي حركة لأوردر بيع تم حذفه سابقاً
+    // مع الإبقاء الكامل على المصروفات وسندات الصرف العامة التي تمت على خزنة البازار
     const orphanedPaymentIds: string[] = []
     const validPayments = payments.filter(pay => {
+      // فقط إذا كان السند يشير إلى رقم أوردر بازار محدد (#123)
       const match = pay.description?.match(/#(\d+)/)
-      if (match) {
+      if (match && (pay.description?.includes('أوردر') || pay.description?.includes('فاتورة'))) {
         const orderNo = parseInt(match[1], 10)
         const orderExists = existingOrderNos.has(orderNo)
         if (!orderExists) {
           orphanedPaymentIds.push(pay.id)
-          return false; // استبعاد فوراً من التقرير
+          return false // استبعاد من التقرير فوراً
         }
       }
       return true
     })
 
-    // تنظيف تلقائي في الخلفية لحذف هذه السندات من جدول Payment نهائياً
-    // لكي تختفي تلقائياً أيضاً من شاشة إدارة النقدية
+    // تنظيف تلقائي في الخلفية لحذف السندات المعلقة للأوردرات المحذوفة
     if (orphanedPaymentIds.length > 0) {
       await prisma.payment.deleteMany({
         where: { id: { in: orphanedPaymentIds } }
       }).catch(err => console.error('Error cleaning up orphaned payments:', err))
     }
 
-    // 5. الإجماليات العامة
+    // 5. الإجماليات العامة وتفصيل الخزن
     const totalOrdersCount = orders.length
     const totalSalesAmount = orders.reduce((sum, o) => sum + o.totalAmount, 0)
     const totalPiecesCount = orders.reduce((sum, o) => sum + o.items.reduce((s, it) => s + it.quantity, 0), 0)
 
-    const totalCashIn = validPayments.filter(p => p.type === 'IN').reduce((sum, p) => sum + p.amount, 0)
-    const totalCashOut = validPayments.filter(p => p.type === 'OUT').reduce((sum, p) => sum + p.amount, 0)
-    const netCash = totalCashIn - totalCashOut
+    const safesMap: { [safeName: string]: any } = {}
 
-    // 6. تقرير الموظفين (كل موظف باع بكام وماذا ورّد في كل خزنة من الأوردرات الحية)
+    let totalCashIn = 0
+    let totalCashOut = 0
+
+    validPayments.forEach(pay => {
+      let inAmt = 0
+      let outAmt = 0
+      let activeSafeName = pay.safe?.name || 'غير محددة'
+
+      if (pay.type === 'IN' || pay.type === 'PAYMENT_COLLECTION') {
+        inAmt = pay.amount
+      } else if (pay.type === 'OUT') {
+        outAmt = pay.amount
+      } else if (pay.type === 'TRANSFER') {
+        // في حالة التحويل بين الخزن
+        if (bazaarSafe && pay.safeId === bazaarSafe.id) {
+          outAmt = pay.amount // تحويل صادر من البازار
+          activeSafeName = pay.safe?.name || 'خزنة البازار'
+        } else if (bazaarSafe && pay.targetSafeId === bazaarSafe.id) {
+          inAmt = pay.amount // تحويل وارد لخزنة البازار
+          activeSafeName = pay.targetSafe?.name || 'خزنة البازار'
+        }
+      }
+
+      totalCashIn += inAmt
+      totalCashOut += outAmt
+
+      if (!safesMap[activeSafeName]) {
+        safesMap[activeSafeName] = {
+          safeName: activeSafeName,
+          safeId: pay.safeId,
+          totalIn: 0,
+          totalOut: 0,
+          net: 0,
+          byEmployee: {}
+        }
+      }
+
+      safesMap[activeSafeName].totalIn += inAmt
+      safesMap[activeSafeName].totalOut += outAmt
+      safesMap[activeSafeName].net += (inAmt - outAmt)
+
+      const uName = pay.user?.name || 'النظام'
+      if (!safesMap[activeSafeName].byEmployee[uName]) {
+        safesMap[activeSafeName].byEmployee[uName] = 0
+      }
+      safesMap[activeSafeName].byEmployee[uName] += (inAmt - outAmt)
+    })
+
+    const netCash = totalCashIn - totalCashOut
+    const safesSummary = Object.values(safesMap).sort((a: any, b: any) => b.net - a.net)
+
+    // 6. تقرير الموظفين
     const employeesMap: { [userId: string]: any } = {}
 
     orders.forEach(ord => {
@@ -355,9 +420,11 @@ export async function getBazaarReport(startDateStr?: string, endDateStr?: string
     })
 
     validPayments.forEach(pay => {
-      const uId = pay.user.id
+      const uId = pay.user?.id
+      if (!uId) return
+
       const safeName = pay.safe?.name || 'غير محددة'
-      const netAmount = pay.type === 'IN' ? pay.amount : -pay.amount
+      const netAmount = (pay.type === 'IN' || pay.type === 'PAYMENT_COLLECTION') ? pay.amount : -pay.amount
 
       if (!employeesMap[uId]) {
         employeesMap[uId] = {
@@ -379,41 +446,7 @@ export async function getBazaarReport(startDateStr?: string, endDateStr?: string
 
     const employeesSummary = Object.values(employeesMap).sort((a: any, b: any) => b.totalSales - a.totalSales)
 
-    // 7. تقرير الخزن مفصلة (الصافي الفعلي فقط)
-    const safesMap: { [safeName: string]: any } = {}
-
-    validPayments.forEach(pay => {
-      const safeName = pay.safe?.name || 'غير محددة'
-      const uName = pay.user.name
-      const isIncome = pay.type === 'IN'
-
-      if (!safesMap[safeName]) {
-        safesMap[safeName] = {
-          safeName,
-          safeId: pay.safeId,
-          totalIn: 0,
-          totalOut: 0,
-          net: 0,
-          byEmployee: {}
-        }
-      }
-
-      if (isIncome) {
-        safesMap[safeName].totalIn += pay.amount
-      } else {
-        safesMap[safeName].totalOut += pay.amount
-      }
-      safesMap[safeName].net = safesMap[safeName].totalIn - safesMap[safeName].totalOut
-
-      if (!safesMap[safeName].byEmployee[uName]) {
-        safesMap[safeName].byEmployee[uName] = 0
-      }
-      safesMap[safeName].byEmployee[uName] += isIncome ? pay.amount : -pay.amount
-    })
-
-    const safesSummary = Object.values(safesMap).sort((a: any, b: any) => b.net - a.net)
-
-    // 8. تجهيز تفاصيل الفواتير
+    // 7. تفاصيل الفواتير
     const formattedOrders = orders.map(ord => ({
       id: ord.id,
       orderNo: ord.orderNo,
