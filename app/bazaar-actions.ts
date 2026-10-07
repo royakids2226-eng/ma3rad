@@ -25,6 +25,33 @@ interface PendingBazaarOrder {
   createdAt?: string
 }
 
+// جلب كتالوج كل الأصناف النشطة لتخزينها محلياً والعمل بها أوفلاين
+export async function getBazaarProductsCatalog() {
+  try {
+    const products = await prisma.product.findMany({
+      select: {
+        id: true,
+        modelNo: true,
+        color: true,
+        price: true,
+        cost: true,
+        currentStock: true,
+        description: true,
+        status: true
+      },
+      orderBy: { modelNo: 'asc' }
+    })
+
+    return {
+      success: true,
+      products: JSON.parse(JSON.stringify(products))
+    }
+  } catch (error: any) {
+    console.error('Error fetching bazaar products catalog:', error)
+    return { success: false, error: error.message || 'فشل جلب كتالوج الأصناف' }
+  }
+}
+
 // تهيئة عميل وخزنة البازار الافتراضية مع جلب كل الخزن المتاحة
 export async function getOrCreateBazaarDefaults() {
   try {
@@ -125,7 +152,7 @@ export async function saveBulkBazaarOrders(payload: {
           await tx.product.update({
             where: { id: it.productId },
             data: {
-              currentStock: { decrement: it.quantity } // decrement لعدد سالب = increment تلقائياً في الرياضيات و Prisma
+              currentStock: { decrement: it.quantity }
             }
           })
         }
