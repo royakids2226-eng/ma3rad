@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getInventoryReport, getSafesList, getSafeLedger, getEmployeePerformance } from '@/app/report-actions';
 import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 import * as XLSX from 'xlsx';
 
 const exportToExcel = (data: any[], fileName: string) => {
@@ -15,7 +16,6 @@ const exportToExcel = (data: any[], fileName: string) => {
     XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
     XLSX.writeFile(workbook, `${fileName}_${new Date().toISOString().split('T')[0]}.xlsx`);
 };
-
 
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<'INVENTORY' | 'SAFE' | 'EMPLOYEES'>('INVENTORY');
@@ -55,7 +55,16 @@ export default function ReportsPage() {
           </div>
         </div>
         
-        <div className="flex gap-2 w-full md:w-auto print:hidden">
+        <div className="flex flex-wrap gap-2 w-full md:w-auto print:hidden">
+            {/* رابط تقرير البازار السريع */}
+            <Link
+              href="/admin/reports/bazaar"
+              className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-4 rounded-2xl font-black shadow-xl transition-all transform active:scale-95 flex items-center justify-center gap-2"
+            >
+              <span>🎪</span>
+              <span>تقرير البازار</span>
+            </Link>
+
             <button 
               onClick={() => {
                 const event = new CustomEvent('download-excel');
@@ -89,7 +98,7 @@ export default function ReportsPage() {
             onClick={() => setActiveTab('SAFE')}
             className={`px-10 py-5 font-black whitespace-nowrap transition-all rounded-t-3xl flex items-center gap-3 ${activeTab === 'SAFE' ? 'bg-white border-t-4 border-green-600 text-green-700 shadow-[0_-4px_15px_rgba(0,0,0,0.08)]' : 'bg-transparent text-gray-400 hover:text-gray-600'}`}
         >
-            <span className="text-2xl"></span>
+            <span className="text-2xl">💰</span>
             دفتر أستاذ الخزينة
         </button>
         <button 
@@ -356,7 +365,6 @@ function InventoryReportView() {
         </div>
     );
 }
-
 
 function SafeLedgerView() {
     const getTodayDateString = () => new Date().toISOString().split('T')[0];

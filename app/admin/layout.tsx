@@ -64,9 +64,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <DocumentPlusIcon className="w-5 h-5" /> <span className="hidden lg:inline">فاتورة مشتريات</span>
             </Link>
 
-            {/* زر إدارة العروض الجديد (للمحاسب والمدير وصاحب العمل) */}
+            {/* زر إدارة العروض */}
             <Link href="/admin/offers" className="px-3 py-2 rounded-xl bg-pink-600/20 text-pink-300 hover:bg-pink-600 hover:text-white transition-colors flex items-center gap-2 border border-pink-500/30">
               <TagIcon className="w-5 h-5" /> <span className="hidden lg:inline">إدارة العروض</span>
+            </Link>
+
+            {/* زر تقرير البازار الجديد */}
+            <Link href="/admin/reports/bazaar" className="px-3 py-2 rounded-xl bg-amber-600/20 text-amber-300 hover:bg-amber-600 hover:text-white transition-colors flex items-center gap-2 border border-amber-500/30">
+              <span>🎪</span> <span className="hidden lg:inline">تقرير البازار</span>
             </Link>
 
             <Link href="/admin/vendors" className="px-3 py-2 rounded-xl hover:bg-slate-700 hover:text-yellow-400 transition-colors flex items-center gap-2">
