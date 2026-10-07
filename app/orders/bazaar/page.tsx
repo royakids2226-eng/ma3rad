@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import { Scanner } from '@yudiel/react-qr-scanner'
@@ -48,7 +48,9 @@ interface PendingOrder {
   time: string
 }
 
+// مفاتيح التخزين المحلي
 const STORAGE_ORDERS_KEY = 'pending_bazaar_orders_v2'
+const STORAGE_OUTBOX_KEY = 'bazaar_outbox_batches_v1' // الأوردرات الموردة أوفلاين بانتظار الرفع
 const STORAGE_PRODUCTS_KEY = 'bazaar_cached_products_v1'
 const STORAGE_DEFAULTS_KEY = 'bazaar_defaults_cache_v1'
 
@@ -72,15 +74,19 @@ export default function BazaarFastOrderPage() {
   // حالة الشبكة
   const [isOnline, setIsOnline] = useState(true)
 
-  // سلة الأوردر الحالي
+  // سلة الزبون الحالي
   const [cart, setCart] = useState<CartItem[]>([])
 
   // تقسيم الخزن للأوردر الحالي
   const [paymentSplits, setPaymentSplits] = useState<PaymentSplit[]>([])
   const [showSafeSelector, setShowSafeSelector] = useState(false)
 
-  // قائمة الأوردرات المعلقة المحفوظة محلياً
+  // قائمة الأوردرات الحالية الجارية
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([])
+
+  // صندوق الأوردرات الموردة محلياً والجاهزة للرفع (Outbox)
+  const [outboxOrders, setOutboxOrders] = useState<PendingOrder[]>([])
+  const [isSyncingOutbox, setIsSyncingOutbox] = useState(false)
 
   // البحث والباركود
   const [searchTerm, setSearchTerm] = useState('')
@@ -89,7 +95,13 @@ export default function BazaarFastOrderPage() {
   // النوافذ ومؤشرات التحميل
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false)
   const [isSavingAll, setIsSavingAll] = useState(false)
-  const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ text: string; type: 'success' | 'warn' } | null>(null)
+
+  // مرجع للاحتفاظ بـ outboxOrders لتفادي مشاكل Closures داخل الـ Events
+  const outboxRef = useRef(outboxOrders)
+  useEffect(() => {
+    outboxRef.current = outboxOrders
+  }, [outboxOrders])
 
   // 1. مزامنة وتحميل كتالوج الأصناف وإعدادات البازار
   const syncProductsCatalog = async () => {
@@ -107,39 +119,97 @@ export default function BazaarFastOrderPage() {
     setIsCatalogLoading(false)
   }
 
-  // 2. التحميل الأولي (استرجاع الداتا المحفوظة أوفلاين أولاً ثم تحديثها أونلاين)
+  // 2. دالة رفع ومزامنة صندوق التوريدات المعلّقة (Outbox Sync)
+  const syncOutboxToServer = async (explicitOrders?: PendingOrder[]) => {
+    const ordersToSync = explicitOrders || outboxRef.current
+    if (!navigator.onLine || ordersToSync.length === 0 || isSyncingOutbox) return
+
+    const defaults = bazaarDefaults || (() => {
+      try {
+        const c = localStorage.getItem(STORAGE_DEFAULTS_KEY)
+        return c ? JSON.parse(c).defaults : null
+      } catch { return null }
+    })()
+
+    if (!defaults?.customerId || !defaults?.defaultSafeId || !userId) return
+
+    setIsSyncingOutbox(true)
+
+    const payload = {
+      orders: ordersToSync.map(o => ({
+        id: o.id,
+        items: o.items.map(it => ({
+          productId: it.productId,
+          quantity: it.quantity,
+          price: it.price,
+          discountPercent: it.discountPercent
+        })),
+        totalAmount: o.totalAmount,
+        paymentSplits: o.paymentSplits,
+        deposit: o.totalAmount
+      })),
+      userId,
+      customerId: defaults.customerId,
+      defaultSafeId: defaults.defaultSafeId
+    }
+
+    try {
+      const res = await saveBulkBazaarOrders(payload)
+      if (res.success) {
+        // تفريغ الـ Outbox بعد النجاح
+        setOutboxOrders([])
+        localStorage.removeItem(STORAGE_OUTBOX_KEY)
+        setNotice({
+          text: `🎉 تمت مزامنة ورفع ${ordersToSync.length} أوردر كان مورداً محلياً إلى السيرفر بنجاح!`,
+          type: 'success'
+        })
+        setTimeout(() => setNotice(null), 8000)
+        syncProductsCatalog()
+      } else {
+        console.warn('Failed to sync outbox:', res.error)
+      }
+    } catch (err) {
+      console.error('Error syncing outbox:', err)
+    } finally {
+      setIsSyncingOutbox(false)
+    }
+  }
+
+  // 3. التحميل الأولي وإعداد الأحداث
   useEffect(() => {
     setIsOnline(navigator.onLine)
+
     const handleOnline = () => {
       setIsOnline(true)
       syncProductsCatalog()
+      // محاولة مزامنة ما تم توريده أوفلاين تلقائياً عند عودة الإنترنت
+      syncOutboxToServer()
     }
+
     const handleOffline = () => setIsOnline(false)
 
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
 
-    // أ. تحميل الأصناف من الكاش المحلي فوراً (يعمل حتى لو بدون إنترنت من اللحظة الأولى)
+    // أ. استرجاع الأصناف المحفوظة
     try {
       const localProducts = localStorage.getItem(STORAGE_PRODUCTS_KEY)
-      if (localProducts) {
-        setCachedProducts(JSON.parse(localProducts))
-      }
-    } catch (e) {
-      console.error('Error loading cached products:', e)
-    }
+      if (localProducts) setCachedProducts(JSON.parse(localProducts))
+    } catch (e) {}
 
-    // ب. تحميل الأوردرات المعلقة من الكاش المحلي
+    // ب. استرجاع الأوردرات الجارية الحالية
     try {
       const savedOrders = localStorage.getItem(STORAGE_ORDERS_KEY)
-      if (savedOrders) {
-        setPendingOrders(JSON.parse(savedOrders))
-      }
-    } catch (e) {
-      console.error('Error loading cached pending orders:', e)
-    }
+      if (savedOrders) setPendingOrders(JSON.parse(savedOrders))
+    } catch (e) {}
 
-    // ج. استرجاع إعدادات البازار من الكاش المحلي إن وُجدت
+    // ج. استرجاع الأوردرات الموردة أوفلاين (Outbox)
+    try {
+      const savedOutbox = localStorage.getItem(STORAGE_OUTBOX_KEY)
+      if (savedOutbox) setOutboxOrders(JSON.parse(savedOutbox))
+    } catch (e) {}
+
+    // د. استرجاع إعدادات البازار
     try {
       const cachedDefaults = localStorage.getItem(STORAGE_DEFAULTS_KEY)
       if (cachedDefaults) {
@@ -152,11 +222,8 @@ export default function BazaarFastOrderPage() {
           amount: 0
         }])
       }
-    } catch (e) {
-      console.error(e)
-    }
+    } catch (e) {}
 
-    // د. إذا كان متصلاً، يجلب أحدث نسخة من السيرفر ويحدث الكاش
     if (navigator.onLine) {
       syncProductsCatalog()
       getOrCreateBazaarDefaults().then(res => {
@@ -175,13 +242,15 @@ export default function BazaarFastOrderPage() {
             amount: 0
           }])
 
-          // حفظ الإعدادات أوفلاين
           try {
             localStorage.setItem(STORAGE_DEFAULTS_KEY, JSON.stringify({
               defaults: defaultsObj,
               allSafes: res.allSafes || []
             }))
           } catch (e) {}
+
+          // تشغيل المزامنة لو كان هناك أوردرات أوفلاين تنتظر
+          setTimeout(() => syncOutboxToServer(), 1000)
         }
       })
     }
@@ -192,16 +261,20 @@ export default function BazaarFastOrderPage() {
     }
   }, [])
 
-  // 3. مزامنة الأوردرات المعلقة مع LocalStorage تلقائياً
+  // 4. حفظ الحالة في الـ LocalStorage تلقائياً
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(pendingOrders))
-    } catch (e) {
-      console.error(e)
-    }
+    } catch (e) {}
   }, [pendingOrders])
 
-  // 4. البحث المحلي الفوري في كتالوج الأصناف (Offline Search 100%)
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_OUTBOX_KEY, JSON.stringify(outboxOrders))
+    } catch (e) {}
+  }, [outboxOrders])
+
+  // 5. البحث المحلي الفوري في الكتالوج (Offline 100%)
   const searchResults = useMemo(() => {
     const term = searchTerm.toLowerCase().trim()
     if (!term || cachedProducts.length === 0) return []
@@ -212,14 +285,14 @@ export default function BazaarFastOrderPage() {
         (p.color && p.color.toLowerCase().includes(term)) ||
         (p.description && p.description.toLowerCase().includes(term))
       )
-      .slice(0, 30) // أسرع 30 نتيجة
+      .slice(0, 30)
   }, [searchTerm, cachedProducts])
 
-  // 5. حساب إجمالي السلة الحالية
+  // حساب إجمالي السلة الحالية
   const currentCartTotal = cart.reduce((sum, it) => sum + (it.price * it.quantity), 0)
   const currentCartPieces = cart.reduce((sum, it) => sum + it.quantity, 0)
 
-  // تحديث رصيد الخزنة تلقائياً إذا لم يكن مقسماً يدوياً
+  // تحديث رصيد الخزنة تلقائياً
   useEffect(() => {
     if (bazaarDefaults && paymentSplits.length <= 1) {
       const primarySafe = paymentSplits[0] || {
@@ -234,7 +307,7 @@ export default function BazaarFastOrderPage() {
     }
   }, [currentCartTotal, bazaarDefaults])
 
-  // إضافة صنف للسلة الحالية (موجب للبيع، أو سالب للمرتجع)
+  // إضافة صنف للسلة الحالية
   const handleAddProductToCart = (prod: CachedProduct, qty: number = 1) => {
     setCart(prev => {
       const existingIndex = prev.findIndex(item => item.productId === prod.id)
@@ -261,11 +334,10 @@ export default function BazaarFastOrderPage() {
     setSearchTerm('')
   }
 
-  // معالجة قراءة الباركود أو الـ QR
+  // قراءة الباركود
   const handleBarcodeScanned = (code: string) => {
     if (code) {
       const trimmedCode = code.trim().toLowerCase()
-      // محاولة مطابقة الصنف مباشرة في الكتالوج المحلي
       const exactMatch = cachedProducts.find(
         p => p.modelNo.toLowerCase() === trimmedCode
       )
@@ -280,7 +352,7 @@ export default function BazaarFastOrderPage() {
     }
   }
 
-  // تعديل كمية صنف
+  // تعديل كمية وحذف صنف
   const updateCartQty = (productId: string, newQty: number) => {
     if (newQty === 0) {
       setCart(prev => prev.filter(item => item.productId !== productId))
@@ -289,12 +361,10 @@ export default function BazaarFastOrderPage() {
     }
   }
 
-  // حذف صنف تماماً
   const removeCartItem = (productId: string) => {
     setCart(prev => prev.filter(item => item.productId !== productId))
   }
 
-  // تبديل كمية الصنف بين موجب وسالب بنقرة واحدة (مرتجع / بيع)
   const toggleNegativeQuantity = (productId: string) => {
     setCart(prev => prev.map(item => item.productId === productId ? { ...item, quantity: -item.quantity } : item))
   }
@@ -338,7 +408,6 @@ export default function BazaarFastOrderPage() {
     setPaymentSplits(prev => prev.filter((_, i) => i !== index))
   }
 
-  // حساب إجمالي كل المعلق مع السلة الحالية
   const pendingOrdersTotal = pendingOrders.reduce((sum, ord) => sum + ord.totalAmount, 0)
   const grandTotalWithCurrent = pendingOrdersTotal + currentCartTotal
 
@@ -368,7 +437,7 @@ export default function BazaarFastOrderPage() {
 
     setPendingOrders(prev => [...prev, newPendingOrder])
 
-    // تصفير السلة للزبون التالي مع إعادة تعيين الخزنة الافتراضية (خزنة البازار)
+    // تصفير السلة للزبون التالي
     setCart([])
     setShowSafeSelector(false)
     if (bazaarDefaults) {
@@ -399,10 +468,11 @@ export default function BazaarFastOrderPage() {
     setIsSummaryModalOpen(false)
   }
 
-  // 7. حفظ الكل وتوريد النقدية
+  // 7. حفظ وتوريد الكل (يعمل سواء كان هناك إنترنت أو أوفلاين بالكامل)
   const handleSaveAllOrders = async () => {
     let ordersToProcess = [...pendingOrders]
 
+    // ضم السلة الحالية إن كان بها أصناف
     if (cart.length > 0) {
       ordersToProcess.push({
         id: `pending-${Date.now()}`,
@@ -420,42 +490,20 @@ export default function BazaarFastOrderPage() {
       return
     }
 
-    if (!isOnline) {
-      alert('⚠️ أنت حالياً في وضع عدم الاتصال (Offline).\nتم حفظ كل الأوردرات بأمان في هاتفك محلياً. عند عودة الإنترنت اضغط حفظ الكل لرفعها للسيرفر.')
-      return
-    }
+    const totalCash = ordersToProcess.reduce((s, o) => s + o.totalAmount, 0)
 
-    if (!bazaarDefaults?.customerId || !bazaarDefaults?.defaultSafeId) {
-      alert('جاري تهيئة إعدادات البازار، يرجى المحاولة بعد قليل...')
-      return
-    }
+    // ========================================================
+    // السيناريو الأول: لا يوجد إنترنت (حفظ وتوريد محلي كامل Outbox)
+    // ========================================================
+    if (!navigator.onLine) {
+      // نقل الأوردرات إلى صندوق الـ Outbox المحلي
+      const newOutbox = [...outboxOrders, ...ordersToProcess]
+      setOutboxOrders(newOutbox)
+      try {
+        localStorage.setItem(STORAGE_OUTBOX_KEY, JSON.stringify(newOutbox))
+      } catch (e) {}
 
-    setIsSavingAll(true)
-
-    const payload = {
-      orders: ordersToProcess.map(o => ({
-        id: o.id,
-        items: o.items.map(it => ({
-          productId: it.productId,
-          quantity: it.quantity,
-          price: it.price,
-          discountPercent: it.discountPercent
-        })),
-        totalAmount: o.totalAmount,
-        paymentSplits: o.paymentSplits,
-        deposit: o.totalAmount
-      })),
-      userId,
-      customerId: bazaarDefaults.customerId,
-      defaultSafeId: bazaarDefaults.defaultSafeId
-    }
-
-    const res = await saveBulkBazaarOrders(payload)
-    setIsSavingAll(false)
-
-    if (res.success) {
-      const totalCash = ordersToProcess.reduce((s, o) => s + o.totalAmount, 0)
-
+      // تصفير كل شيء وبدء فاتورة جديدة فوراً
       setPendingOrders([])
       setCart([])
       localStorage.removeItem(STORAGE_ORDERS_KEY)
@@ -469,28 +517,99 @@ export default function BazaarFastOrderPage() {
         }])
       }
 
-      setSaveSuccessNotice(`🎉 تم بنجاح حفظ وتوريد ${ordersToProcess.length} أوردر بمبلغ ${totalCash.toLocaleString()} ج.م - جاهز لأوردرات جديدة الآن!`)
-      setTimeout(() => setSaveSuccessNotice(null), 7000)
+      setNotice({
+        text: `📦 تم توريد واعتماد ${ordersToProcess.length} أوردر بمبلغ ${totalCash.toLocaleString()} ج.م محلياً (أوفلاين) وتصفير الشاشة للزبائن الجدد! ستتم المزامنة تلقائياً فور عودة الإنترنت.`,
+        type: 'warn'
+      })
+      setTimeout(() => setNotice(null), 8000)
+      return
+    }
 
-      // إعادة مزامنة المخزون في الكتالوج بعد الحفظ
+    // ========================================================
+    // السيناريو الثاني: يوجد إنترنت (رفع وتوريد فوري للسيرفر)
+    // ========================================================
+    const defaults = bazaarDefaults || (() => {
+      try {
+        const c = localStorage.getItem(STORAGE_DEFAULTS_KEY)
+        return c ? JSON.parse(c).defaults : null
+      } catch { return null }
+    })()
+
+    if (!defaults?.customerId || !defaults?.defaultSafeId || !userId) {
+      alert('جاري تهيئة الإعدادات، يرجى المحاولة بعد لحظات...')
+      return
+    }
+
+    setIsSavingAll(true)
+
+    // دمج أي أوردرات سابقة كانت بالـ Outbox مع الأوردرات الحالية لرفعها كلها
+    const allCombined = [...outboxOrders, ...ordersToProcess]
+
+    const payload = {
+      orders: allCombined.map(o => ({
+        id: o.id,
+        items: o.items.map(it => ({
+          productId: it.productId,
+          quantity: it.quantity,
+          price: it.price,
+          discountPercent: it.discountPercent
+        })),
+        totalAmount: o.totalAmount,
+        paymentSplits: o.paymentSplits,
+        deposit: o.totalAmount
+      })),
+      userId,
+      customerId: defaults.customerId,
+      defaultSafeId: defaults.defaultSafeId
+    }
+
+    const res = await saveBulkBazaarOrders(payload)
+    setIsSavingAll(false)
+
+    if (res.success) {
+      // تفريغ كل القوائم محلياً
+      setPendingOrders([])
+      setOutboxOrders([])
+      setCart([])
+      localStorage.removeItem(STORAGE_ORDERS_KEY)
+      localStorage.removeItem(STORAGE_OUTBOX_KEY)
+      setIsSummaryModalOpen(false)
+
+      if (bazaarDefaults) {
+        setPaymentSplits([{
+          safeId: bazaarDefaults.defaultSafeId,
+          safeName: bazaarDefaults.defaultSafeName,
+          amount: 0
+        }])
+      }
+
+      setNotice({
+        text: `🎉 تم بنجاح حفظ وتوريد ${allCombined.length} أوردر بمبلغ ${allCombined.reduce((s, o) => s + o.totalAmount, 0).toLocaleString()} ج.م في النظام والخزينة - جاهز للزبائن الجدد فوراً!`,
+        type: 'success'
+      })
+      setTimeout(() => setNotice(null), 7000)
+
       syncProductsCatalog()
-
     } else {
-      alert(`❌ فشل الحفظ: ${res.error}`)
+      alert(`❌ فشل الحفظ على السيرفر: ${res.error}\nتم الاحتفاظ بالأوردرات محلياً لحمايتها.`);
     }
   }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-2 sm:p-4 md:p-6 font-sans pb-36" dir="rtl">
       
-      {/* إشعار النجاح السريع */}
-      {saveSuccessNotice && (
-        <div className="max-w-6xl mx-auto mb-3 bg-emerald-600/90 border border-emerald-400 text-white p-3 md:p-4 rounded-2xl shadow-2xl flex justify-between items-center animate-in slide-in-from-top duration-300">
+      {/* إشعارات النظام السريعة */}
+      {notice && (
+        <div className={`max-w-6xl mx-auto mb-3 p-3 md:p-4 rounded-2xl shadow-2xl flex justify-between items-center animate-in slide-in-from-top duration-300 border ${
+          notice.type === 'success' 
+            ? 'bg-emerald-600/90 border-emerald-400 text-white' 
+            : 'bg-amber-600/95 border-amber-400 text-white'
+        }`}>
           <div className="flex items-center gap-2 font-bold text-xs sm:text-sm md:text-base">
-            <span>✅</span>
-            <span>{saveSuccessNotice}</span>
+            <span>{notice.type === 'success' ? '✅' : '📦'}</span>
+            <span>{notice.text}</span>
           </div>
-          <button onClick={() => setSaveSuccessNotice(null)} className="text-white text-lg font-bold px-2">✕</button>
+          <button onClick={() => setNotice(null)} className="text-white text-lg font-bold px-2">✕</button>
         </div>
       )}
 
@@ -502,21 +621,38 @@ export default function BazaarFastOrderPage() {
           </div>
           <div>
             <h1 className="text-base sm:text-xl md:text-2xl font-black text-white flex items-center gap-2">
-              <span>فاتورة البازار</span>
+              <span>فاتورة البازار السريعة</span>
               <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${isOnline ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-red-500/20 text-red-300 border border-red-500/40 animate-pulse'}`}>
-                {isOnline ? '🟢 أونلاين' : '🔴 أوفلاين'}
+                {isOnline ? '🟢 أونلاين' : '🔴 أوفلاين (شغال محلياً)'}
               </span>
             </h1>
-            <p className="text-slate-400 text-[11px] sm:text-xs flex items-center gap-2">
+            <p className="text-slate-400 text-[11px] sm:text-xs flex flex-wrap items-center gap-2">
               <span>الخزنة: <b className="text-amber-400">{bazaarDefaults?.defaultSafeName || 'خزنة البازار'}</b></span>
               <span className="text-slate-600">•</span>
               <span className="text-emerald-400">({cachedProducts.length} صنف محفوظ أوفلاين)</span>
+              
+              {outboxOrders.length > 0 && (
+                <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-bold">
+                  📦 {outboxOrders.length} أوردر مورد محلياً بانتظار المزامنة
+                </span>
+              )}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* زر تحديث الكتالوج إذا كان أونلاين */}
+          {/* زر مزامنة يدوي في حال كان هناك أوردرات أوفلاين والإنترنت عاد */}
+          {isOnline && outboxOrders.length > 0 && (
+            <button
+              onClick={() => syncOutboxToServer()}
+              disabled={isSyncingOutbox}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 animate-pulse"
+            >
+              <span>{isSyncingOutbox ? '⏳' : '⚡'}</span>
+              <span>مزامنة الأوفلاين ({outboxOrders.length})</span>
+            </button>
+          )}
+
           {isOnline && (
             <button
               onClick={syncProductsCatalog}
@@ -544,7 +680,7 @@ export default function BazaarFastOrderPage() {
         </div>
       </header>
 
-      {/* البحث والباركود (يعمل محلياً بدون إنترنت) */}
+      {/* البحث والباركود */}
       <div className="max-w-6xl mx-auto space-y-3 sm:space-y-4">
         
         <div className="bg-slate-900 border border-slate-800 p-3 sm:p-4 rounded-2xl shadow-lg">
@@ -721,7 +857,6 @@ export default function BazaarFastOrderPage() {
                         {isNegative ? 'مرتجع (-)' : 'بيع (+)'}
                       </button>
 
-                      {/* عداد الكمية */}
                       <div className="flex items-center gap-0.5 bg-slate-900 border border-slate-800 rounded-lg p-0.5">
                         <button
                           onClick={() => updateCartQty(item.productId, item.quantity - 1)}
@@ -760,7 +895,7 @@ export default function BazaarFastOrderPage() {
             </div>
           )}
 
-          {/* لوحة اختيار الخزنة */}
+          {/* لوحة اختيار الخزنة وتقسيم الدفع */}
           <div className="mt-3 pt-3 border-t border-slate-800">
             <div className="flex flex-wrap justify-between items-center gap-1.5 mb-2">
               <div className="flex items-center gap-1 text-[11px] sm:text-xs">
@@ -866,7 +1001,7 @@ export default function BazaarFastOrderPage() {
               disabled={pendingOrders.length === 0 && cart.length === 0}
               className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-white px-5 sm:px-8 py-3 rounded-xl font-black text-sm sm:text-base shadow-lg transition active:scale-95 flex items-center justify-center gap-1.5"
             >
-              <span>حفظ الكل</span>
+              <span>حفظ وتوريد الكل</span>
               <span>💾</span>
             </button>
           </div>
@@ -882,7 +1017,9 @@ export default function BazaarFastOrderPage() {
             <div className="flex justify-between items-center border-b border-slate-800 pb-3 mb-3">
               <div>
                 <h3 className="text-base sm:text-lg font-black text-white">📋 تجميعة وتوريد فواتير البازار</h3>
-                <p className="text-[11px] sm:text-xs text-slate-400">راجع كل أوردر وخزنته قبل الاعتماد النهائي</p>
+                <p className="text-[11px] sm:text-xs text-slate-400">
+                  {isOnline ? 'سيتم اعتماد وتوريد الفواتير في النظام والخزينة مباشرة' : '⚠️ أنت أوفلاين: سيتم اعتماد التوريد محلياً وتصفير الشاشة للزبائن الجدد'}
+                </p>
               </div>
               <button onClick={() => setIsSummaryModalOpen(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
             </div>
@@ -963,7 +1100,7 @@ export default function BazaarFastOrderPage() {
                   disabled={isSavingAll}
                   className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl font-black text-xs sm:text-sm shadow-xl transition disabled:bg-slate-700 flex items-center justify-center gap-1.5"
                 >
-                  {isSavingAll ? 'جاري الحفظ...' : 'تأكيد الحفظ والتوريد ✅'}
+                  {isSavingAll ? 'جاري الحفظ...' : (isOnline ? 'تأكيد الحفظ والتوريد النهائي ✅' : 'اعتماد التوريد محلياً وبدء وردية جديدة 📦')}
                 </button>
               </div>
             </div>
