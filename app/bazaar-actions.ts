@@ -232,7 +232,7 @@ export async function saveBulkBazaarOrders(payload: {
 }
 
 // =========================================================================
-// تقرير البازار الشامل (مبيعات الموظفين + النقدية بالخزن مفصلة)
+// تقرير البازار الشامل (مع استبعاد وحذف أي نقدية لأوردرات تم حذفها تلقائياً)
 // =========================================================================
 export async function getBazaarReport(startDateStr?: string, endDateStr?: string) {
   try {
@@ -248,7 +248,7 @@ export async function getBazaarReport(startDateStr?: string, endDateStr?: string
     const endDate = new Date(endStr)
     endDate.setHours(23, 59, 59, 999)
 
-    // 1. جلب فواتير البازار
+    // 1. جلب فواتير البازار في الفترة المحددة
     const orders = await prisma.order.findMany({
       where: {
         createdAt: { gte: startDate, lte: endDate },
@@ -270,7 +270,20 @@ export async function getBazaarReport(startDateStr?: string, endDateStr?: string
       orderBy: { createdAt: 'desc' }
     })
 
-    // 2. جلب الحركات النقدية المرتبطة بالبازار
+    // 2. جلب جميع أرقام أوردرات البازار الموجودة فعلياً في النظام
+    const allExistingBazaarOrders = await prisma.order.findMany({
+      where: {
+        OR: [
+          { customer: { name: 'البازار' } },
+          { customer: { source: 'BAZAAR' } },
+          { notes: { contains: 'بازار' } }
+        ]
+      },
+      select: { orderNo: true }
+    })
+    const existingOrderNos = new Set(allExistingBazaarOrders.map(o => o.orderNo))
+
+    // 3. جلب الحركات النقدية المرتبطة بالبازار في الفترة
     const payments = await prisma.payment.findMany({
       where: {
         createdAt: { gte: startDate, lte: endDate },
@@ -287,16 +300,39 @@ export async function getBazaarReport(startDateStr?: string, endDateStr?: string
       orderBy: { createdAt: 'desc' }
     })
 
-    // 3. الإجماليات العامة
+    // 4. تصفية الحركات: استبعاد وحذف أي حركة لأوردر تم حذفه سابقاً
+    const orphanedPaymentIds: string[] = []
+    const validPayments = payments.filter(pay => {
+      const match = pay.description?.match(/#(\d+)/)
+      if (match) {
+        const orderNo = parseInt(match[1], 10)
+        const orderExists = existingOrderNos.has(orderNo)
+        if (!orderExists) {
+          orphanedPaymentIds.push(pay.id)
+          return false; // استبعاد فوراً من التقرير
+        }
+      }
+      return true
+    })
+
+    // تنظيف تلقائي في الخلفية لحذف هذه السندات من جدول Payment نهائياً
+    // لكي تختفي تلقائياً أيضاً من شاشة إدارة النقدية
+    if (orphanedPaymentIds.length > 0) {
+      await prisma.payment.deleteMany({
+        where: { id: { in: orphanedPaymentIds } }
+      }).catch(err => console.error('Error cleaning up orphaned payments:', err))
+    }
+
+    // 5. الإجماليات العامة
     const totalOrdersCount = orders.length
     const totalSalesAmount = orders.reduce((sum, o) => sum + o.totalAmount, 0)
     const totalPiecesCount = orders.reduce((sum, o) => sum + o.items.reduce((s, it) => s + it.quantity, 0), 0)
 
-    const totalCashIn = payments.filter(p => p.type === 'IN').reduce((sum, p) => sum + p.amount, 0)
-    const totalCashOut = payments.filter(p => p.type === 'OUT').reduce((sum, p) => sum + p.amount, 0)
+    const totalCashIn = validPayments.filter(p => p.type === 'IN').reduce((sum, p) => sum + p.amount, 0)
+    const totalCashOut = validPayments.filter(p => p.type === 'OUT').reduce((sum, p) => sum + p.amount, 0)
     const netCash = totalCashIn - totalCashOut
 
-    // 4. تقرير الموظفين (كل موظف باع بكام وماذا ورّد في كل خزنة)
+    // 6. تقرير الموظفين (كل موظف باع بكام وماذا ورّد في كل خزنة من الأوردرات الحية)
     const employeesMap: { [userId: string]: any } = {}
 
     orders.forEach(ord => {
@@ -318,7 +354,7 @@ export async function getBazaarReport(startDateStr?: string, endDateStr?: string
       employeesMap[uId].piecesCount += ord.items.reduce((s, it) => s + it.quantity, 0)
     })
 
-    payments.forEach(pay => {
+    validPayments.forEach(pay => {
       const uId = pay.user.id
       const safeName = pay.safe?.name || 'غير محددة'
       const netAmount = pay.type === 'IN' ? pay.amount : -pay.amount
@@ -343,10 +379,10 @@ export async function getBazaarReport(startDateStr?: string, endDateStr?: string
 
     const employeesSummary = Object.values(employeesMap).sort((a: any, b: any) => b.totalSales - a.totalSales)
 
-    // 5. تقرير الخزن مفصلة (كل خزنة كم بها ومن الموظفون الذين ورّدوا بها)
+    // 7. تقرير الخزن مفصلة (الصافي الفعلي فقط)
     const safesMap: { [safeName: string]: any } = {}
 
-    payments.forEach(pay => {
+    validPayments.forEach(pay => {
       const safeName = pay.safe?.name || 'غير محددة'
       const uName = pay.user.name
       const isIncome = pay.type === 'IN'
@@ -377,7 +413,7 @@ export async function getBazaarReport(startDateStr?: string, endDateStr?: string
 
     const safesSummary = Object.values(safesMap).sort((a: any, b: any) => b.net - a.net)
 
-    // 6. تجهيز تفاصيل الفواتير
+    // 8. تجهيز تفاصيل الفواتير
     const formattedOrders = orders.map(ord => ({
       id: ord.id,
       orderNo: ord.orderNo,
@@ -411,4 +447,88 @@ export async function getBazaarReport(startDateStr?: string, endDateStr?: string
     return { success: false, error: error.message || 'فشل توليد تقرير البازار' }
   }
 }
-// force push
+
+// =========================================================================
+// دالة حذف الأوردر المتكاملة (حذف الأوردر + حذف نقدية الخزنة + استرجاع المخزون)
+// =========================================================================
+export async function deleteOrder(orderId: string) {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: true
+      }
+    })
+
+    if (!order) {
+      return { success: false, error: 'الأوردر غير موجود' };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. إعادة رصيد المخزون للأصناف
+      for (const item of order.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            currentStock: { increment: item.quantity }
+          }
+        })
+      }
+
+      // 2. حذف سجلات التنفيذ والمرتجعات
+      await tx.fulfillmentLog.deleteMany({
+        where: { orderItem: { orderId: order.id } }
+      })
+
+      await tx.returnItem.deleteMany({
+        where: {
+          orderItemId: { in: order.items.map(i => i.id) }
+        }
+      })
+
+      await tx.returnOrder.deleteMany({
+        where: {
+          OR: [
+            { originalOrderId: order.id },
+            { newOrderId: order.id }
+          ]
+        }
+      })
+
+      // 3. حذف بنود الأوردر
+      await tx.orderItem.deleteMany({
+        where: { orderId: order.id }
+      })
+
+      // 4. حذف جميع حركات النقدية المرتبطة بهذا الأوردر من جدول Payment
+      await tx.payment.deleteMany({
+        where: {
+          OR: [
+            { description: { contains: `#${order.orderNo}` } },
+            { description: { contains: ` ${order.orderNo}` } }
+          ]
+        }
+      })
+
+      // 5. حذف الأوردر نفسه
+      await tx.order.delete({
+        where: { id: order.id }
+      })
+    }, {
+      maxWait: 15000,
+      timeout: 30000
+    })
+
+    revalidatePath('/')
+    revalidatePath('/orders/list')
+    revalidatePath('/admin/cash-management')
+    revalidatePath('/admin/reports')
+    revalidatePath('/admin/reports/bazaar')
+    revalidatePath('/today-summary')
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error deleting order:', error)
+    return { success: false, error: error.message || 'فشل حذف الأوردر' }
+  }
+}
