@@ -36,6 +36,9 @@ export default function NewPurchaseInvoicePage() {
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0])
   const [notes, setNotes] = useState('')
 
+  // خيار وضع استيراد الأصناف: أصناف متوفرة مسبقاً أو أصناف جديدة بالكامل
+  const [importMode, setImportMode] = useState<'EXISTING' | 'NEW_PRODUCTS'>('NEW_PRODUCTS')
+
   // الخزائن والموردين
   const [safes, setSafes] = useState<any[]>([])
   const [selectedSafeId, setSelectedSafeId] = useState('')
@@ -316,33 +319,72 @@ export default function NewPurchaseInvoicePage() {
     }
   }
 
-  // تحميل نموذج الإكسيل المبسط: (الموديل، اللون، الكمية)
+  // تحميل نموذج الإكسيل بحسب الوضع المختار
   const downloadExcelTemplate = () => {
-    const templateData = [
-      {
-        "الموديل": "5001",
-        "اللون": "أسود",
-        "الكمية": 20
-      },
-      {
-        "الموديل": "5001",
-        "اللون": "أبيض",
-        "الكمية": 15
-      },
-      {
-        "الموديل": "3700",
-        "اللون": "كافيه",
-        "الكمية": 30
-      }
-    ]
+    if (importMode === 'NEW_PRODUCTS') {
+      // نموذج الفاتورة للأصناف الجديدة مطابق للصورة المرفقة
+      const templateData = [
+        {
+          "كود_الموديل": "jp1001",
+          "اللون": "لون",
+          "الكمية": 31,
+          "سعر_التكلفة": 127.5,
+          "سعر_البيع": 150,
+          "الوصف": "مشكل جيبة شتوي"
+        },
+        {
+          "كود_الموديل": "sof1001",
+          "اللون": "لون",
+          "الكمية": 134,
+          "سعر_التكلفة": 153,
+          "سعر_البيع": 180,
+          "الوصف": "مشكل صوف شتوي"
+        },
+        {
+          "كود_الموديل": "tsh1001",
+          "اللون": "لون",
+          "الكمية": 100,
+          "سعر_التكلفة": 187,
+          "سعر_البيع": 220,
+          "الوصف": "مشكل تيشيرت شتوي بيبي"
+        },
+        {
+          "كود_الموديل": "sw1001",
+          "اللون": "لون",
+          "الكمية": 34,
+          "سعر_التكلفة": 255,
+          "سعر_البيع": 300,
+          "الوصف": "مشكل سويت بيبي"
+        },
+        {
+          "كود_الموديل": "fs1001",
+          "اللون": "لون",
+          "الكمية": 115,
+          "سعر_التكلفة": 212.5,
+          "سعر_البيع": 250,
+          "الوصف": "مشكل فستان بيبي"
+        }
+      ]
 
-    const ws = XLSX.utils.json_to_sheet(templateData)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "PurchaseItems")
-    XLSX.writeFile(wb, "Purchase_Template_(Model_Color_Qty).xlsx")
+      const ws = XLSX.utils.json_to_sheet(templateData)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "NewProducts")
+      XLSX.writeFile(wb, "New_Products_Purchase_Template.xlsx")
+    } else {
+      // نموذج الأصناف المتوفرة المختصر: (الموديل، اللون، الكمية)
+      const templateData = [
+        { "الموديل": "5001", "اللون": "أسود", "الكمية": 20 },
+        { "الموديل": "5001", "اللون": "أبيض", "الكمية": 15 }
+      ]
+
+      const ws = XLSX.utils.json_to_sheet(templateData)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "PurchaseItems")
+      XLSX.writeFile(wb, "Existing_Products_Template.xlsx")
+    }
   }
 
-  // استيراد الأصناف من ملف الإكسيل وجلب باقي البيانات تلقائياً من الداتا بيز
+  // استيراد الأصناف من ملف الإكسيل بمرونة فائقة للنموذجين
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -364,54 +406,61 @@ export default function NewPurchaseInvoicePage() {
           return
         }
 
-        // قراءة الأعمدة الأساسية: الموديل، اللون، الكمية
         const rawItems = data.map(d => {
-          const modelNo = String(d['الموديل'] || d['كود_الموديل'] || d['الصنف'] || d['modelNo'] || '').trim()
-          const color = String(d['اللون'] || d['color'] || 'افتراضي').trim()
+          // استخراج الموديل بجميع المسميات الممكنة
+          const modelNo = String(
+            d['كود_الموديل'] || d['كود الموديل'] || d['الموديل'] || d['الصنف'] || d['modelNo'] || ''
+          ).trim()
+
+          // استخراج اللون (إذا كان فارغاً كما في بعض صفوف الصورة، يُعين افتراضياً إلى 'لون')
+          let color = String(d['اللون'] || d['لون'] || d['color'] || '').trim()
+          if (!color) color = 'لون'
+
           const quantity = Number(d['الكمية'] || d['العدد'] || d['quantity'] || d['qty']) || 1
 
-          // إذا كانت التكلفة أو السعر متوفرين في الملف نأخذهم، وإلا سيتم جلبهما من الداتا بيز
-          const optionalCost = d['سعر_التكلفة'] || d['التكلفة'] || d['cost']
-          const optionalPrice = d['سعر_البيع'] || d['السعر'] || d['price']
-          const optionalDesc = d['الوصف'] || d['description']
+          // التكلفة والسعر والوصف
+          const costVal = d['سعر_التكلفة'] || d['سعر التكلفة'] || d['التكلفة'] || d['cost']
+          const priceVal = d['سعر_البيع'] || d['سعر البيع'] || d['السعر'] || d['price']
+          const descVal = d['الوصف'] || d['وصف'] || d['description']
 
           return {
             modelNo,
             color,
             quantity,
-            cost: optionalCost !== undefined ? Number(optionalCost) : undefined,
-            price: optionalPrice !== undefined ? Number(optionalPrice) : undefined,
-            description: optionalDesc ? String(optionalDesc) : undefined
+            cost: costVal !== undefined && !isNaN(Number(costVal)) ? Number(costVal) : undefined,
+            price: priceVal !== undefined && !isNaN(Number(priceVal)) ? Number(priceVal) : undefined,
+            description: descVal ? String(descVal).trim() : undefined
           }
         }).filter(r => r.modelNo !== '')
 
         if (rawItems.length === 0) {
-          alert('لم يتم العثور على أسطر صالحة. تأكد أن الملف يحتوي على أعمدة: (الموديل، اللون، الكمية)')
+          alert('لم يتم العثور على أسطر صالحة. تأكد أن الملف يحتوي على عمود كود الموديل والكمية.')
           setIsImporting(false)
           return
         }
 
-        // جلب بيانات الأصناف المتوفرة من قاعدة البيانات
+        // جلب البيانات المسجلة مسبقاً في الداتا بيز للأصناف إن وُجدت
         const dbProducts = await fetchProductsForExcelImport(rawItems)
-
-        // بناء خريطة للمنتجات لسرعة الاسترجاع
         const productMap = new Map<string, any>()
         dbProducts.forEach((p: any) => {
           const key = `${p.modelNo.toLowerCase().trim()}|${p.color.toLowerCase().trim()}`
           productMap.set(key, p)
         })
 
-        // دمج بيانات الإكسيل مع داتا الصنف المجلوبة
+        let newItemsCount = 0
         let matchedCount = 0
+
         const importedRows: InvoiceRow[] = rawItems.map((r, index) => {
           const key = `${r.modelNo.toLowerCase()}|${r.color.toLowerCase()}`
           const dbItem = productMap.get(key)
 
           if (dbItem) matchedCount++
+          else newItemsCount++
 
+          // تحديد التكلفة والسعر والوصف مع إعطاء الأولوية للبيانات المرفوعة في ملف الأصناف الجديدة
           const cost = r.cost !== undefined ? r.cost : (dbItem?.cost || 0)
-          const price = r.price !== undefined ? r.price : (dbItem?.price || (cost * 1.25))
-          const description = r.description || dbItem?.description || ''
+          const price = r.price !== undefined ? r.price : (dbItem?.price || (cost > 0 ? cost * 1.25 : 0))
+          const description = r.description !== undefined ? r.description : (dbItem?.description || '')
 
           return {
             id: `excel-row-${index}-${Date.now()}`,
@@ -427,7 +476,11 @@ export default function NewPurchaseInvoicePage() {
         })
 
         setRows(importedRows)
-        alert(`✅ تم استيراد ${importedRows.length} صنف بنجاح!\n- تم مطابقة وجلب بيانات ${matchedCount} صنف من قاعدة البيانات.`)
+        alert(
+          `✅ تم استيراد ${importedRows.length} صنف بنجاح!\n` +
+          `- تم جلب أسعار وبيانات ${rawItems.filter(x => x.cost !== undefined).length} صنف من ملف الإكسيل مباشرة.\n` +
+          `- أصناف مسجلة مسبقاً: ${matchedCount} | أصناف جديدة ستنشأ تلقائياً: ${newItemsCount}`
+        )
       } catch (err: any) {
         console.error(err)
         alert('حدث خطأ أثناء قراءة ملف الإكسيل وتحديث البيانات')
@@ -481,7 +534,7 @@ export default function NewPurchaseInvoicePage() {
       notes,
       items: validItems.map(r => ({
         modelNo: r.modelNo.trim(),
-        color: r.color.trim() || 'افتراضي',
+        color: r.color.trim() || 'لون',
         quantity: Number(r.quantity),
         cost: Number(r.cost) || 0,
         price: Number(r.price) || 0,
@@ -513,22 +566,25 @@ export default function NewPurchaseInvoicePage() {
             </h1>
           </div>
           <p className="text-slate-400 text-sm mt-1">
-            إدخال المشتريات سطر بسطر أو عبر Excel (الموديل، اللون، الكمية) مع جلب باقي بيانات الصنف تلقائياً
+            إدخال المشتريات سطر بسطر أو عبر Excel بتفاصيل كاملة (موديل، لون، كمية، تكلفة، بيع، وصف)
           </p>
         </div>
 
+        {/* أزرار العمليات ونموذج الإكسيل */}
         <div className="flex flex-wrap gap-2 items-center">
           <button
             onClick={downloadExcelTemplate}
-            className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition flex items-center gap-2"
+            className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition flex items-center gap-2 border border-slate-600"
           >
             <span>📥</span>
-            <span>تحميل نموذج Excel</span>
+            <span>
+              {importMode === 'NEW_PRODUCTS' ? 'تحميل نموذج أصناف جديدة' : 'تحميل نموذج أصناف حالية'}
+            </span>
           </button>
 
-          <label className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition cursor-pointer flex items-center gap-2">
+          <label className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-900/30">
             <span>📊</span>
-            <span>{isImporting ? 'جاري الاستيراد وجلب البيانات...' : 'استيراد Excel'}</span>
+            <span>{isImporting ? 'جاري الاستيراد...' : 'استيراد Excel'}</span>
             <input
               type="file"
               accept=".xlsx, .xls"
@@ -549,7 +605,7 @@ export default function NewPurchaseInvoicePage() {
 
       <div className="max-w-7xl mx-auto space-y-6" ref={dropdownContainerRef}>
 
-        {/* كارت إعدادات الفاتورة الأساسية */}
+        {/* كارت إعدادات الفاتورة ونوع الاستيراد */}
         <div className="bg-slate-800/80 border border-slate-700/80 p-6 rounded-2xl shadow-lg">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             
@@ -611,6 +667,37 @@ export default function NewPurchaseInvoicePage() {
               </div>
             </div>
 
+            {/* وضع الاستيراد (أصناف جديدة مع تفاصيلها بالكامل أو أصناف حالية) */}
+            <div>
+              <label className="block text-xs font-bold text-slate-400 mb-2">نوع استيراد الإكسيل</label>
+              <div className="grid grid-cols-2 gap-2 bg-slate-900 p-1 rounded-xl border border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setImportMode('NEW_PRODUCTS')}
+                  className={`py-2 text-xs font-bold rounded-lg transition ${
+                    importMode === 'NEW_PRODUCTS'
+                      ? 'bg-purple-600 text-white shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="نموذج: كود_الموديل، اللون، الكمية، سعر_التكلفة، سعر_البيع، الوصف"
+                >
+                  ✨ أصناف جديدة
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportMode('EXISTING')}
+                  className={`py-2 text-xs font-bold rounded-lg transition ${
+                    importMode === 'EXISTING'
+                      ? 'bg-indigo-600 text-white shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="نموذج: الموديل، اللون، الكمية فقط"
+                >
+                  📦 أصناف حالية
+                </button>
+              </div>
+            </div>
+
             {/* رقم الفاتورة والتاريخ */}
             <div>
               <label className="block text-xs font-bold text-slate-400 mb-1">رقم الفاتورة / المرجع</label>
@@ -622,20 +709,21 @@ export default function NewPurchaseInvoicePage() {
                 placeholder="رقم الفاتورة"
               />
             </div>
+          </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-slate-700/60">
+            
+            {/* تاريخ الفاتورة */}
             <div>
               <label className="block text-xs font-bold text-slate-400 mb-1">تاريخ الفاتورة</label>
               <input
                 type="date"
                 value={invoiceDate}
                 onChange={(e) => setInvoiceDate(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white font-bold text-sm focus:border-blue-500 outline-none"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold text-sm focus:border-blue-500 outline-none"
               />
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-700/60">
-            
             {/* اختيار المورد */}
             <div className="relative" ref={vendorRef}>
               <div className="flex justify-between items-center mb-1">
@@ -717,8 +805,8 @@ export default function NewPurchaseInvoicePage() {
               )}
             </div>
 
-            {/* الخزنة (تظهر فقط لو نقدي) */}
-            {paymentStatus === 'CASH' && (
+            {/* الخزنة أو الملاحظات */}
+            {paymentStatus === 'CASH' ? (
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1">
                   🏦 الخزنة المسدد منها نقدياً
@@ -733,9 +821,7 @@ export default function NewPurchaseInvoicePage() {
                   ))}
                 </select>
               </div>
-            )}
-
-            {paymentStatus !== 'CASH' && (
+            ) : (
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">ملاحظات الفاتورة</label>
                 <input
@@ -755,8 +841,8 @@ export default function NewPurchaseInvoicePage() {
           <div className="p-4 bg-slate-800 border-b border-slate-700 flex justify-between items-center rounded-t-2xl">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <span>📋 بنود الفاتورة</span>
-              <span className="text-xs text-slate-400 font-normal">
-                (لايف سيرش للموديل والألوان مع إمكانية التنقل بـ Enter)
+              <span className="text-xs text-purple-300 font-bold bg-purple-950/60 border border-purple-600/40 px-2.5 py-1 rounded-lg">
+                {importMode === 'NEW_PRODUCTS' ? 'وضع: أصناف جديدة كاملة التفاصيل' : 'وضع: أصناف حالية'}
               </span>
             </h3>
 
@@ -923,7 +1009,7 @@ export default function NewPurchaseInvoicePage() {
                         />
                       </td>
 
-                      {/* 4. سعر التكلفة (مجلوب من الداتا بيز تلقائياً) */}
+                      {/* 4. سعر التكلفة */}
                       <td className="p-2">
                         <input
                           ref={(el) => { inputRefs.current[`${row.id}-cost`] = el }}
@@ -937,7 +1023,7 @@ export default function NewPurchaseInvoicePage() {
                         />
                       </td>
 
-                      {/* 5. سعر البيع (مجلوب من الداتا بيز تلقائياً) */}
+                      {/* 5. سعر البيع */}
                       <td className="p-2">
                         <input
                           ref={(el) => { inputRefs.current[`${row.id}-price`] = el }}

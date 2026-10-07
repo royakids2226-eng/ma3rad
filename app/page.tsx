@@ -59,7 +59,6 @@ export default async function Home() {
      redirect("/api/auth/signout");
   }
 
-  // السماح للمدير وصاحب العمل والمحاسب فقط
   const isAllowedInAdmin = user?.role === 'ADMIN' || user?.role === 'OWNER' || user?.role === 'ACCOUNTANT';
   const isPowerUser = user?.role === 'ADMIN' || user?.role === 'OWNER';
 
@@ -112,7 +111,6 @@ export default async function Home() {
             <div className="flex items-center gap-3 flex-wrap">
               {isAllowedInAdmin && <NotificationBell isDark={true} />}
               
-              {/* زر فاتورة المشتريات السريع للمدير والمحاسب */}
               {isAllowedInAdmin && (
                 <Link 
                   href="/admin/purchases/new"
@@ -123,7 +121,6 @@ export default async function Home() {
                 </Link>
               )}
 
-              {/* Bulk Upload Button */}
               {isPowerUser && (
                  <Link 
                   href="/orders/bulk-upload"
@@ -155,37 +152,69 @@ export default async function Home() {
         </header>
         
         <div className="max-w-6xl mx-auto space-y-6">
-          {/* ملخص اليوم - للأدمن والمحاسب فقط */}
+          {/* ملخص اليوم */}
           {isAllowedInAdmin && (
             <TodaySummaryButton />
           )}
 
-          {/* Main Actions Grid */}
-          
-          {/* Primary Action - New Order */}
-          <div className="scale-in" style={{ animationDelay: '0.1s' }}>
-            <Link 
-              href="/orders/new" 
-              className="action-card block relative overflow-hidden bg-gradient-to-br from-blue-500 via-blue-600 to-purple-600 p-8 md:p-10 rounded-3xl shadow-2xl group animate-pulse-glow"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-white/0 to-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-              
-              <div className="absolute top-4 left-4 text-6xl opacity-20 animate-float">🛒</div>
-              
-              <div className="relative z-10 flex items-center justify-between">
-                <div className="flex flex-col items-start">
-                  <span className="text-3xl md:text-4xl font-black text-white mb-2">
-                    أوردر جديد
-                  </span>
-                  <span className="text-blue-100 text-sm md:text-base font-bold">
-                    إضافة طلب بيع وكاشير
-                  </span>
+          {/* الكروت الرئيسية للطلب (أوردر جديد عادي + فاتورة البازار السريعة للجميع) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            
+            {/* Primary Action 1 - New Order العادي */}
+            <div className="scale-in" style={{ animationDelay: '0.1s' }}>
+              <Link 
+                href="/orders/new" 
+                className="action-card block relative overflow-hidden bg-gradient-to-br from-blue-500 via-blue-600 to-purple-600 p-8 rounded-3xl shadow-2xl group animate-pulse-glow"
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-white/0 to-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                <div className="absolute top-4 left-4 text-5xl opacity-20 animate-float">🛒</div>
+                
+                <div className="relative z-10 flex items-center justify-between">
+                  <div className="flex flex-col items-start">
+                    <span className="text-2xl md:text-3xl font-black text-white mb-1">
+                      أوردر جديد
+                    </span>
+                    <span className="text-blue-100 text-xs md:text-sm font-bold">
+                      طلب بيع عادي وكاشير مفصل
+                    </span>
+                  </div>
+                  <div className="bg-white/20 w-16 h-16 flex items-center justify-center rounded-2xl group-hover:scale-110 transition-transform duration-300">
+                    <span className="text-4xl text-white">+</span>
+                  </div>
                 </div>
-                <div className="bg-white/20 w-20 h-20 flex items-center justify-center rounded-2xl group-hover:scale-110 transition-transform duration-300">
-                  <span className="text-5xl text-white">+</span>
+              </Link>
+            </div>
+
+            {/* Primary Action 2 - فاتورة البازار (ظاهرة للجميع) */}
+            <div className="scale-in" style={{ animationDelay: '0.15s' }}>
+              <Link 
+                href="/orders/bazaar" 
+                className="action-card block relative overflow-hidden bg-gradient-to-br from-amber-500 via-orange-600 to-rose-600 p-8 rounded-3xl shadow-2xl group border border-amber-400/30"
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-white/0 to-white/15 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                <div className="absolute top-4 left-4 text-5xl opacity-20 animate-float">🎪</div>
+                
+                <div className="relative z-10 flex items-center justify-between">
+                  <div className="flex flex-col items-start">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl md:text-3xl font-black text-white mb-1">
+                        فاتورة البازار 🎪
+                      </span>
+                      <span className="bg-amber-300 text-amber-950 font-black text-[10px] px-2 py-0.5 rounded-full uppercase">
+                        سريع أوفلاين
+                      </span>
+                    </div>
+                    <span className="text-amber-100 text-xs md:text-sm font-bold">
+                      أوردرات سريعة متتالية وتوريد مجمع
+                    </span>
+                  </div>
+                  <div className="bg-white/20 w-16 h-16 flex items-center justify-center rounded-2xl group-hover:scale-110 transition-transform duration-300">
+                    <span className="text-3xl text-white">⚡</span>
+                  </div>
                 </div>
-              </div>
-            </Link>
+              </Link>
+            </div>
+
           </div>
 
           {/* Quick Actions Grid */}
@@ -209,7 +238,7 @@ export default async function Home() {
               </Link>
             </div>
 
-            {/* فاتورة مشتريات (للمحاسب والمدير وصاحب العمل) */}
+            {/* فاتورة مشتريات */}
             {isAllowedInAdmin && (
               <div className="scale-in" style={{ animationDelay: '0.25s' }}>
                 <Link 

@@ -1,0 +1,864 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { useSession } from 'next-auth/react'
+import { Scanner } from '@yudiel/react-qr-scanner'
+import { searchProducts } from '@/app/actions'
+import { getOrCreateBazaarDefaults, saveBulkBazaarOrders } from '@/app/bazaar-actions'
+
+interface CartItem {
+  productId: string
+  modelNo: string
+  color: string
+  price: number
+  quantity: number // تقبل القيم السالبة للاستبدال والمرتجع
+  discountPercent: number
+  description?: string
+  currentStock?: number
+}
+
+interface PaymentSplit {
+  safeId: string
+  safeName: string
+  amount: number
+}
+
+interface PendingOrder {
+  id: string
+  clientOrderIndex: number
+  items: CartItem[]
+  totalAmount: number
+  itemCount: number
+  paymentSplits: PaymentSplit[]
+  time: string
+}
+
+const STORAGE_KEY = 'pending_bazaar_orders_v2'
+
+export default function BazaarFastOrderPage() {
+  const { data: session } = useSession()
+  const userId = session?.user?.image as string
+
+  // الثوابت وقائمة الخزن
+  const [bazaarDefaults, setBazaarDefaults] = useState<{
+    customerId: string
+    customerName: string
+    defaultSafeId: string
+    defaultSafeName: string
+  } | null>(null)
+  const [allSafes, setAllSafes] = useState<any[]>([])
+
+  // حالة الشبكة
+  const [isOnline, setIsOnline] = useState(true)
+
+  // سلة الأوردر الحالي
+  const [cart, setCart] = useState<CartItem[]>([])
+
+  // تقسيم الخزن للأوردر الحالي
+  const [paymentSplits, setPaymentSplits] = useState<PaymentSplit[]>([])
+  const [showSafeSelector, setShowSafeSelector] = useState(false)
+
+  // قائمة الأوردرات المعلقة المحفوظة محلياً
+  const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([])
+
+  // البحث والباركود
+  const [searchTerm, setSearchTerm] = useState('')
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [showScanner, setShowScanner] = useState(false)
+
+  // النوافذ ومؤشرات التحميل
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false)
+  const [isSavingAll, setIsSavingAll] = useState(false)
+  const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null)
+
+  // 1. مراقبة الإنترنت واسترجاع البيانات المحفوظة محلياً
+  useEffect(() => {
+    setIsOnline(navigator.onLine)
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) setPendingOrders(JSON.parse(saved))
+    } catch (e) {
+      console.error(e)
+    }
+
+    getOrCreateBazaarDefaults().then(res => {
+      if (res.success && res.customerId && res.defaultSafeId) {
+        setBazaarDefaults({
+          customerId: res.customerId,
+          customerName: res.customerName || 'البازار',
+          defaultSafeId: res.defaultSafeId,
+          defaultSafeName: res.defaultSafeName || 'خزنة البازار'
+        })
+        setAllSafes(res.allSafes || [])
+
+        // تعيين الخزنة الافتراضية للأوردر الأول
+        setPaymentSplits([{
+          safeId: res.defaultSafeId,
+          safeName: res.defaultSafeName || 'خزنة البازار',
+          amount: 0
+        }])
+      }
+    })
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  // 2. مزامنة المعلقات مع LocalStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(pendingOrders))
+    } catch (e) {
+      console.error(e)
+    }
+  }, [pendingOrders])
+
+  // 3. حساب إجمالي السلة الحالية وتحديث مبلغ الخزنة الافتراضية
+  const currentCartTotal = cart.reduce((sum, it) => sum + (it.price * it.quantity), 0)
+  const currentCartPieces = cart.reduce((sum, it) => sum + it.quantity, 0)
+
+  // تحديث رصيد الخزنة تلقائياً إذا لم يكن مقسماً يدوياً
+  useEffect(() => {
+    if (bazaarDefaults && paymentSplits.length <= 1) {
+      const primarySafe = paymentSplits[0] || {
+        safeId: bazaarDefaults.defaultSafeId,
+        safeName: bazaarDefaults.defaultSafeName
+      }
+      setPaymentSplits([{
+        safeId: primarySafe.safeId,
+        safeName: primarySafe.safeName,
+        amount: currentCartTotal
+      }])
+    }
+  }, [currentCartTotal, bazaarDefaults])
+
+  // 4. البحث الحي عن الأصناف
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (searchTerm.trim().length >= 1) {
+        const results = await searchProducts(searchTerm)
+        setSearchResults(results)
+      } else {
+        setSearchResults([])
+      }
+    }, 200)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  // إضافة صنف للسلة الحالية (موجب للبيع، أو سالب للمرتجع)
+  const handleAddProductToCart = (prod: any, qty: number = 1) => {
+    setCart(prev => {
+      const existingIndex = prev.findIndex(item => item.productId === prod.id)
+      if (existingIndex > -1) {
+        const copy = [...prev]
+        copy[existingIndex].quantity += qty
+        return copy
+      } else {
+        return [
+          {
+            productId: prod.id,
+            modelNo: prod.modelNo,
+            color: prod.color,
+            price: prod.price,
+            quantity: qty,
+            discountPercent: 0,
+            description: prod.description,
+            currentStock: prod.currentStock
+          },
+          ...prev
+        ]
+      }
+    })
+    setSearchTerm('')
+    setSearchResults([])
+  }
+
+  // معالجة قراءة الباركود أو الـ QR
+  const handleBarcodeScanned = (code: string) => {
+    if (code) {
+      setSearchTerm(code)
+      setShowScanner(false)
+    }
+  }
+
+  // تعديل كمية صنف (يدعم الزيادة والنقصان والقيم السالبة للمرتجع)
+  const updateCartQty = (productId: string, newQty: number) => {
+    if (newQty === 0) {
+      setCart(prev => prev.filter(item => item.productId !== productId))
+    } else {
+      setCart(prev => prev.map(item => item.productId === productId ? { ...item, quantity: newQty } : item))
+    }
+  }
+
+  // حذف صنف تماماً
+  const removeCartItem = (productId: string) => {
+    setCart(prev => prev.filter(item => item.productId !== productId))
+  }
+
+  // تبديل كمية الصنف بين موجب وسالب بنقرة واحدة (مرتجع / بيع)
+  const toggleNegativeQuantity = (productId: string) => {
+    setCart(prev => prev.map(item => item.productId === productId ? { ...item, quantity: -item.quantity } : item))
+  }
+
+  // إدارة تقسيم الخزن
+  const handleSplitSafeChange = (index: number, safeId: string) => {
+    const selectedSafeObj = allSafes.find(s => s.id === safeId)
+    setPaymentSplits(prev => {
+      const copy = [...prev]
+      copy[index].safeId = safeId
+      copy[index].safeName = selectedSafeObj?.name || 'خزنة'
+      return copy
+    })
+  }
+
+  const handleSplitAmountChange = (index: number, val: number) => {
+    setPaymentSplits(prev => {
+      const copy = [...prev]
+      copy[index].amount = val
+      return copy
+    })
+  }
+
+  const addAnotherSafeSplit = () => {
+    const currentAllocated = paymentSplits.reduce((s, it) => s + (it.amount || 0), 0)
+    const remaining = currentCartTotal - currentAllocated
+    const availableSafe = allSafes.find(s => !paymentSplits.some(p => p.safeId === s.id)) || allSafes[0]
+
+    setPaymentSplits(prev => [
+      ...prev,
+      {
+        safeId: availableSafe?.id || '',
+        safeName: availableSafe?.name || 'خزنة أخرى',
+        amount: remaining
+      }
+    ])
+  }
+
+  const removeSafeSplit = (index: number) => {
+    if (paymentSplits.length <= 1) return
+    setPaymentSplits(prev => prev.filter((_, i) => i !== index))
+  }
+
+  // حساب إجمالي كل المعلق مع السلة الحالية
+  const pendingOrdersTotal = pendingOrders.reduce((sum, ord) => sum + ord.totalAmount, 0)
+  const grandTotalWithCurrent = pendingOrdersTotal + currentCartTotal
+
+  // 5. إجراء "الأوردر التالي ⏭️"
+  const handleNextOrder = () => {
+    if (cart.length === 0) {
+      alert('السلة الحالية فارغة! أضف أصناف الأوردر أولاً.')
+      return
+    }
+
+    const splitsTotal = paymentSplits.reduce((sum, s) => sum + (Number(s.amount) || 0), 0)
+    if (Math.abs(splitsTotal - currentCartTotal) > 0.01) {
+      if (!confirm(`⚠️ تنبيه: مجموع مبالغ الخزن (${splitsTotal.toFixed(2)}) لا يساوي إجمالي الفاتورة (${currentCartTotal.toFixed(2)})!\nهل تريد المتابعة وتعديل المتبقي تلقائياً؟`)) {
+        return
+      }
+    }
+
+    const newPendingOrder: PendingOrder = {
+      id: `pending-${Date.now()}`,
+      clientOrderIndex: pendingOrders.length + 1,
+      items: [...cart],
+      totalAmount: currentCartTotal,
+      itemCount: currentCartPieces,
+      paymentSplits: [...paymentSplits],
+      time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
+    }
+
+    setPendingOrders(prev => [...prev, newPendingOrder])
+
+    // تصفير السلة للزبون التالي مع إعادة تعيين الخزنة الافتراضية (خزنة البازار)
+    setCart([])
+    setShowSafeSelector(false)
+    if (bazaarDefaults) {
+      setPaymentSplits([{
+        safeId: bazaarDefaults.defaultSafeId,
+        safeName: bazaarDefaults.defaultSafeName,
+        amount: 0
+      }])
+    }
+  }
+
+  // حذف واسترجاع أوردر معلق
+  const removePendingOrder = (id: string) => {
+    if (confirm('هل أنت متأكد من حذف هذا الأوردر المعلق؟')) {
+      setPendingOrders(prev => prev.filter(o => o.id !== id))
+    }
+  }
+
+  const editPendingOrder = (orderToEdit: PendingOrder) => {
+    if (cart.length > 0) {
+      if (!confirm('السلة الحالية بها أصناف، هل تريد استبدالها بالأوردر المعلق المحدد؟')) {
+        return
+      }
+    }
+    setCart(orderToEdit.items)
+    setPaymentSplits(orderToEdit.paymentSplits || [])
+    setPendingOrders(prev => prev.filter(o => o.id !== orderToEdit.id))
+    setIsSummaryModalOpen(false)
+  }
+
+  // 6. حفظ الكل وتوريد النقدية والبدء فوراً بفاتورة جديدة في نفس الشاشة
+  const handleSaveAllOrders = async () => {
+    let ordersToProcess = [...pendingOrders]
+
+    if (cart.length > 0) {
+      ordersToProcess.push({
+        id: `pending-${Date.now()}`,
+        clientOrderIndex: ordersToProcess.length + 1,
+        items: [...cart],
+        totalAmount: currentCartTotal,
+        itemCount: currentCartPieces,
+        paymentSplits: [...paymentSplits],
+        time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
+      })
+    }
+
+    if (ordersToProcess.length === 0) {
+      alert('لا توجد أوردرات لحفظها!')
+      return
+    }
+
+    if (!isOnline) {
+      alert('⚠️ أنت حالياً في وضع عدم الاتصال (Offline).\nتم حفظ كل الأوردرات بأمان في هاتفك محلياً. عند عودة الإنترنت اضغط حفظ الكل لرفعها للسيرفر.')
+      return
+    }
+
+    if (!bazaarDefaults?.customerId || !bazaarDefaults?.defaultSafeId) {
+      alert('جاري تهيئة إعدادات البازار، يرجى المحاولة بعد قليل...')
+      return
+    }
+
+    setIsSavingAll(true)
+
+    const payload = {
+      orders: ordersToProcess.map(o => ({
+        id: o.id,
+        items: o.items.map(it => ({
+          productId: it.productId,
+          quantity: it.quantity,
+          price: it.price,
+          discountPercent: it.discountPercent
+        })),
+        totalAmount: o.totalAmount,
+        paymentSplits: o.paymentSplits,
+        deposit: o.totalAmount
+      })),
+      userId,
+      customerId: bazaarDefaults.customerId,
+      defaultSafeId: bazaarDefaults.defaultSafeId
+    }
+
+    const res = await saveBulkBazaarOrders(payload)
+    setIsSavingAll(false)
+
+    if (res.success) {
+      const totalCash = ordersToProcess.reduce((s, o) => s + o.totalAmount, 0)
+
+      setPendingOrders([])
+      setCart([])
+      localStorage.removeItem(STORAGE_KEY)
+      setIsSummaryModalOpen(false)
+
+      if (bazaarDefaults) {
+        setPaymentSplits([{
+          safeId: bazaarDefaults.defaultSafeId,
+          safeName: bazaarDefaults.defaultSafeName,
+          amount: 0
+        }])
+      }
+
+      setSaveSuccessNotice(`🎉 تم بنجاح حفظ وتوريد ${ordersToProcess.length} أوردر بمبلغ ${totalCash.toLocaleString()} ج.م - جاهز لأوردرات جديدة الآن!`)
+      setTimeout(() => setSaveSuccessNotice(null), 7000)
+
+    } else {
+      alert(`❌ فشل الحفظ: ${res.error}`)
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-2 sm:p-4 md:p-6 font-sans pb-36" dir="rtl">
+      
+      {/* إشعار النجاح السريع عند حفظ الكل */}
+      {saveSuccessNotice && (
+        <div className="max-w-6xl mx-auto mb-3 bg-emerald-600/90 border border-emerald-400 text-white p-3 md:p-4 rounded-2xl shadow-2xl flex justify-between items-center animate-in slide-in-from-top duration-300">
+          <div className="flex items-center gap-2 font-bold text-xs sm:text-sm md:text-base">
+            <span>✅</span>
+            <span>{saveSuccessNotice}</span>
+          </div>
+          <button onClick={() => setSaveSuccessNotice(null)} className="text-white text-lg font-bold px-2">✕</button>
+        </div>
+      )}
+
+      {/* الهيدر العلوي */}
+      <header className="max-w-6xl mx-auto bg-slate-900 border border-slate-800 p-3 sm:p-4 rounded-2xl shadow-xl flex flex-wrap justify-between items-center gap-2 mb-3 sm:mb-4">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center text-xl sm:text-2xl shadow-lg shrink-0">
+            🎪
+          </div>
+          <div>
+            <h1 className="text-base sm:text-xl md:text-2xl font-black text-white flex items-center gap-2">
+              <span>فاتورة البازار</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${isOnline ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-red-500/20 text-red-300 border border-red-500/40 animate-pulse'}`}>
+                {isOnline ? '🟢 أونلاين' : '🔴 أوفلاين'}
+              </span>
+            </h1>
+            <p className="text-slate-400 text-[11px] sm:text-xs">
+              <b className="text-amber-400">{bazaarDefaults?.defaultSafeName || 'خزنة البازار'}</b>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {pendingOrders.length > 0 && (
+            <button
+              onClick={() => setIsSummaryModalOpen(true)}
+              className="bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold transition flex items-center gap-1"
+            >
+              <span>📋 المعلقة ({pendingOrders.length})</span>
+            </button>
+          )}
+
+          <Link href="/" className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-bold transition">
+            ← خروج
+          </Link>
+        </div>
+      </header>
+
+      {/* البحث والباركود للموبايل والشاشات الكبيرة */}
+      <div className="max-w-6xl mx-auto space-y-3 sm:space-y-4">
+        
+        <div className="bg-slate-900 border border-slate-800 p-3 sm:p-4 rounded-2xl shadow-lg">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              autoFocus
+              placeholder="🔍 ابحث بالموديل أو اللون..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 sm:p-3.5 text-white font-bold text-sm sm:text-base focus:border-amber-500 outline-none"
+            />
+            
+            {/* زر كاميرا الباركود - مجهز للموبايل */}
+            <button
+              onClick={() => setShowScanner(true)}
+              className="bg-slate-800 hover:bg-slate-700 active:scale-95 text-white px-4 sm:px-5 py-3 rounded-xl border border-slate-700 font-bold flex items-center justify-center shrink-0 transition"
+              title="سكانر الكاميرا"
+            >
+              <span className="text-xl">📷</span>
+            </button>
+          </div>
+
+          {/* نافذة الكاميرا وسكانر الباركود والـ QR (متوافقة تماماً مع فيو الموبايل) */}
+          {showScanner && (
+            <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-3 sm:p-4">
+              <div className="w-full max-w-sm bg-slate-900 rounded-3xl overflow-hidden relative border-2 border-amber-500/60 shadow-2xl flex flex-col">
+                <div className="p-3 bg-slate-950 border-b border-slate-800 flex justify-between items-center text-white">
+                  <span className="text-xs sm:text-sm font-bold flex items-center gap-1.5">
+                    <span>📷</span>
+                    <span>وجه الكاميرا نحو الباركود</span>
+                  </span>
+                  <button 
+                    onClick={() => setShowScanner(false)} 
+                    className="bg-red-600 hover:bg-red-500 text-white w-7 h-7 rounded-full font-bold flex items-center justify-center text-sm"
+                  >
+                    ✕
+                  </button>
+                </div>
+                
+                <div className="relative aspect-square w-full bg-black flex items-center justify-center">
+                  <Scanner 
+                    onScan={(res) => {
+                      if (res && res.length > 0) {
+                        handleBarcodeScanned(res[0].rawValue)
+                      }
+                    }} 
+                  />
+                  <div className="absolute inset-0 pointer-events-none border-2 border-amber-400/30 m-8 rounded-2xl flex items-center justify-center">
+                    <div className="w-full h-0.5 bg-red-500/80 animate-pulse"></div>
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-slate-950 text-center">
+                  <button
+                    onClick={() => setShowScanner(false)}
+                    className="w-full py-2 bg-slate-800 text-slate-300 font-bold text-xs rounded-xl hover:bg-slate-700"
+                  >
+                    إلغاء السكانر
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* نتائج البحث السريع */}
+          {searchResults.length > 0 && (
+            <div className="mt-2 divide-y divide-slate-800 bg-slate-950 border border-slate-800 rounded-xl max-h-56 overflow-y-auto">
+              {searchResults.map(prod => (
+                <div
+                  key={prod.id}
+                  className="p-2.5 sm:p-3 hover:bg-slate-900 flex justify-between items-center transition"
+                >
+                  <div className="cursor-pointer flex-1" onClick={() => handleAddProductToCart(prod, 1)}>
+                    <span className="font-black text-white text-sm sm:text-base">{prod.modelNo}</span>
+                    <span className="text-amber-400 font-bold text-xs mr-2">({prod.color})</span>
+                    {prod.description && <span className="text-slate-500 text-[11px] block">{prod.description}</span>}
+                  </div>
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="text-left font-mono">
+                      <span className="text-emerald-400 font-bold text-sm sm:text-lg block">{prod.price} ج.م</span>
+                      <span className="text-[10px] text-slate-500">رصيد: {prod.currentStock}</span>
+                    </div>
+
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => handleAddProductToCart(prod, 1)}
+                        className="bg-emerald-600/30 text-emerald-300 hover:bg-emerald-600 hover:text-white px-2.5 py-1 rounded-lg text-xs font-bold transition border border-emerald-500/40"
+                        title="إضافة بيع عادي"
+                      >
+                        + بيع
+                      </button>
+                      <button
+                        onClick={() => handleAddProductToCart(prod, -1)}
+                        className="bg-rose-600/30 text-rose-300 hover:bg-rose-600 hover:text-white px-2 py-1 rounded-lg text-xs font-bold transition border border-rose-500/40"
+                        title="إضافة كمرتجع أو استبدال بالسالب"
+                      >
+                        - مرتجع
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* سلة الزبون الحالي */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 shadow-xl">
+          <div className="flex justify-between items-center pb-2.5 border-b border-slate-800 mb-3">
+            <h2 className="font-bold text-white text-sm sm:text-base flex items-center gap-2">
+              <span>🛒 سلة الزبون الحالي</span>
+              <span className="text-xs bg-slate-800 px-2 py-0.5 rounded-full text-slate-400 font-mono">
+                {currentCartPieces} قطعة
+              </span>
+            </h2>
+
+            {cart.length > 0 && (
+              <button
+                onClick={() => setCart([])}
+                className="text-xs text-red-400 hover:text-red-300 font-bold"
+              >
+                مسح السلة ✕
+              </button>
+            )}
+          </div>
+
+          {cart.length === 0 ? (
+            <div className="py-8 text-center text-slate-500 font-bold text-xs sm:text-sm">
+              السلة فارغة. ابحث عن صنف أو استخدم الكاميرا لإضافته فوراً.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {cart.map((item) => {
+                const isNegative = item.quantity < 0
+                return (
+                  <div
+                    key={item.productId}
+                    className={`border p-2.5 sm:p-3 rounded-xl flex flex-wrap sm:flex-nowrap justify-between items-center gap-2 transition ${
+                      isNegative 
+                        ? 'bg-rose-950/20 border-rose-600/40' 
+                        : 'bg-slate-950 border-slate-800/80'
+                    }`}
+                  >
+                    <div className="min-w-[120px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-black text-white text-sm sm:text-base">{item.modelNo}</span>
+                        {isNegative && (
+                          <span className="bg-rose-500 text-white text-[9px] font-black px-1 py-0.5 rounded">
+                            مرتجع
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-amber-400 font-bold">{item.color}</span>
+                      <span className="text-xs text-slate-400 font-mono mr-1.5">({item.price} ج.م)</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 sm:gap-3 mr-auto">
+                      
+                      <button
+                        onClick={() => toggleNegativeQuantity(item.productId)}
+                        className={`text-[11px] px-2 py-1 rounded font-bold transition border ${
+                          isNegative 
+                            ? 'bg-rose-600 text-white border-rose-500' 
+                            : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                        }`}
+                        title="تحويل بين بيع ومرتجع"
+                      >
+                        {isNegative ? 'مرتجع (-)' : 'بيع (+)'}
+                      </button>
+
+                      {/* عداد الكمية */}
+                      <div className="flex items-center gap-0.5 bg-slate-900 border border-slate-800 rounded-lg p-0.5">
+                        <button
+                          onClick={() => updateCartQty(item.productId, item.quantity - 1)}
+                          className="w-7 h-7 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded flex items-center justify-center text-sm"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="number"
+                          value={item.quantity}
+                          onChange={(e) => updateCartQty(item.productId, parseInt(e.target.value) || 0)}
+                          className="w-10 text-center font-bold font-mono text-white text-xs sm:text-sm bg-transparent outline-none"
+                        />
+                        <button
+                          onClick={() => updateCartQty(item.productId, item.quantity + 1)}
+                          className="w-7 h-7 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded flex items-center justify-center text-sm"
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      <span className={`font-mono font-black text-sm sm:text-base min-w-[65px] text-left ${isNegative ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {(item.price * item.quantity).toLocaleString()} ج.م
+                      </span>
+
+                      <button
+                        onClick={() => removeCartItem(item.productId)}
+                        className="text-red-400 hover:text-red-300 text-sm p-1"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* لوحة اختيار الخزنة وتقسيم الدفع لنفس الزبون */}
+          <div className="mt-3 pt-3 border-t border-slate-800">
+            <div className="flex flex-wrap justify-between items-center gap-1.5 mb-2">
+              <div className="flex items-center gap-1 text-[11px] sm:text-xs">
+                <span className="text-slate-400">التحصيل:</span>
+                <span className="text-amber-400 font-bold font-mono">
+                  {paymentSplits.map(s => `${s.safeName} (${s.amount.toFixed(0)})`).join(' + ')}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowSafeSelector(!showSafeSelector)}
+                className="text-[11px] sm:text-xs text-blue-400 hover:text-blue-300 font-bold underline"
+              >
+                {showSafeSelector ? 'إخفاء ✕' : '⚙️ تغيير الخزنة / دفع مجزأ'}
+              </button>
+            </div>
+
+            {showSafeSelector && (
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2.5 mt-2 animate-in fade-in duration-200">
+                <div className="flex justify-between items-center text-xs font-bold text-slate-300 border-b border-slate-800 pb-2">
+                  <span>تحديد الخزنة والمبلغ</span>
+                  <button
+                    type="button"
+                    onClick={addAnotherSafeSplit}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded text-[10px]"
+                  >
+                    + خزنة أخرى
+                  </button>
+                </div>
+
+                {paymentSplits.map((split, idx) => (
+                  <div key={idx} className="flex gap-2 items-center">
+                    <select
+                      value={split.safeId}
+                      onChange={(e) => handleSplitSafeChange(idx, e.target.value)}
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-bold text-white outline-none"
+                    >
+                      {allSafes.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="number"
+                      value={split.amount}
+                      onChange={(e) => handleSplitAmountChange(idx, parseFloat(e.target.value) || 0)}
+                      className="w-24 bg-slate-900 border border-slate-700 rounded-lg p-2 text-center text-emerald-400 font-bold font-mono text-xs outline-none"
+                    />
+
+                    {paymentSplits.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeSafeSplit(idx)}
+                        className="text-red-400 hover:text-red-300 p-1 text-sm font-bold"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+      </div>
+
+      {/* الشريط السفلي الثابت (Action Bar) */}
+      <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 p-3 sm:p-4 shadow-2xl z-40">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-3">
+          
+          <div className="flex items-center justify-between w-full md:w-auto gap-4 sm:gap-6">
+            <div>
+              <span className="text-[10px] sm:text-[11px] text-slate-400 block">إجمالي الحالي</span>
+              <span className={`text-xl sm:text-2xl font-black font-mono ${currentCartTotal < 0 ? 'text-rose-400' : 'text-white'}`}>
+                {currentCartTotal.toLocaleString()} <small className="text-[10px] sm:text-xs text-slate-400">ج.م</small>
+              </span>
+            </div>
+
+            <div className="border-r border-slate-800 pr-4 sm:pr-6">
+              <span className="text-[10px] sm:text-[11px] text-amber-400 font-bold block">
+                تجميعة النقدية
+              </span>
+              <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono">
+                {grandTotalWithCurrent.toLocaleString()} <small className="text-[10px] sm:text-xs text-amber-300">ج.م</small>
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto">
+            <button
+              onClick={handleNextOrder}
+              disabled={cart.length === 0}
+              className="flex-1 md:flex-none bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-600 text-white px-5 sm:px-8 py-3 rounded-xl font-black text-sm sm:text-base shadow-lg transition active:scale-95 flex items-center justify-center gap-1.5"
+            >
+              <span>التالي</span>
+              <span>⏭️</span>
+            </button>
+
+            <button
+              onClick={() => setIsSummaryModalOpen(true)}
+              disabled={pendingOrders.length === 0 && cart.length === 0}
+              className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-white px-5 sm:px-8 py-3 rounded-xl font-black text-sm sm:text-base shadow-lg transition active:scale-95 flex items-center justify-center gap-1.5"
+            >
+              <span>حفظ الكل</span>
+              <span>💾</span>
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      {/* Modal مراجعة وحفظ الكل مع بيان الخزن والمبالغ */}
+      {isSummaryModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl p-4 sm:p-6 shadow-2xl max-h-[90vh] flex flex-col">
+            
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3 mb-3">
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-white">📋 تجميعة وتوريد فواتير البازار</h3>
+                <p className="text-[11px] sm:text-xs text-slate-400">راجع كل أوردر وخزنته قبل الاعتماد النهائي</p>
+              </div>
+              <button onClick={() => setIsSummaryModalOpen(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+              {pendingOrders.map((ord, idx) => (
+                <div key={ord.id} className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                  <div>
+                    <span className="font-black text-amber-400 text-xs sm:text-sm block">أوردر #{idx + 1}</span>
+                    <span className="text-[11px] text-slate-400 font-mono">
+                      الوقت: {ord.time} | قطع: {ord.itemCount}
+                    </span>
+                    <div className="text-[10px] text-amber-300/80 mt-0.5">
+                      الخزن: {ord.paymentSplits?.map(s => `${s.safeName}: ${s.amount}`).join(' | ')}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className={`font-mono font-black text-sm sm:text-base ${ord.totalAmount < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                      {ord.totalAmount.toLocaleString()} ج.م
+                    </span>
+
+                    <button
+                      onClick={() => editPendingOrder(ord)}
+                      className="text-xs bg-slate-800 hover:bg-slate-700 text-blue-300 px-2 py-1 rounded font-bold"
+                    >
+                      ✏️
+                    </button>
+
+                    <button
+                      onClick={() => removePendingOrder(ord.id)}
+                      className="text-xs bg-slate-800 hover:bg-slate-700 text-red-400 px-2 py-1 rounded font-bold"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {cart.length > 0 && (
+                <div className="bg-blue-950/30 border border-blue-500/30 p-3 rounded-xl flex justify-between items-center">
+                  <div>
+                    <span className="font-black text-blue-400 text-xs sm:text-sm block">الأوردر الحالي</span>
+                    <span className="text-[11px] text-slate-400 font-mono">قطع: {currentCartPieces}</span>
+                  </div>
+                  <span className={`font-mono font-black text-sm sm:text-base ${currentCartTotal < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {currentCartTotal.toLocaleString()} ج.م
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 pt-3 border-t border-slate-800 space-y-2.5">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400">إجمالي عدد الفواتير:</span>
+                <span className="font-bold text-white font-mono">{pendingOrders.length + (cart.length > 0 ? 1 : 0)} أوردر</span>
+              </div>
+
+              <div className="flex justify-between items-center bg-slate-950 p-2.5 sm:p-3 rounded-xl border border-slate-800">
+                <span className="font-bold text-amber-400 text-xs sm:text-sm">صافي النقدية بالدرج:</span>
+                <span className="font-black text-emerald-400 font-mono text-lg sm:text-xl">
+                  {grandTotalWithCurrent.toLocaleString()} ج.م
+                </span>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsSummaryModalOpen(false)}
+                  className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-2.5 rounded-xl font-bold text-xs"
+                >
+                  إلغاء والعودة
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveAllOrders}
+                  disabled={isSavingAll}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl font-black text-xs sm:text-sm shadow-xl transition disabled:bg-slate-700 flex items-center justify-center gap-1.5"
+                >
+                  {isSavingAll ? 'جاري الحفظ...' : 'تأكيد الحفظ والتوريد ✅'}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+    </div>
+  )
+}
