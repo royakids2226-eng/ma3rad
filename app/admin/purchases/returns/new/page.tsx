@@ -1,17 +1,14 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import * as XLSX from 'xlsx'
 import { getVendors, addVendor } from '@/app/vendor-actions'
 import { getSafesList } from '@/app/report-actions'
 import { 
   createPurchaseInvoice, 
   searchProductsForPurchase, 
   getModelColors,
-  fetchProductsForExcelImport,
-  createQuickProduct,
   fetchAllProductsForCache
 } from '@/app/purchase-actions'
 import { BarcodeScanner } from '@/components/BarcodeScanner'
@@ -34,200 +31,272 @@ interface InvoiceRow {
   cost: number | string
   price: number | string
   description?: string
-  isExisting?: boolean
   currentStock?: number
 }
 
 export default function NewPurchaseReturnInvoicePage() {
   const router = useRouter()
 
-  // Online status
-  const [isOnline, setIsOnline] = useState(true);
-  const [unsyncedReturns, setUnsyncedReturns] = useState<any[]>([]);
+  // الاتصال بالإنترنت والمزامنة المحلية
+  const [isOnline, setIsOnline] = useState(true)
+  const [unsyncedReturns, setUnsyncedReturns] = useState<any[]>([])
 
-  // حالة الفاتورة العامة
-  const [invoiceType, setInvoiceType] = useState<'PURCHASE' | 'RETURN'>('RETURN')
+  // إعدادات الفاتورة
+  const invoiceType = 'RETURN' as const
   const [paymentStatus, setPaymentStatus] = useState<'CREDIT' | 'CASH'>('CREDIT')
   const [invoiceNo, setInvoiceNo] = useState(`RET-${Date.now().toString().slice(-6)}`)
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0])
   const [notes, setNotes] = useState('')
 
-  // الخزائن والموردين
+  // الخزن والموردين
   const [safes, setSafes] = useState<any[]>([])
   const [selectedSafeId, setSelectedSafeId] = useState('')
   const [vendors, setVendors] = useState<any[]>([])
-  const [allProducts, setAllProducts] = useState<any[]>([]);
+  const [allProducts, setAllProducts] = useState<any[]>([])
   const [selectedVendor, setSelectedVendor] = useState<any>(null)
   const [vendorSearch, setVendorSearch] = useState('')
   const [showVendorDropdown, setShowVendorDropdown] = useState(false)
   const vendorRef = useRef<HTMLDivElement>(null)
 
-  // أسطر الفاتورة
-  const [rows, setRows] = useState<InvoiceRow[]>([{ id: `row-${Date.now()}`, modelNo: '', color: '', quantity: 1, cost: '', price: '', description: '' }])
+  // بنود المرتجع (الكروت)
+  const [rows, setRows] = useState<InvoiceRow[]>([])
 
-  // حالة البحث الحي
-  const [activeModelSearchIndex, setActiveModelSearchIndex] = useState<number | null>(null)
-  const [modelSuggestions, setModelSuggestions] = useState<any[]>([])
-  const [activeColorRowIndex, setActiveColorRowIndex] = useState<number | null>(null)
-  const [availableColors, setAvailableColors] = useState<any[]>([])
-  const [isLoadingColors, setIsLoadingColors] = useState(false)
+  // مودال الكاميرا والبحث اليدوي
+  const [showScanner, setShowScanner] = useState(false)
+  const [manualSearch, setManualSearch] = useState('')
+  const [manualSearchResults, setManualSearchResults] = useState<any[]>([])
+  const [isSearchingManual, setIsSearchingManual] = useState(false)
 
-  const dropdownContainerRef = useRef<HTMLDivElement>(null)
+  // مودال تعديل الصنف بالكامل
+  const [editingRowIndex, setEditingRowIndex] = useState<number | null>(null)
+  const [availableColorsForEdit, setAvailableColorsForEdit] = useState<any[]>([])
 
-  // Modals
-  const [showAddVendorModal, setShowAddVendorModal] = useState(false)
-  const [newVendorData, setNewVendorData] = useState({ name: '', phone: '', address: '' })
-  const [showAddProductModal, setShowAddProductModal] = useState(false)
-  const [targetRowForNewProduct, setTargetRowForNewProduct] = useState<number | null>(null)
-  const [newProductData, setNewProductData] = useState({ modelNo: '', color: '', cost: '', price: '', description: '' })
-
-  // Loaders
+  // مؤشرات التحميل
   const [isSaving, setIsSaving] = useState(false)
-  const [isImporting, setIsImporting] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
 
-  // Refs
-  const inputRefs = useRef<{ [key: string]: HTMLElement | null }>({})
+  // مراجع عناصر الإدخال
+  const qtyInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({})
 
-  // Mobile state
-  const [isMobileView, setIsMobileView] = useState(true);
-  const [showScanner, setShowScanner] = useState(false);
-  const [activeMobileEditIndex, setActiveMobileEditIndex] = useState<number | null>(null);
-
+  // فحص الاتصال بالإنترنت والتهيئة
   useEffect(() => {
-    // Check online status on mount and add listeners
-    setIsOnline(navigator.onLine);
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    setIsOnline(navigator.onLine)
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
 
-    // Load initial data
-    loadInitialData();
-    
-    // Load unsynced returns from local storage
-    setUnsyncedReturns(getUnsyncedReturns());
+    loadInitialData()
+    setUnsyncedReturns(getUnsyncedReturns())
 
     const handleClickOutside = (e: MouseEvent) => {
       if (vendorRef.current && !vendorRef.current.contains(e.target as Node)) {
         setShowVendorDropdown(false)
       }
-      if (dropdownContainerRef.current && !dropdownContainerRef.current.contains(e.target as Node)) {
-        setActiveModelSearchIndex(null)
-        setActiveColorRowIndex(null)
-      }
     }
-
     document.addEventListener('mousedown', handleClickOutside)
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+      document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, []);
+  }, [])
 
-  // Auto-sync when back online
+  // مزامنة تلقائية عند عودة الإنترنت
   useEffect(() => {
     if (isOnline) {
-        syncAllReturns();
+      syncAllReturns()
     }
-  }, [isOnline]);
+  }, [isOnline])
 
   const loadInitialData = async () => {
     if (navigator.onLine) {
       try {
-        console.log("App is online. Fetching fresh data...");
         const [vendorsData, productsData, safesData] = await Promise.all([
-            getVendors(),
-            fetchAllProductsForCache(), // This function needs to be created in actions
-            getSafesList()
-        ]);
+          getVendors(),
+          fetchAllProductsForCache(),
+          getSafesList()
+        ])
 
-        setVendors(vendorsData);
-        cacheVendors(vendorsData);
-        
-        setAllProducts(productsData);
-        cacheProducts(productsData);
+        setVendors(vendorsData || [])
+        cacheVendors(vendorsData || [])
 
-        setSafes(safesData || []);
+        setAllProducts(productsData || [])
+        cacheProducts(productsData || [])
+
+        setSafes(safesData || [])
         if (safesData && safesData.length > 0) {
-          const main = safesData.find((s: any) => s.name?.includes('الرئيسية')) || safesData[0];
-          setSelectedSafeId(main.id);
+          const main = safesData.find((s: any) => s.name?.includes('الرئيسية')) || safesData[0]
+          setSelectedSafeId(main.id)
         }
-
       } catch (error) {
-        console.error("Failed to fetch fresh data, falling back to cache.", error);
-        loadDataFromCache();
+        console.error("خطأ أثناء جلب البيانات الحديثة، التحويل للذاكرة المؤقتة:", error)
+        loadDataFromCache()
       }
     } else {
-      console.log("App is offline. Loading data from cache...");
-      loadDataFromCache();
+      loadDataFromCache()
     }
-  };
-
-  const loadDataFromCache = () => {
-    setVendors(getCachedVendors());
-    setAllProducts(getCachedProducts());
-    // Safes are not cached as they are crucial for online transactions only
-  };
-
-  const filteredVendors = vendors.filter(v =>
-    v.name.toLowerCase().includes(vendorSearch.toLowerCase()) ||
-    (v.code && v.code.toLowerCase().includes(vendorSearch.toLowerCase()))
-  )
-
-  const resetForm = () => {
-      setRows([{ id: `row-${Date.now()}`, modelNo: '', color: '', quantity: 1, cost: '', price: '', description: '' }]);
-      setSelectedVendor(null);
-      setVendorSearch('');
-      setNotes('');
-      setInvoiceNo(`RET-${Date.now().toString().slice(-6)}`);
-  };
-
-  const handleModelSearch = async (index: number, term: string) => {
-    updateRow(index, 'modelNo', term);
-    if (term.trim().length < 1) {
-      setModelSuggestions([]);
-      setActiveModelSearchIndex(null);
-      return;
-    }
-
-    setActiveModelSearchIndex(index);
-    setActiveColorRowIndex(null);
-
-    let results = [];
-    if (isOnline) {
-        results = await searchProductsForPurchase(term);
-    } else {
-        results = allProducts.filter(p => 
-            p.modelNo.toLowerCase().includes(term.toLowerCase())
-        );
-    }
-
-    const seen = new Set<string>();
-    const uniqueModels = results.filter(item => {
-        const key = `${item.modelNo}`;
-        return seen.has(key) ? false : seen.add(key);
-    });
-    setModelSuggestions(uniqueModels);
   }
 
-  const handleSubmitInvoice = async () => {
-    if (!selectedVendor) {
-      alert('يرجى اختيار المورد أولاً');
-      return;
+  const loadDataFromCache = () => {
+    setVendors(getCachedVendors())
+    setAllProducts(getCachedProducts())
+  }
+
+  // فلترة الموردين
+  const filteredVendors = useMemo(() => {
+    if (!vendorSearch.trim()) return vendors
+    const q = vendorSearch.toLowerCase()
+    return vendors.filter(v =>
+      v.name.toLowerCase().includes(q) ||
+      (v.code && v.code.toLowerCase().includes(q))
+    )
+  }, [vendors, vendorSearch])
+
+  // بحث يدوي سريع عن صنف
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (!manualSearch.trim()) {
+        setManualSearchResults([])
+        return
+      }
+      setIsSearchingManual(true)
+      const q = manualSearch.trim().toLowerCase()
+
+      if (isOnline) {
+        const res = await searchProductsForPurchase(q)
+        setManualSearchResults(res || [])
+      } else {
+        const filtered = allProducts.filter(p =>
+          p.modelNo.toLowerCase().includes(q) ||
+          p.color.toLowerCase().includes(q) ||
+          (p.description && p.description.toLowerCase().includes(q))
+        )
+        setManualSearchResults(filtered.slice(0, 15))
+      }
+      setIsSearchingManual(false)
+    }, 250)
+
+    return () => clearTimeout(timer)
+  }, [manualSearch, isOnline, allProducts])
+
+  // إضافة صنف أو التركيز عليه فوراً بعد المسح أو الاختيار
+  const handleSelectProduct = (prod: any) => {
+    const rowId = `row-${Date.now()}-${Math.random()}`
+    
+    // فحص ما إذا كان نفس الصنف (الموديل واللون) موجوداً مسبقاً في الفاتورة
+    const existingIndex = rows.findIndex(
+      r => r.modelNo.toLowerCase() === prod.modelNo.toLowerCase() && r.color === prod.color
+    )
+
+    let targetRowId = rowId
+
+    if (existingIndex > -1) {
+      targetRowId = rows[existingIndex].id
+      // زيادة الكمية بمقدار 1 أو الاستعداد للتعديل
+      setRows(prev => {
+        const copy = [...prev]
+        const currentQ = Number(copy[existingIndex].quantity) || 0
+        copy[existingIndex].quantity = currentQ + 1
+        return copy
+      })
+    } else {
+      const newRow: InvoiceRow = {
+        id: rowId,
+        modelNo: prod.modelNo,
+        color: prod.color || 'افتراضي',
+        quantity: '', // خالية لإجبار المستخدم على إدخال الرقم الفعلي فوراً بدون مسح رقم 1
+        cost: prod.cost || 0,
+        price: prod.price || 0,
+        description: prod.description || '',
+        currentStock: prod.currentStock ?? 0
+      }
+      setRows(prev => [newRow, ...prev])
     }
 
-    const validItems = rows.filter(r => r.modelNo.trim() !== '' && Number(r.quantity) > 0);
+    setManualSearch('')
+    setManualSearchResults([])
+
+    // Focus فوري وفتح لوحة الأرقام
+    setTimeout(() => {
+      const inputEl = qtyInputRefs.current[targetRowId]
+      if (inputEl) {
+        inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        inputEl.focus()
+        inputEl.select()
+      }
+    }, 150)
+  }
+
+  // عند مسح باركود بالكاميرا
+  const handleBarcodeScanned = (code: string) => {
+    setShowScanner(false)
+    if (navigator.vibrate) navigator.vibrate(60)
+
+    const cleanCode = code.trim().toLowerCase()
+    const match = allProducts.find(
+      p => p.modelNo.toLowerCase() === cleanCode
+    )
+
+    if (match) {
+      handleSelectProduct(match)
+    } else {
+      setManualSearch(code.trim())
+    }
+  }
+
+  // تحديث بيانات الصنف في الكارت
+  const updateRow = (index: number, field: keyof InvoiceRow, value: any) => {
+    setRows(prev => {
+      const copy = [...prev]
+      copy[index] = { ...copy[index], [field]: value }
+      return copy
+    })
+  }
+
+  const removeRow = (index: number) => {
+    setRows(prev => prev.filter((_, i) => i !== index))
+  }
+
+  // تعديل ألوان الصنف في الكارت
+  const openColorPicker = async (index: number) => {
+    setEditingRowIndex(index)
+    const row = rows[index]
+    let colors = []
+    if (isOnline) {
+      colors = await getModelColors(row.modelNo)
+    } else {
+      colors = allProducts.filter(p => p.modelNo.toLowerCase() === row.modelNo.toLowerCase())
+    }
+    setAvailableColorsForEdit(colors)
+  }
+
+  // حساب الإجماليات
+  const totalQuantity = useMemo(() => {
+    return rows.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0)
+  }, [rows])
+
+  const totalAmount = useMemo(() => {
+    return rows.reduce((sum, r) => sum + ((Number(r.quantity) || 0) * (Number(r.cost) || 0)), 0)
+  }, [rows])
+
+  // حفظ الفاتورة (أونلاين أو أوفلاين)
+  const handleSubmitInvoice = async () => {
+    if (!selectedVendor) {
+      alert('يرجى اختيار المورد أولاً')
+      return
+    }
+
+    const validItems = rows.filter(r => r.modelNo.trim() !== '' && Number(r.quantity) > 0)
     if (validItems.length === 0) {
-      alert('يرجى إدخال صنف واحد على الأقل');
-      return;
+      alert('يرجى إدخال صنف واحد على الأقل بكمية أكبر من صفر')
+      return
     }
 
     const payload = {
       vendorId: selectedVendor.id,
-      vendorName: selectedVendor.name, // For offline display
+      vendorName: selectedVendor.name,
       invoiceType,
       paymentStatus,
       safeId: paymentStatus === 'CASH' ? selectedSafeId : undefined,
@@ -236,333 +305,530 @@ export default function NewPurchaseReturnInvoicePage() {
       notes,
       items: validItems.map(r => ({
         modelNo: r.modelNo.trim(),
-        color: r.color.trim() || 'لون',
+        color: r.color.trim() || 'افتراضي',
         quantity: Number(r.quantity),
         cost: Number(r.cost) || 0,
         price: Number(r.price) || 0,
         description: r.description
       }))
-    };
+    }
 
     if (!isOnline) {
-        saveReturnForSync(payload);
-        setUnsyncedReturns(getUnsyncedReturns());
-        alert('⚠ تم حفظ المرتجع محلياً لعدم وجود انترنت. ستتم المزامنة تلقائياً عند عودة الاتصال.');
-        resetForm();
-        return;
-    }
-
-    const confirmMsg = `تأكيد حفظ مرتجع المشتريات بقيمة ${totalAmount.toLocaleString()} ج.م للمورد؟`;
-    if (!confirm(confirmMsg)) return;
-
-    setIsSaving(true);
-    const res = await createPurchaseInvoice(payload);
-    setIsSaving(false);
-
-    if (res.success) {
-      alert(res.message);
-      router.push(`/admin/vendors/${selectedVendor.id}`);
-    } else {
-      alert('❌ خطأ: ' + res.error);
-    }
-  };
-
-  const syncAllReturns = async () => {
-      if (isSyncing) return;
-      setIsSyncing(true);
-      let pendingReturns = getUnsyncedReturns().filter((r: any) => r.syncStatus !== 'synced');
-      
-      for (const r of pendingReturns) {
-          setUnsyncedReturns(updateUnsyncedReturn(r.invoiceNo, { syncStatus: 'syncing' }));
-          try {
-              const res = await createPurchaseInvoice(r);
-              if(res.success) {
-                  setUnsyncedReturns(removeReturnFromSyncQueue(r.invoiceNo));
-              } else {
-                  setUnsyncedReturns(updateUnsyncedReturn(r.invoiceNo, { syncStatus: 'error', error: res.error }));
-              }
-          } catch (error: any) {
-              setUnsyncedReturns(updateUnsyncedReturn(r.invoiceNo, { syncStatus: 'error', error: error.message }));
-          }
-      }
-      setIsSyncing(false);
-  }
-
-  const handleManualSync = async (invoiceNo: string) => {
-    if (!isOnline) {
-        alert('لا يوجد اتصال بالانترنت للمزامنة اليدوية.');
-        return;
-    }
-    setIsSyncing(true);
-    const aReturn = getUnsyncedReturns().find((r: any) => r.invoiceNo === invoiceNo);
-
-    if(aReturn) {
-        setUnsyncedReturns(updateUnsyncedReturn(aReturn.invoiceNo, { syncStatus: 'syncing' }));
-        try {
-            const res = await createPurchaseInvoice(aReturn);
-            if(res.success) {
-                setUnsyncedReturns(removeReturnFromSyncQueue(aReturn.invoiceNo));
-            } else {
-                setUnsyncedReturns(updateUnsyncedReturn(aReturn.invoiceNo, { syncStatus: 'error', error: res.error }));
-            }
-        } catch (error: any) {
-            setUnsyncedReturns(updateUnsyncedReturn(aReturn.invoiceNo, { syncStatus: 'error', error: error.message }));
-        }
-    }
-    setIsSyncing(false);
-  }
-
-  // ... (Rest of the functions: addNewRow, removeRow, updateRow, etc. are mostly the same)
-  // ... (handleSelectModel, handleColorFocus, etc. need to be adapted for offline)
-
-  // حساب الإجماليات
-  const totalQuantity = rows.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0)
-  const totalAmount = rows.reduce((sum, r) => sum + ((Number(r.quantity) || 0) * (Number(r.cost) || 0)), 0)
-
-  const handleBarcodeScanned = async (code: string) => {
-    setShowScanner(false);
-    const newIndex = addNewRow();
-    await handleModelSearch(newIndex, code); 
-    setActiveMobileEditIndex(newIndex);
-    setTimeout(() => {
-      const rowId = rows[newIndex]?.id;
-      if(rowId) {
-        inputRefs.current[`${rowId}-qty`]?.focus();
-      }
-    }, 200);
-  };
-
-  const addNewRow = () => {
-    const newId = `row-${Date.now()}`;
-    const newRow = { id: newId, modelNo: '', color: '', quantity: 1, cost: '', price: '', description: '' };
-    setRows(prev => [...prev, newRow]);
-    return rows.length; // Return the index of the new row
-  }
-  const removeRow = (index: number) => {
-    if (rows.length === 1) {
-      setRows([{ id: `row-${Date.now()}`, modelNo: '', color: '', quantity: 1, cost: '', price: '', description: '' }])
+      saveReturnForSync(payload)
+      setUnsyncedReturns(getUnsyncedReturns())
+      alert('📦 تم حفظ المرتجع محلياً بنجاح (وضع غير متصل). ستتم المزامنة تلقائياً فور عودة الإنترنت.')
+      setRows([])
+      setInvoiceNo(`RET-${Date.now().toString().slice(-6)}`)
       return
     }
-    setRows(prev => prev.filter((_, i) => i !== index))
-  }
-  const updateRow = (index: number, field: keyof InvoiceRow, value: any) => {
-    setRows(prev => {
-      const copy = [...prev]
-      copy[index] = { ...copy[index], [field]: value }
-      return copy
-    })
-  }
-  const handleSelectModel = async (index: number, item: any) => {
-    updateRow(index, 'modelNo', item.modelNo)
-    if (item.cost) updateRow(index, 'cost', item.cost)
-    if (item.price) updateRow(index, 'price', item.price)
-    if (item.description) updateRow(index, 'description', item.description)
 
-    setActiveModelSearchIndex(null)
+    if (!confirm(`تأكيد حفظ مرتجع مشتريات للمورد (${selectedVendor.name}) بقيمة ${totalAmount.toLocaleString()} ج.م؟`)) return
 
-    setTimeout(() => {
-      inputRefs.current[`${rows[index].id}-color`]?.focus()
-      handleColorFocus(index, item.modelNo)
-    }, 50)
-  }
-  const handleColorFocus = async (index: number, explicitModelNo?: string) => {
-    const targetModel = (explicitModelNo || rows[index].modelNo || '').trim()
-    if (!targetModel) return
+    setIsSaving(true)
+    const res = await createPurchaseInvoice(payload)
+    setIsSaving(false)
 
-    setActiveModelSearchIndex(null)
-    setActiveColorRowIndex(index)
-    setIsLoadingColors(true)
-
-    let colorsList = [];
-    if(isOnline) {
-        colorsList = await getModelColors(targetModel)
+    if (res.success) {
+      alert(res.message)
+      router.push(`/admin/vendors/${selectedVendor.id}`)
     } else {
-        colorsList = allProducts
-            .filter(p => p.modelNo.toLowerCase() === targetModel.toLowerCase())
-            .map(p => ({ color: p.color, cost: p.cost, price: p.price, description: p.description, currentStock: p.currentStock, id: p.id }));
-    }
-    
-    setAvailableColors(colorsList)
-    setIsLoadingColors(false)
-
-    if (colorsList.length > 0) {
-      handleSelectColor(index, colorsList[0]);
+      alert('❌ خطأ: ' + res.error)
     }
   }
-  const handleSelectColor = (index: number, colorItem: any) => {
-    setRows(prev => {
-      const copy = [...prev]
-      copy[index] = {
-        ...copy[index],
-        color: colorItem.color,
-        cost: colorItem.cost || copy[index].cost,
-        price: colorItem.price || copy[index].price,
-        description: colorItem.description || copy[index].description,
-        isExisting: true,
-        currentStock: colorItem.currentStock
-      }
-      return copy
-    })
-    setActiveColorRowIndex(null)
 
-    setTimeout(() => {
-      inputRefs.current[`${rows[index].id}-qty`]?.focus()
-    }, 50)
-  }
-  const handleKeyDown = (e: React.KeyboardEvent, rowIndex: number, field: string) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      const rowId = rows[rowIndex].id
+  // مزامنة المرتجعات المعلقة يدوياً
+  const syncAllReturns = async () => {
+    if (isSyncing || !navigator.onLine) return
+    setIsSyncing(true)
+    const pending = getUnsyncedReturns().filter((r: any) => r.syncStatus !== 'synced')
 
-      if (field === 'modelNo') {
-        setActiveModelSearchIndex(null)
-        inputRefs.current[`${rowId}-color`]?.focus()
-        handleColorFocus(rowIndex)
-      } else if (field === 'color') {
-        setActiveColorRowIndex(null)
-        inputRefs.current[`${rowId}-qty`]?.focus()
-      } else if (field === 'qty') {
-          if (isMobileView) {
-              (e.target as HTMLElement).blur();
-              setActiveMobileEditIndex(null);
-          } else {
-              inputRefs.current[`${rowId}-cost`]?.focus();
-          }
-      } else if (field === 'cost') {
-        inputRefs.current[`${rowId}-price`]?.focus()
-      } else if (field === 'price') {
-        if (rowIndex === rows.length - 1) {
-          addNewRow()
+    for (const r of pending) {
+      setUnsyncedReturns(updateUnsyncedReturn(r.invoiceNo, { syncStatus: 'syncing' }))
+      try {
+        const res = await createPurchaseInvoice(r)
+        if (res.success) {
+          setUnsyncedReturns(removeReturnFromSyncQueue(r.invoiceNo))
         } else {
-          const nextRowId = rows[rowIndex + 1].id
-          inputRefs.current[`${nextRowId}-modelNo`]?.focus()
+          setUnsyncedReturns(updateUnsyncedReturn(r.invoiceNo, { syncStatus: 'error', error: res.error }))
         }
+      } catch (err: any) {
+        setUnsyncedReturns(updateUnsyncedReturn(r.invoiceNo, { syncStatus: 'error', error: err.message }))
       }
     }
+    setIsSyncing(false)
   }
-
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 p-4 md:p-8 font-sans" dir="rtl">
-        <div className="fixed top-4 left-4 z-50">
-            <span className={`px-3 py-1 text-xs font-bold rounded-full ${isOnline ? 'bg-green-500 text-white' : 'bg-red-500 text-white animate-pulse'}`}>
-                {isOnline ? 'متصل بالانترنت' : 'غير متصل'}
-            </span>
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-3 sm:p-5 font-sans pb-44" dir="rtl">
+      
+      {/* مؤشر حالة الشبكة */}
+      <div className="flex justify-between items-center mb-3">
+        <span className={`px-3 py-1 text-xs font-black rounded-full flex items-center gap-1.5 ${
+          isOnline ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse'
+        }`}>
+          <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+          {isOnline ? 'متصل بالشبكة (أونلاين)' : 'أوفلاين (حفظ محلي)'}
+        </span>
+
+        <Link href="/" className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-xl text-xs font-bold transition">
+          ← الرئيسية
+        </Link>
+      </div>
+
+      {/* تنبيه بالمرتجعات المعلقة */}
+      {unsyncedReturns.length > 0 && (
+        <div className="bg-amber-950/40 border border-amber-500/50 rounded-2xl p-3 mb-4 flex justify-between items-center text-xs">
+          <div>
+            <span className="font-black text-amber-300 block">⚠️ مرتجعات بانتظار المزامنة: {unsyncedReturns.length}</span>
+            <span className="text-slate-400">ستتم المزامنة تلقائياً عند استقرار الإنترنت</span>
+          </div>
+          <button
+            onClick={syncAllReturns}
+            disabled={!isOnline || isSyncing}
+            className="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-xl font-bold shadow"
+          >
+            {isSyncing ? 'جاري المزامنة...' : 'مزامنة الآن ⟳'}
+          </button>
         </div>
-        <button onClick={() => setIsMobileView(!isMobileView)} className="mb-4 bg-purple-600 p-2 rounded-lg">
-            {isMobileView ? "عرض واجهة الكمبيوتر" : "عرض واجهة الجوال"}
-        </button>
+      )}
 
-        {/* Unsynced Returns Section */}
-        {unsyncedReturns.length > 0 && (
-            <div className="my-6 bg-slate-800/80 border border-amber-500/50 rounded-2xl p-4">
-                <h3 className="text-lg font-bold text-amber-300 mb-3">مرتجعات بانتظار المزامنة ({unsyncedReturns.length})</h3>
-                <div className="space-y-3 max-h-48 overflow-y-auto">
-                    {unsyncedReturns.map(r => {
-                        const totalAmount = r.items.reduce((sum: number, item: any) => sum + (item.quantity * item.cost), 0);
-                        return (
-                            <div key={r.invoiceNo} className="bg-slate-900 p-3 rounded-lg flex items-center justify-between gap-3 text-sm">
-                                <div>
-                                    <p className="font-bold">{r.vendorName} - <span className="font-mono">{r.invoiceNo}</span></p>
-                                    <p className="text-xs text-slate-400">{r.items.length} أصناف | الإجمالي: {totalAmount.toLocaleString()} ج.م</p>
-                                </div>
-                                <button 
-                                    onClick={() => handleManualSync(r.invoiceNo)}
-                                    disabled={!isOnline || r.syncStatus === 'syncing' || r.syncStatus === 'synced'}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${r.syncStatus === 'syncing' ? 'bg-blue-500 animate-pulse' : r.syncStatus === 'error' ? 'bg-red-600' : isOnline ? 'bg-green-600 hover:bg-green-500' : 'bg-slate-600'} disabled:cursor-not-allowed`}
-                                >
-                                    {r.syncStatus === 'pending' && (isOnline ? 'مزامنة الآن' : 'في الانتظار')}
-                                    {r.syncStatus === 'syncing' && 'جاري المزامنة...'}
-                                    {r.syncStatus === 'error' && 'خطأ، حاول مجدداً'}
-                                </button>
-                            </div>
-                        )
-                    })}
-                </div>
-            </div>
-        )}
+      {/* بطاقة المورد والإعدادات */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl mb-4 space-y-3">
+        
+        {/* اختيار المورد */}
+        <div className="relative" ref={vendorRef}>
+          <div className="flex justify-between items-center mb-1">
+            <label className="text-xs font-bold text-slate-300">المورد المستلم للمرتجع *</label>
+            {selectedVendor && (
+              <span className="text-[11px] text-emerald-400 font-mono font-bold">
+                كود: {selectedVendor.code}
+              </span>
+            )}
+          </div>
 
-      {isMobileView ? (
-        <div className="w-full pb-24">
-            {showScanner && <BarcodeScanner onScan={handleBarcodeScanned} />}
-            
-            <div className="bg-slate-800 p-4 rounded-xl mb-4">
-              <h2 className="text-lg font-bold mb-2">مرتجع مشتريات</h2>
-              {/* Vendor selection for mobile can be simplified */}
-              <div className="relative" ref={vendorRef}>
-              <div className="flex justify-between items-center mb-1">
-                <label className="text-xs font-bold text-slate-300">المورد</label>
-              </div>
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="ابحث عن مورد..."
-                  value={vendorSearch}
-                  onChange={(e) => {
-                    setVendorSearch(e.target.value)
-                    setShowVendorDropdown(true)
-                  }}
-                  onFocus={() => setShowVendorDropdown(true)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white text-sm font-bold focus:border-blue-500 outline-none"
-                />
-              </div>
-              {showVendorDropdown && (
-                <div className="absolute top-full left-0 right-0 z-50 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl mt-1 max-h-56 overflow-y-auto">
-                  {filteredVendors.map(v => (
-                      <div key={v.id} onClick={() => { setSelectedVendor(v); setVendorSearch(v.name); setShowVendorDropdown(false); }} className="p-3 hover:bg-slate-700 cursor-pointer border-b border-slate-700/50">
-                        <div className="font-bold text-white text-sm">{v.name}</div>
-                      </div>
-                    ))}
-                </div>
+          <input
+            type="text"
+            placeholder="ابحث عن مورد بالاسم أو الكود..."
+            value={vendorSearch}
+            onChange={(e) => {
+              setVendorSearch(e.target.value)
+              setShowVendorDropdown(true)
+            }}
+            onFocus={() => setShowVendorDropdown(true)}
+            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm font-bold focus:border-rose-500 outline-none"
+          />
+
+          {showVendorDropdown && (
+            <div className="absolute top-full left-0 right-0 z-50 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl mt-1 max-h-56 overflow-y-auto divide-y divide-slate-800">
+              {filteredVendors.length === 0 ? (
+                <div className="p-3 text-center text-xs text-slate-500 font-bold">لا يوجد مورد بهذا الاسم</div>
+              ) : (
+                filteredVendors.map(v => (
+                  <div
+                    key={v.id}
+                    onClick={() => {
+                      setSelectedVendor(v)
+                      setVendorSearch(v.name)
+                      setShowVendorDropdown(false)
+                    }}
+                    className="p-3 hover:bg-slate-800 cursor-pointer flex justify-between items-center text-xs"
+                  >
+                    <div>
+                      <span className="font-bold text-white block text-sm">{v.name}</span>
+                      <span className="text-slate-400 text-[11px]">{v.phone || 'بدون هاتف'}</span>
+                    </div>
+                    <span className="font-mono bg-slate-950 px-2 py-0.5 rounded text-rose-300 font-bold">
+                      {v.code}
+                    </span>
+                  </div>
+                ))
               )}
             </div>
-            </div>
-
-            <div className="space-y-3">
-                {rows.map((row, index) => (
-                    <div key={row.id} className="bg-slate-800 p-3 rounded-lg flex items-center gap-3">
-                        <div className="flex-grow">
-                            <p className="font-bold text-white">{row.modelNo} - {row.color}</p>
-                            <p className="text-xs text-slate-400">التكلفة: {row.cost} | الرصيد: {row.currentStock}</p>
-                        </div>
-                        <div className="w-24">
-                            {activeMobileEditIndex === index ? (
-                                <input 
-                                    ref={(el) => { inputRefs.current[`${row.id}-qty`] = el }}
-                                    type="number"
-                                    value={row.quantity}
-                                    onChange={(e) => updateRow(index, 'quantity', e.target.value)}
-                                    onKeyDown={(e) => handleKeyDown(e, index, 'qty')}
-                                    onBlur={() => setActiveMobileEditIndex(null)}
-                                    className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 text-center text-white font-bold"
-                                />
-                            ) : (
-                                <p onClick={() => setActiveMobileEditIndex(index)} className="font-bold text-lg text-center p-2">{row.quantity}</p>
-                            )}
-                        </div>
-                         <button onClick={() => removeRow(index)} className="text-red-400 p-2">🗑️</button>
-                    </div>
-                ))}
-            </div>
-
-            <div className="fixed bottom-0 left-0 right-0 bg-slate-800/80 backdrop-blur-sm border-t border-slate-700 p-3 flex justify-around items-center">
-                <div className="text-center">
-                    <p className="text-slate-400 text-xs">الإجمالي</p>
-                    <p className="font-bold text-emerald-400 text-lg">{totalAmount.toLocaleString()} ج.م</p>
-                </div>
-                <button onClick={() => setShowScanner(true)} className="bg-blue-600 text-white p-4 rounded-full shadow-lg text-2xl">📸</button>
-                <button onClick={handleSubmitInvoice} disabled={isSaving} className="bg-green-600 text-white px-6 py-3 rounded-lg font-bold shadow-lg disabled:bg-slate-600">
-                    {isSaving ? 'جاري الحفظ...' : isOnline ? 'حفظ ومزامنة' : 'حفظ محلي'}
-                </button>
-            </div>
+          )}
         </div>
-      ) : (
-          <>
-      {/* This is the desktop view. For brevity, I'll leave it as it is. */}
-      {/* The same logic for offline would need to be applied here as well. */}
-      <p>Desktop view is not fully adapted for offline mode in this snippet.</p>
-</>
+
+        {/* طريقة الاسترداد ورقم الإذن */}
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div>
+            <label className="text-slate-400 block mb-1 font-bold">حساب الاسترداد</label>
+            <select
+              value={paymentStatus}
+              onChange={(e: any) => setPaymentStatus(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white font-bold outline-none"
+            >
+              <option value="CREDIT">خصم من حساب المورد (آجل)</option>
+              <option value="CASH">استرداد كاش فوري للخزنة</option>
+            </select>
+          </div>
+
+          {paymentStatus === 'CASH' ? (
+            <div>
+              <label className="text-slate-400 block mb-1 font-bold">الخزنة المستلمة</label>
+              <select
+                value={selectedSafeId}
+                onChange={(e) => setSelectedSafeId(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white font-bold outline-none"
+              >
+                {safes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className="text-slate-400 block mb-1 font-bold">رقم إذن المرتجع</label>
+              <input
+                type="text"
+                value={invoiceNo}
+                onChange={(e) => setInvoiceNo(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-slate-300 font-mono text-xs font-bold outline-none"
+              />
+            </div>
+          )}
+        </div>
+
+      </div>
+
+      {/* البحث اليدوي وزر الكاميرا */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-xl mb-4">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              placeholder="🔍 ابحث بكود الموديل لإضافته للمرتجع..."
+              value={manualSearch}
+              onChange={(e) => setManualSearch(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm font-bold focus:border-rose-500 outline-none"
+            />
+            {manualSearch && (
+              <button
+                onClick={() => setManualSearch('')}
+                className="absolute left-3 top-3 text-slate-400 hover:text-white font-bold text-sm"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <button
+            onClick={() => setShowScanner(true)}
+            className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white px-4 py-3 rounded-xl font-bold flex items-center justify-center shrink-0 shadow-lg shadow-rose-900/40 transition"
+            title="مسح باركود بالكاميرا"
+          >
+            <span className="text-xl">📷</span>
+          </button>
+        </div>
+
+        {/* نتائج البحث اليدوي المباشر */}
+        {manualSearchResults.length > 0 && (
+          <div className="mt-2 divide-y divide-slate-800 bg-slate-950 border border-slate-800 rounded-xl max-h-56 overflow-y-auto">
+            {manualSearchResults.map(prod => (
+              <div
+                key={prod.id}
+                onClick={() => handleSelectProduct(prod)}
+                className="p-3 hover:bg-slate-900 cursor-pointer flex justify-between items-center transition"
+              >
+                <div>
+                  <span className="font-black text-white text-base block">{prod.modelNo}</span>
+                  <div className="flex gap-2 text-xs text-slate-400 mt-0.5">
+                    <span className="text-rose-400 font-bold">اللون: {prod.color}</span>
+                    {prod.description && <span>• {prod.description}</span>}
+                  </div>
+                </div>
+
+                <div className="text-left font-mono">
+                  <span className="text-emerald-400 font-bold text-sm block">{prod.cost} ج.م</span>
+                  <span className="text-[10px] text-slate-500">متاح: {prod.currentStock ?? '-'}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* قائمة الأصناف المضافة على شكل كروت احترافية */}
+      <div className="space-y-3">
+        <div className="flex justify-between items-center px-1">
+          <h2 className="text-sm font-black text-slate-300 flex items-center gap-2">
+            <span>📦 أصناف المرتجع المضافة</span>
+            <span className="bg-rose-950/60 text-rose-300 border border-rose-600/40 px-2 py-0.5 rounded-full text-xs font-mono">
+              {rows.length} صنف
+            </span>
+          </h2>
+
+          {rows.length > 0 && (
+            <button
+              onClick={() => {
+                if (confirm('تفريغ كافة الأصناف المضافة من الفاتورة؟')) setRows([])
+              }}
+              className="text-xs text-rose-400 hover:text-rose-300 font-bold"
+            >
+              مسح الكل ✕
+            </button>
+          )}
+        </div>
+
+        {rows.length === 0 ? (
+          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-10 text-center text-slate-500 text-sm font-bold">
+            <span className="text-4xl block mb-2 opacity-50">📤</span>
+            لا توجد أصناف مضافة للمرتجع حتى الآن.<br />
+            امسح الباركود بالكاميرا أو ابحث بالموديل للبدء فوراً.
+          </div>
+        ) : (
+          rows.map((row, idx) => {
+            const lineTotal = (Number(row.quantity) || 0) * (Number(row.cost) || 0)
+            const qtyNum = Number(row.quantity) || 0
+
+            return (
+              <div
+                key={row.id}
+                className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl hover:border-slate-700 transition relative overflow-hidden"
+              >
+                {/* رأس الكارت */}
+                <div className="flex justify-between items-start gap-2 mb-2 pb-2 border-b border-slate-800/80">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-400">كود الموديل:</span>
+                      <span className="font-mono font-black text-white text-lg">{row.modelNo}</span>
+                      <button
+                        onClick={() => openColorPicker(idx)}
+                        className="bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-lg text-xs font-bold"
+                        title="تغيير اللون"
+                      >
+                        اللون: {row.color} ✏️
+                      </button>
+                    </div>
+
+                    {/* الوصف */}
+                    <div className="mt-1">
+                      <input
+                        type="text"
+                        placeholder="أدخل وصف الصنف..."
+                        value={row.description || ''}
+                        onChange={(e) => updateRow(idx, 'description', e.target.value)}
+                        className="w-full bg-transparent text-slate-400 text-xs outline-none focus:text-white border-b border-transparent focus:border-slate-700 py-0.5"
+                      />
+                    </div>
+                  </div>
+
+                  {/* زر الحذف */}
+                  <button
+                    onClick={() => removeRow(idx)}
+                    className="w-8 h-8 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 flex items-center justify-center font-bold text-sm transition"
+                    title="حذف هذا الصنف"
+                  >
+                    🗑️
+                  </button>
+                </div>
+
+                {/* جسم الكارت: السعر والتكلفة وإجمالي البند */}
+                <div className="grid grid-cols-2 gap-3 mb-3 text-xs bg-slate-950 p-2.5 rounded-xl border border-slate-800/80">
+                  <div>
+                    <span className="text-slate-400 block mb-1">سعر تكلفة الشراء (ج.م):</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={row.cost}
+                      onChange={(e) => updateRow(idx, 'cost', parseFloat(e.target.value) || 0)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-1.5 font-mono font-black text-emerald-400 text-sm outline-none"
+                    />
+                  </div>
+
+                  <div className="text-left flex flex-col justify-center">
+                    <span className="text-slate-400 block mb-1">إجمالي استرداد الصنف:</span>
+                    <span className="font-mono font-black text-rose-400 text-base">
+                      {lineTotal.toLocaleString()} <small className="text-[10px] text-slate-400 font-normal">ج.م</small>
+                    </span>
+                    {row.currentStock !== undefined && (
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        رصيد المخزن الحالي: {row.currentStock}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* إدخال الكمية المرتجعة مع Numeric Keypad مباشر */}
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <span className="text-xs font-black text-slate-300">الكمية المرتجعة:</span>
+
+                  <div className="flex items-center gap-1.5">
+                    {/* زر إنقاص */}
+                    <button
+                      type="button"
+                      onClick={() => updateRow(idx, 'quantity', Math.max(0, qtyNum - 1))}
+                      className="w-10 h-10 rounded-xl bg-slate-800 active:bg-slate-700 border border-slate-700 text-white font-black text-lg flex items-center justify-center"
+                    >
+                      -
+                    </button>
+
+                    {/* حقل الإدخال الرقمي مع تفعيل لوحة أرقام الموبايل وتحديد المحتوى فوراً */}
+                    <input
+                      ref={(el) => { qtyInputRefs.current[row.id] = el }}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="0"
+                      value={row.quantity}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '')
+                        updateRow(idx, 'quantity', val === '' ? '' : parseInt(val, 10))
+                      }}
+                      className="w-20 h-10 bg-slate-950 border-2 border-rose-500/60 focus:border-rose-400 rounded-xl text-center font-mono font-black text-rose-300 text-xl outline-none shadow-inner"
+                    />
+
+                    {/* زر زيادة */}
+                    <button
+                      type="button"
+                      onClick={() => updateRow(idx, 'quantity', qtyNum + 1)}
+                      className="w-10 h-10 rounded-xl bg-slate-800 active:bg-slate-700 border border-slate-700 text-white font-black text-lg flex items-center justify-center"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {/* أزرار مضاعفات سريعة للكميات */}
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => updateRow(idx, 'quantity', qtyNum + 4)}
+                      className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-2 py-1.5 rounded-lg text-xs font-bold font-mono"
+                      title="إضافة 4 قطع"
+                    >
+                      +4
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateRow(idx, 'quantity', qtyNum + 12)}
+                      className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-2 py-1.5 rounded-lg text-xs font-bold font-mono"
+                      title="إضافة دستة 12 قطعة"
+                    >
+                      +12
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* مودال الكاميرا لمسح الباركود */}
+      {showScanner && (
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-slate-900 rounded-3xl overflow-hidden relative border-2 border-rose-500 shadow-2xl">
+            <div className="p-3 bg-slate-950 border-b border-slate-800 flex justify-between items-center text-white">
+              <span className="text-xs font-bold flex items-center gap-1.5">
+                <span>📷</span>
+                <span>وجه الكاميرا نحو باركود الصنف المرتجع</span>
+              </span>
+              <button
+                onClick={() => setShowScanner(false)}
+                className="bg-rose-600 hover:bg-rose-500 text-white w-7 h-7 rounded-full font-bold flex items-center justify-center text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="aspect-square w-full bg-black relative flex items-center justify-center">
+              <BarcodeScanner onScan={handleBarcodeScanned} />
+              <div className="absolute inset-0 pointer-events-none border-2 border-rose-500/40 m-8 rounded-2xl flex items-center justify-center">
+                <div className="w-full h-0.5 bg-rose-500 animate-pulse"></div>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-950 text-center">
+              <button
+                onClick={() => setShowScanner(false)}
+                className="w-full py-2.5 bg-slate-800 text-slate-300 font-bold text-xs rounded-xl"
+              >
+                إلغاء السكانر
+              </button>
+            </div>
+          </div>
+        </div>
       )}
+
+      {/* مودال تغيير اللون السريع */}
+      {editingRowIndex !== null && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-2xl p-5 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+              <h3 className="font-bold text-sm text-white">
+                اختيار لون الموديل: {rows[editingRowIndex]?.modelNo}
+              </h3>
+              <button onClick={() => setEditingRowIndex(null)} className="text-slate-400 font-bold text-lg">✕</button>
+            </div>
+
+            <div className="space-y-1.5 max-h-60 overflow-y-auto">
+              {availableColorsForEdit.map((c, i) => (
+                <div
+                  key={i}
+                  onClick={() => {
+                    updateRow(editingRowIndex, 'color', c.color)
+                    if (c.cost) updateRow(editingRowIndex, 'cost', c.cost)
+                    setEditingRowIndex(null)
+                  }}
+                  className="p-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl cursor-pointer flex justify-between items-center text-xs"
+                >
+                  <span className="font-bold text-white text-sm">{c.color}</span>
+                  <span className="font-mono text-emerald-400">{c.cost || 0} ج.م</span>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setEditingRowIndex(null)}
+              className="w-full bg-slate-800 text-slate-300 py-2.5 rounded-xl font-bold text-xs"
+            >
+              إلغاء
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* شريط الإجراءات السفلي العائم (Floating Bottom Action Bar) */}
+      <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 p-3 shadow-2xl z-40">
+        <div className="max-w-2xl mx-auto flex items-center justify-between gap-3">
+          
+          {/* ملخص الإجماليات */}
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-slate-400 block">إجمالي المرتجع:</span>
+              <span className="text-[10px] font-bold text-rose-400 bg-rose-950/60 px-1.5 py-0.5 rounded">
+                {totalQuantity} قطعة
+              </span>
+            </div>
+            <div className="text-xl font-black font-mono text-emerald-400">
+              {totalAmount.toLocaleString()} <small className="text-xs text-slate-400">ج.م</small>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* زر كاميرا سكانر عائم وسريع */}
+            <button
+              type="button"
+              onClick={() => setShowScanner(true)}
+              className="w-12 h-12 bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700 rounded-2xl flex items-center justify-center text-2xl shadow-lg transition"
+              title="مسح صنف جديد"
+            >
+              📷
+            </button>
+
+            {/* زر حفظ وتأكيد المرتجع */}
+            <button
+              type="button"
+              onClick={handleSubmitInvoice}
+              disabled={isSaving || rows.length === 0}
+              className="bg-rose-600 hover:bg-rose-500 active:scale-95 disabled:bg-slate-800 disabled:text-slate-600 text-white px-5 sm:px-7 py-3 rounded-2xl font-black text-sm shadow-xl shadow-rose-900/40 transition flex items-center gap-1.5"
+            >
+              <span>{isSaving ? '⏳ جاري الحفظ...' : (isOnline ? 'حفظ المرتجع ✅' : 'حفظ محلي (أوفلاين) 📦')}</span>
+            </button>
+          </div>
+
+        </div>
+      </div>
+
     </div>
   )
 }

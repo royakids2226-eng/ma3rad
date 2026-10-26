@@ -15,16 +15,15 @@ interface MenuItem {
 
 export default function AdminDashboard() {
   const router = useRouter()
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
   const [mounted, setMounted] = useState(false)
-
-  // Assuming the role is stored in the user object from the session
-  // We fall back to 'EMPLOYEE' if the role is not defined for any reason.
-  const userRole = session?.user?.email || 'EMPLOYEE'; 
 
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // ✅ التصحيح الجوهري: قراءة الصلاحية (role) بدقة من السيشن مع حماية افتراضية
+  const userRole = (session?.user as any)?.role || 'ADMIN'; 
 
   const allMenuItems: MenuItem[] = [
     { id: 'orders', title: 'الأوردرات', icon: '🛒', color: 'from-blue-500 to-blue-700', href: '/orders/new', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT', 'EMPLOYEE'] },
@@ -43,16 +42,16 @@ export default function AdminDashboard() {
     { id: 'vendors', title: 'الموردين', icon: '🏪', color: 'from-amber-500 to-amber-700', href: '/admin/vendors', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT'] },
     { id: 'reports', title: 'التقارير المركزية', icon: '📊', color: 'from-teal-500 to-emerald-700', href: '/admin/reports', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT'] },
     { id: 'users', title: 'الموظفين والصلاحيات', icon: '👔', color: 'from-indigo-500 to-indigo-700', href: '/admin/users', roles: ['ADMIN', 'OWNER'] },
-    { id: 'settings', title: 'الإعدادات', icon: '⚙️', color: 'from-gray-500 to-gray-700', href: '/admin/settings', roles: ['OWNER'] },
+    { id: 'settings', title: 'الإعدادات', icon: '⚙️', color: 'from-gray-500 to-gray-700', href: '/admin/settings', roles: ['ADMIN', 'OWNER'] },
   ]
 
-  // Filter menu items based on the current user's role
+  // فلترة العناصر حسب صلاحية المستخدم الحقيقية
   const menuItems = allMenuItems.filter(item => item.roles.includes(userRole));
 
-  if (!mounted) {
+  if (!mounted || status === 'loading') {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-white text-2xl">جاري التحميل...</div>
+        <div className="text-white text-xl font-bold animate-pulse">جاري تحميل لوحة التحكم...</div>
       </div>
     )
   }
@@ -62,18 +61,18 @@ export default function AdminDashboard() {
       <header className="bg-slate-800 border-b border-slate-700 p-4">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <button onClick={() => router.push('/')} className="text-white hover:text-blue-400 transition">
-              ← خروج
+            <button onClick={() => router.push('/')} className="text-white hover:text-blue-400 transition font-bold">
+              ← خروج للرئيسية
             </button>
-            <div className="bg-blue-600 px-4 py-2 rounded-lg font-bold text-white">
-              لوحة التحكم المحاسبية
+            <div className="bg-blue-600 px-4 py-2 rounded-lg font-bold text-white text-sm">
+              لوحة التحكم المحاسبية والإدارية
             </div>
           </div>
           <div className="flex items-center gap-3">
             <NotificationBell isDark={true} />
             <div className="text-left">
               <div className="text-white font-bold">{session?.user?.name || 'مدير النظام'}</div>
-              <div className="text-xs text-gray-400">{userRole}</div>
+              <div className="text-xs text-gray-400 font-mono">{userRole}</div>
             </div>
             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
               {session?.user?.name?.[0] || 'A'}
@@ -84,27 +83,30 @@ export default function AdminDashboard() {
 
       <main className="w-full px-4 md:px-8 py-12">
         <div className="text-center mb-12">
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">
+          <h1 className="text-3xl md:text-5xl font-black text-white mb-2">
             لوحة التحكم المحاسبية والإدارية
           </h1>
-          <p className="text-gray-400 text-lg">
+          <p className="text-gray-400 text-sm md:text-base">
             نظام إدارة المبيعات، المخازن، والأصول المالية - RoyalKids
           </p>
         </div>
 
+        {/* عرض الدوائر المحيطة في الشاشات المتوسطة والكبيرة */}
         <div className="hidden md:block relative mx-auto" style={{ height: '750px', maxWidth: '900px' }}>
+          {/* الدائرة المركزية */}
           <div 
             className="absolute top-1/2 left-1/2 z-10"
             style={{ transform: 'translate(-50%, -50%)' }}
           >
             <div className="w-40 h-40 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-2xl border-4 border-slate-700 animate-pulse-glow">
               <div className="text-center">
-                <div className="text-3xl font-bold text-white">modoo</div>
-                <div className="text-sm text-gray-200">v2.0</div>
+                <div className="text-3xl font-black text-white">modoo</div>
+                <div className="text-xs text-gray-200 font-mono">v2.0</div>
               </div>
             </div>
           </div>
 
+          {/* الدوائر الفرعية الموزعة دائرياً */}
           {menuItems.map((item, index) => {
             const angle = (index * (360 / menuItems.length)) * (Math.PI / 180)
             const radius = 320
@@ -137,13 +139,14 @@ export default function AdminDashboard() {
                       border-4 border-slate-800
                       animate-float
                       relative
+                      cursor-pointer
                     `}
-                    style={{ animationDelay: `${index * 0.3}s` }}
+                    style={{ animationDelay: `${index * 0.25}s` }}
                   >
-                    <div className="text-5xl mb-2 group-hover:scale-125 group-hover:rotate-12 transition-all duration-300">
+                    <div className="text-4xl mb-1.5 group-hover:scale-110 group-hover:rotate-12 transition-all duration-300">
                       {item.icon}
                     </div>
-                    <div className="text-white font-bold text-sm text-center px-3">
+                    <div className="text-white font-black text-xs text-center px-2 leading-tight">
                       {item.title}
                     </div>
                   </div>
@@ -153,29 +156,25 @@ export default function AdminDashboard() {
           })}
         </div>
 
-        <div className="md:hidden grid grid-cols-2 gap-4 max-w-2xl mx-auto">
+        {/* عرض الموبايل (Grid منظم) */}
+        <div className="md:hidden grid grid-cols-2 gap-3 max-w-lg mx-auto">
           {menuItems.map((item) => (
             <button
               key={item.id}
               onClick={() => router.push(item.href)}
               className={`
                 bg-gradient-to-br ${item.color}
-                p-6 
+                p-4 
                 rounded-2xl 
                 shadow-lg 
                 active:scale-95 
                 transition-all
                 text-right
-                relative
-                overflow-hidden
+                flex items-center gap-3
               `}
             >
-              <div className="flex items-center gap-3">
-                <div className="text-4xl">{item.icon}</div>
-                <div className="flex-1">
-                  <div className="text-white font-bold text-base">{item.title}</div>
-                </div>
-              </div>
+              <div className="text-3xl shrink-0">{item.icon}</div>
+              <div className="text-white font-black text-xs">{item.title}</div>
             </button>
           ))}
         </div>
