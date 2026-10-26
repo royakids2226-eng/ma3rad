@@ -7,7 +7,7 @@ import NewOrderButton from "./NewOrderButton";
 import SharePdfButton from "./SharePdfButton";
 import PrintStyles from "./PrintStyles";
 import PrintStylesReceipt from "./PrintStylesReceipt";
-import ShareOnWhatsapp from "./ShareOnWhatsapp.tsx";
+import ShareOnWhatsapp from "./ShareOnWhatsapp";
 
 export default async function OrderPrintPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
