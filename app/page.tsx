@@ -249,6 +249,24 @@ export default async function Home() {
               </Link>
             </div>
 
+            {/* --- Boton que agregamos --- */}
+            <div className="scale-in" style={{ animationDelay: '0.28s' }}>
+              <Link 
+                href="/admin/purchases/returns/new" 
+                className="action-card block glass rounded-2xl p-6 text-center group border border-rose-500/30 hover:border-rose-500/60"
+              >
+                <div className="bg-gradient-to-br from-rose-500/20 to-red-500/20 w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300">
+                  <span className="text-3xl">📤</span>
+                </div>
+                <span className="text-white font-bold text-sm md:text-base">
+                  مرتجع مشتريات
+                </span>
+                <div className="text-rose-300 text-xs mt-1">
+                  إرجاع أصناف للمورد
+                </div>
+              </Link>
+            </div>
+
             {isAllowedInAdmin && (
               <div className="scale-in" style={{ animationDelay: '0.25s' }}>
                 <Link 
@@ -267,22 +285,6 @@ export default async function Home() {
                 </Link>
               </div>
             )}
-              <div className="scale-in" style={{ animationDelay: '0.28s' }}>
-                <Link 
-                  href="/admin/purchases/returns/new" 
-                  className="action-card block glass rounded-2xl p-6 text-center group border border-rose-500/30 hover:border-rose-500/60"
-                >
-                  <div className="bg-gradient-to-br from-rose-500/20 to-red-500/20 w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300">
-                    <span className="text-3xl">📤</span>
-                  </div>
-                  <span className="text-white font-bold text-sm md:text-base">
-                    مرتجع مشتريات
-                  </span>
-                  <div className="text-rose-300 text-xs mt-1">
-                    إرجاع أصناف للمورد
-                  </div>
-                </Link>
-              </div>
 
             {user?.role !== 'EMPLOYEE' && (
               <div className="scale-in" style={{ animationDelay: '0.3s' }}>

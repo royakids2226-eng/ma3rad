@@ -25,7 +25,8 @@ interface PurchaseInvoicePayload {
   items: PurchaseLineItem[]
 }
 
-async function checkAuthorizedUser() {
+// Modified to be more flexible
+async function checkAuthorizedUser(allowedRoles: string[] = ['ADMIN', 'OWNER', 'ACCOUNTANT']) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.image) {
     throw new Error('غير مصرح لك، يرجى تسجيل الدخول')
@@ -35,12 +36,13 @@ async function checkAuthorizedUser() {
     where: { id: session.user.image as string }
   })
 
-  if (!user || !['ADMIN', 'OWNER', 'ACCOUNTANT'].includes(user.role)) {
+  if (!user || !allowedRoles.includes(user.role)) {
     throw new Error('ليست لديك صلاحية للقيام بهذه العملية')
   }
 
   return user
 }
+
 
 // A new function to get all products for caching.
 export async function fetchAllProductsForCache() {
@@ -70,7 +72,11 @@ export async function fetchAllProductsForCache() {
 // إنشاء فاتورة مشتريات / مرتجع جديدة
 export async function createPurchaseInvoice(data: PurchaseInvoicePayload) {
   try {
-    const user = await checkAuthorizedUser()
+    // Allow Employees to create RETURN invoices
+    const allowedRoles = data.invoiceType === 'RETURN'
+      ? ['ADMIN', 'OWNER', 'ACCOUNTANT', 'EMPLOYEE']
+      : ['ADMIN', 'OWNER', 'ACCOUNTANT'];
+    const user = await checkAuthorizedUser(allowedRoles);
 
     if (!data.vendorId) {
       return { success: false, error: 'يرجى تحديد المورد' }
@@ -137,7 +143,10 @@ export async function createPurchaseInvoice(data: PurchaseInvoicePayload) {
     const totalAmount = finalItems.reduce((sum, item) => sum + (item.quantity * item.cost), 0)
 
     if (totalAmount <= 0) {
-      return { success: false, error: 'إجمالي الفاتورة يجب أن يكون أكبر من الصفر' }
+      // For returns, a zero total might be valid if items are being returned for other reasons.
+      if(data.invoiceType === 'PURCHASE') {
+        return { success: false, error: 'إجمالي الفاتورة يجب أن يكون أكبر من الصفر' }
+      }
     }
 
     if (data.paymentStatus === 'CASH' && !data.safeId) {
@@ -217,50 +226,37 @@ export async function createPurchaseInvoice(data: PurchaseInvoicePayload) {
         }
 
         // 3. سطر مالي واحد في كشف حساب المورد بإجمالي الفاتورة
-        const totalPieces = finalItems.reduce((s, it) => s + it.quantity, 0)
-        await tx.vendorTransaction.create({
-          data: {
-            vendorId: vendor.id,
-            type: transType,
-            amount: totalAmount,
-            reference: invoiceNumber,
-            description: isPurchase
-              ? `فاتورة مشتريات #${invoiceNumber} (${data.paymentStatus === 'CASH' ? 'نقدي' : 'آجل'}) - إجمالي ${finalItems.length} صنف (${totalPieces} قطعة)`
-              : `مرتجع مشتريات للمورد #${invoiceNumber} (${data.paymentStatus === 'CASH' ? 'نقدي' : 'آجل'}) - إجمالي ${finalItems.length} صنف (${totalPieces} قطعة)`,
-            userId: user.id,
-            createdAt: invoiceDate
-          }
-        })
+        if (totalAmount > 0) { // Only create a transaction if there is a monetary value
+            const totalPieces = finalItems.reduce((s, it) => s + it.quantity, 0)
+            await tx.vendorTransaction.create({
+              data: {
+                vendorId: vendor.id,
+                type: transType,
+                amount: totalAmount,
+                reference: invoiceNumber,
+                description: isPurchase
+                  ? `فاتورة مشتريات #${invoiceNumber} (${data.paymentStatus === 'CASH' ? 'نقدي' : 'آجل'}) - إجمالي ${finalItems.length} صنف (${totalPieces} قطعة)`
+                  : `مرتجع مشتريات للمورد #${invoiceNumber} (${data.paymentStatus === 'CASH' ? 'نقدي' : 'آجل'}) - إجمالي ${finalItems.length} صنف (${totalPieces} قطعة)`,
+                userId: user.id,
+                createdAt: invoiceDate
+              }
+            })
 
-        // 4. في حال السداد النقدي
-        if (data.paymentStatus === 'CASH' && data.safeId) {
-          if (isPurchase) {
-            await tx.payment.create({
-              data: {
-                type: 'OUT',
-                amount: totalAmount,
-                currency: 'EGP',
-                safeId: data.safeId,
-                vendorId: vendor.id,
-                userId: user.id,
-                description: `سداد نقدي لفاتورة مشتريات #${invoiceNumber} للمورد: ${vendor.name}`,
-                createdAt: invoiceDate
-              }
-            })
-          } else {
-            await tx.payment.create({
-              data: {
-                type: 'IN',
-                amount: totalAmount,
-                currency: 'EGP',
-                safeId: data.safeId,
-                vendorId: vendor.id,
-                userId: user.id,
-                description: `استرداد نقدي لمرتجع مشتريات #${invoiceNumber} من المورد: ${vendor.name}`,
-                createdAt: invoiceDate
-              }
-            })
-          }
+            // 4. في حال السداد النقدي
+            if (data.paymentStatus === 'CASH' && data.safeId) {
+              await tx.payment.create({
+                data: {
+                  type: isPurchase ? 'OUT' : 'IN',
+                  amount: totalAmount,
+                  currency: 'EGP',
+                  safeId: data.safeId,
+                  vendorId: vendor.id,
+                  userId: user.id,
+                  description: `${isPurchase ? 'سداد نقدي لفاتورة مشتريات' : 'استرداد نقدي لمرتجع مشتريات'} #${invoiceNumber} للمورد: ${vendor.name}`,
+                  createdAt: invoiceDate
+                }
+              })
+            }
         }
       },
       { maxWait: 30000, timeout: 60000 }
@@ -679,7 +675,8 @@ export async function createQuickProduct(data: {
   vendorId?: string
 }) {
   try {
-    await checkAuthorizedUser()
+    // Allow employees to create products as well
+    await checkAuthorizedUser(['ADMIN', 'OWNER', 'ACCOUNTANT', 'EMPLOYEE']);
 
     if (!data.modelNo || !data.color) {
       return { success: false, error: 'الموديل واللون مطلوبان' }

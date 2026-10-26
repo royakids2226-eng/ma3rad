@@ -4,34 +4,50 @@ import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import NotificationBell from './NotificationBell'
 
+interface MenuItem {
+  id: string;
+  title: string;
+  icon: string;
+  color: string;
+  href: string;
+  roles: string[];
+}
+
 export default function AdminDashboard() {
   const router = useRouter()
   const { data: session } = useSession()
   const [mounted, setMounted] = useState(false)
 
+  // Assuming the role is stored in the user object from the session
+  // We fall back to 'EMPLOYEE' if the role is not defined for any reason.
+  const userRole = session?.user?.email || 'EMPLOYEE'; 
+
   useEffect(() => {
     setMounted(true)
   }, [])
 
-  const menuItems = [
-    { id: 'orders', title: 'الأوردرات', icon: '🛒', color: 'from-blue-500 to-blue-700', href: '/orders/new' },
-    { id: 'purchases', title: 'فاتورة مشتريات', icon: '📥', color: 'from-violet-600 to-purple-800', href: '/admin/purchases/new' },
-    { id: 'purchase-returns', title: 'مرتجع مشتريات', icon: '📤', color: 'from-red-600 to-rose-800', href: '/admin/purchases/returns/new' },
-    { id: 'financial-reports', title: 'القوائم المالية والأرباح', icon: '📈', color: 'from-emerald-600 to-teal-800', href: '/admin/reports/financial' },
-    { id: 'financial-papers', title: 'الشيكات والأوراق المالية', icon: '📑', color: 'from-teal-600 to-emerald-800', href: '/admin/financial-papers' },
-    { id: 'debtors-creditors', title: 'الدائنون والمدينون (قروض)', icon: '🤝', color: 'from-indigo-600 to-purple-800', href: '/admin/debtors-creditors' },
-    { id: 'assets', title: 'الأصول الثابتة الرأسمالية', icon: '🏭', color: 'from-cyan-600 to-blue-800', href: '/admin/assets' },
-    { id: 'offers', title: 'إدارة العروض', icon: '🏷️', color: 'from-pink-500 to-rose-600', href: '/admin/offers' },
-    { id: 'audits', title: 'إدارة الجرد', icon: '⚖️', color: 'from-cyan-500 to-blue-700', href: '/admin/inventory-audits' },
-    { id: 'cash', title: 'النقدية والخزينة', icon: '💰', color: 'from-green-500 to-green-700', href: '/payments/new' },
-    { id: 'inventory', title: 'المخزون والأصناف', icon: '📦', color: 'from-purple-500 to-purple-700', href: '/admin/products' },
-    { id: 'customers', title: 'العملاء', icon: '👥', color: 'from-orange-500 to-orange-700', href: '/admin/customers' },
-    { id: 'vendors', title: 'الموردين', icon: '🏪', color: 'from-amber-500 to-amber-700', href: '/admin/vendors' },
-    { id: 'reports', title: 'التقارير المركزية', icon: '📊', color: 'from-teal-500 to-emerald-700', href: '/admin/reports' },
-    { id: 'returns', title: 'المرتجعات', icon: '↩️', color: 'from-red-500 to-red-700', href: '/admin/returns' },
-    { id: 'users', title: 'الموظفين والصلاحيات', icon: '👔', color: 'from-indigo-500 to-indigo-700', href: '/admin/users' },
-    { id: 'settings', title: 'الإعدادات', icon: '⚙️', color: 'from-gray-500 to-gray-700', href: '/admin/settings' },
+  const allMenuItems: MenuItem[] = [
+    { id: 'orders', title: 'الأوردرات', icon: '🛒', color: 'from-blue-500 to-blue-700', href: '/orders/new', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT', 'EMPLOYEE'] },
+    { id: 'cash', title: 'النقدية والخزينة', icon: '💰', color: 'from-green-500 to-green-700', href: '/payments/new', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT', 'EMPLOYEE'] },
+    { id: 'purchase-returns', title: 'مرتجع مشتريات', icon: '📤', color: 'from-red-600 to-rose-800', href: '/admin/purchases/returns/new', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT', 'EMPLOYEE'] },
+    { id: 'returns', title: 'المرتجعات', icon: '↩️', color: 'from-red-500 to-red-700', href: '/admin/returns', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT', 'EMPLOYEE'] },
+    { id: 'customers', title: 'العملاء', icon: '👥', color: 'from-orange-500 to-orange-700', href: '/admin/customers', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT', 'EMPLOYEE'] },
+    { id: 'inventory', title: 'المخزون والأصناف', icon: '📦', color: 'from-purple-500 to-purple-700', href: '/admin/products', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT', 'EMPLOYEE'] },
+    { id: 'purchases', title: 'فاتورة مشتريات', icon: '📥', color: 'from-violet-600 to-purple-800', href: '/admin/purchases/new', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT'] },
+    { id: 'financial-reports', title: 'القوائم المالية والأرباح', icon: '📈', color: 'from-emerald-600 to-teal-800', href: '/admin/reports/financial', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT'] },
+    { id: 'financial-papers', title: 'الشيكات والأوراق المالية', icon: '📑', color: 'from-teal-600 to-emerald-800', href: '/admin/financial-papers', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT'] },
+    { id: 'debtors-creditors', title: 'الدائنون والمدينون (قروض)', icon: '🤝', color: 'from-indigo-600 to-purple-800', href: '/admin/debtors-creditors', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT'] },
+    { id: 'assets', title: 'الأصول الثابتة الرأسمالية', icon: '🏭', color: 'from-cyan-600 to-blue-800', href: '/admin/assets', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT'] },
+    { id: 'offers', title: 'إدارة العروض', icon: '🏷️', color: 'from-pink-500 to-rose-600', href: '/admin/offers', roles: ['ADMIN', 'OWNER'] },
+    { id: 'audits', title: 'إدارة الجرد', icon: '⚖️', color: 'from-cyan-500 to-blue-700', href: '/admin/inventory-audits', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT'] },
+    { id: 'vendors', title: 'الموردين', icon: '🏪', color: 'from-amber-500 to-amber-700', href: '/admin/vendors', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT'] },
+    { id: 'reports', title: 'التقارير المركزية', icon: '📊', color: 'from-teal-500 to-emerald-700', href: '/admin/reports', roles: ['ADMIN', 'OWNER', 'ACCOUNTANT'] },
+    { id: 'users', title: 'الموظفين والصلاحيات', icon: '👔', color: 'from-indigo-500 to-indigo-700', href: '/admin/users', roles: ['ADMIN', 'OWNER'] },
+    { id: 'settings', title: 'الإعدادات', icon: '⚙️', color: 'from-gray-500 to-gray-700', href: '/admin/settings', roles: ['OWNER'] },
   ]
+
+  // Filter menu items based on the current user's role
+  const menuItems = allMenuItems.filter(item => item.roles.includes(userRole));
 
   if (!mounted) {
     return (
@@ -57,7 +73,7 @@ export default function AdminDashboard() {
             <NotificationBell isDark={true} />
             <div className="text-left">
               <div className="text-white font-bold">{session?.user?.name || 'مدير النظام'}</div>
-              <div className="text-xs text-gray-400">{session?.user?.email || 'ADMIN'}</div>
+              <div className="text-xs text-gray-400">{userRole}</div>
             </div>
             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
               {session?.user?.name?.[0] || 'A'}
