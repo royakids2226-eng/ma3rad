@@ -53,6 +53,8 @@ export default function NewPurchaseReturnInvoicePage() {
   const [selectedSafeId, setSelectedSafeId] = useState('')
   const [vendors, setVendors] = useState<any[]>([])
   const [allProducts, setAllProducts] = useState<any[]>([])
+  
+  // ✅ المورد الافتراضي "رؤية"
   const [selectedVendor, setSelectedVendor] = useState<any>(null)
   const [vendorSearch, setVendorSearch] = useState('')
   const [showVendorDropdown, setShowVendorDropdown] = useState(false)
@@ -77,6 +79,17 @@ export default function NewPurchaseReturnInvoicePage() {
 
   // مراجع عناصر الإدخال
   const qtyInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({})
+
+  // دالة مساعدة لضبط المورد "رؤية" افتراضياً
+  const applyDefaultRoyaVendor = (vendorsList: any[]) => {
+    if (!vendorsList || vendorsList.length === 0) return
+    const roya = vendorsList.find((v: any) => v.name?.trim() === 'رؤية') || 
+                 vendorsList.find((v: any) => v.name?.includes('رؤية'))
+    if (roya) {
+      setSelectedVendor(roya)
+      setVendorSearch(roya.name)
+    }
+  }
 
   // فحص الاتصال بالإنترنت والتهيئة
   useEffect(() => {
@@ -121,6 +134,7 @@ export default function NewPurchaseReturnInvoicePage() {
 
         setVendors(vendorsData || [])
         cacheVendors(vendorsData || [])
+        applyDefaultRoyaVendor(vendorsData || [])
 
         setAllProducts(productsData || [])
         cacheProducts(productsData || [])
@@ -140,7 +154,9 @@ export default function NewPurchaseReturnInvoicePage() {
   }
 
   const loadDataFromCache = () => {
-    setVendors(getCachedVendors())
+    const cachedV = getCachedVendors()
+    setVendors(cachedV)
+    applyDefaultRoyaVendor(cachedV)
     setAllProducts(getCachedProducts())
   }
 
@@ -194,7 +210,6 @@ export default function NewPurchaseReturnInvoicePage() {
 
     if (existingIndex > -1) {
       targetRowId = rows[existingIndex].id
-      // زيادة الكمية بمقدار 1 أو الاستعداد للتعديل
       setRows(prev => {
         const copy = [...prev]
         const currentQ = Number(copy[existingIndex].quantity) || 0
@@ -319,6 +334,7 @@ export default function NewPurchaseReturnInvoicePage() {
       alert('📦 تم حفظ المرتجع محلياً بنجاح (وضع غير متصل). ستتم المزامنة تلقائياً فور عودة الإنترنت.')
       setRows([])
       setInvoiceNo(`RET-${Date.now().toString().slice(-6)}`)
+      applyDefaultRoyaVendor(vendors)
       return
     }
 
@@ -395,7 +411,7 @@ export default function NewPurchaseReturnInvoicePage() {
       {/* بطاقة المورد والإعدادات */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl mb-4 space-y-3">
         
-        {/* اختيار المورد */}
+        {/* اختيار المورد مع تعيين "رؤية" افتراضياً وإمكانية تغييره */}
         <div className="relative" ref={vendorRef}>
           <div className="flex justify-between items-center mb-1">
             <label className="text-xs font-bold text-slate-300">المورد المستلم للمرتجع *</label>
@@ -406,17 +422,36 @@ export default function NewPurchaseReturnInvoicePage() {
             )}
           </div>
 
-          <input
-            type="text"
-            placeholder="ابحث عن مورد بالاسم أو الكود..."
-            value={vendorSearch}
-            onChange={(e) => {
-              setVendorSearch(e.target.value)
-              setShowVendorDropdown(true)
-            }}
-            onFocus={() => setShowVendorDropdown(true)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white text-sm font-bold focus:border-rose-500 outline-none"
-          />
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="ابحث عن مورد بالاسم أو الكود..."
+              value={vendorSearch}
+              onChange={(e) => {
+                setVendorSearch(e.target.value)
+                setShowVendorDropdown(true)
+                if (e.target.value.trim() === '') setSelectedVendor(null)
+              }}
+              onFocus={() => setShowVendorDropdown(true)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 pl-16 text-white text-sm font-bold focus:border-rose-500 outline-none"
+            />
+            
+            {/* زر تفريغ وتغيير المورد */}
+            {selectedVendor && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedVendor(null)
+                  setVendorSearch('')
+                  setShowVendorDropdown(true)
+                }}
+                className="absolute left-2.5 top-2.5 bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-400 border border-slate-700 px-2 py-1 rounded-lg text-xs font-bold transition"
+                title="تغيير المورد"
+              >
+                تغيير ✕
+              </button>
+            )}
+          </div>
 
           {showVendorDropdown && (
             <div className="absolute top-full left-0 right-0 z-50 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl mt-1 max-h-56 overflow-y-auto divide-y divide-slate-800">
@@ -431,7 +466,9 @@ export default function NewPurchaseReturnInvoicePage() {
                       setVendorSearch(v.name)
                       setShowVendorDropdown(false)
                     }}
-                    className="p-3 hover:bg-slate-800 cursor-pointer flex justify-between items-center text-xs"
+                    className={`p-3 hover:bg-slate-800 cursor-pointer flex justify-between items-center text-xs ${
+                      selectedVendor?.id === v.id ? 'bg-slate-800/80 font-bold' : ''
+                    }`}
                   >
                     <div>
                       <span className="font-bold text-white block text-sm">{v.name}</span>
