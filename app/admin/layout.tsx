@@ -24,6 +24,13 @@ import {
 
 const prisma = new PrismaClient();
 
+const roleDisplayNames: { [key: string]: string } = {
+  ADMIN: 'مدير عام',
+  OWNER: 'صاحب الشركة',
+  ACCOUNTANT: 'محاسب عام',
+  EMPLOYEE: 'موظف',
+};
+
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
 
@@ -39,12 +46,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     redirect("/");
   }
 
-  // حماية مشددة: مسموح فقط للمدير وصاحب العمل والمحاسب
-  const allowedRoles = ["ADMIN", "OWNER", "ACCOUNTANT"];
-  if (!allowedRoles.includes(user.role)) {
-    redirect("/");
-  }
-
   return (
     <div className="min-h-screen bg-slate-900 font-sans" dir="rtl">
       <nav className="bg-slate-900 text-white p-4 shadow-xl sticky top-0 z-50 backdrop-blur-md bg-slate-900/95 border-b border-slate-800">
@@ -55,7 +56,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <div>
                 <span className="block leading-none">لوحة التحكم المحاسبية</span>
                 <span className="text-[10px] font-normal text-slate-400">
-                  مرحباً بك، {user.name} | الصلاحية: {user.role === 'ADMIN' ? 'مدير عام' : user.role === 'OWNER' ? 'صاحب الشركة' : 'محاسب عام'}
+                  مرحباً بك، {user.name} | الصلاحية: {roleDisplayNames[user.role] || user.role}
                 </span>
             </div>
           </div>
