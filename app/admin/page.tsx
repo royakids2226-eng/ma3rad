@@ -16,6 +16,7 @@ export default function AdminDashboard() {
   const menuItems = [
     { id: 'orders', title: 'الأوردرات', icon: '🛒', color: 'from-blue-500 to-blue-700', href: '/orders/new' },
     { id: 'purchases', title: 'فاتورة مشتريات', icon: '📥', color: 'from-violet-600 to-purple-800', href: '/admin/purchases/new' },
+    { id: 'purchase-returns', title: 'مرتجع مشتريات', icon: '📤', color: 'from-red-600 to-rose-800', href: '/admin/purchases/returns/new' },
     { id: 'financial-reports', title: 'القوائم المالية والأرباح', icon: '📈', color: 'from-emerald-600 to-teal-800', href: '/admin/reports/financial' },
     { id: 'financial-papers', title: 'الشيكات والأوراق المالية', icon: '📑', color: 'from-teal-600 to-emerald-800', href: '/admin/financial-papers' },
     { id: 'debtors-creditors', title: 'الدائنون والمدينون (قروض)', icon: '🤝', color: 'from-indigo-600 to-purple-800', href: '/admin/debtors-creditors' },

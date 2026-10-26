@@ -42,6 +42,31 @@ async function checkAuthorizedUser() {
   return user
 }
 
+// A new function to get all products for caching.
+export async function fetchAllProductsForCache() {
+    try {
+        const products = await prisma.product.findMany({
+            select: {
+                id: true,
+                modelNo: true,
+                color: true,
+                cost: true,
+                price: true,
+                currentStock: true,
+                description: true,
+                vendorId: true,
+            },
+            orderBy: {
+                modelNo: 'asc'
+            }
+        });
+        return products;
+    } catch (error) {
+        console.error("Error fetching all products for cache:", error);
+        return [];
+    }
+}
+
 // إنشاء فاتورة مشتريات / مرتجع جديدة
 export async function createPurchaseInvoice(data: PurchaseInvoicePayload) {
   try {
@@ -539,7 +564,7 @@ export async function cancelVendorInvoice(invoiceNumber: string) {
         const oldTrans = await tx.vendorTransaction.findMany({ where: { reference: invoiceNumber } })
         for (const t of oldTrans) {
           if (t.productId && t.quantity) {
-            const delta = t.type === 'PURCHASE' ? -t.quantity : t.quantity
+            const delta = t.type === 'PURCHACE' ? -t.quantity : t.quantity
             await tx.product.update({
               where: { id: t.productId },
               data: { currentStock: { increment: delta } }
