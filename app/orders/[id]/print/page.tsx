@@ -7,6 +7,7 @@ import NewOrderButton from "./NewOrderButton";
 import SharePdfButton from "./SharePdfButton";
 import PrintStyles from "./PrintStyles";
 import PrintStylesReceipt from "./PrintStylesReceipt";
+import ShareOnWhatsapp from "./ShareOnWhatsapp.tsx";
 
 export default async function OrderPrintPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
@@ -71,7 +72,14 @@ export default async function OrderPrintPage({ params }: { params: Promise<{ id:
   const depositDeducted = order.currency === 'EGP' ? depositPaid : 0; 
   const remainingAmount = netTotal - depositDeducted;
 
-  // --- End Corrected Total Calculations ---
+  // --- End Corrected Total Calculations -- -
+  const summary =
+    `ملخص الفاتورة رقم ${order.orderNo}\n` +
+    `العميل: ${order.customer.name}\n` +
+    `\n صافي الفاتورة: ${netTotal.toFixed(2)} ج.م` +
+    `\n المدفوع: ${depositPaid.toFixed(2)} ج.م` +
+    `\n المبلغ المتبقي: ${remainingAmount.toFixed(2)} ج.م`;
+
 
   return (
     <div className="bg-gray-100 min-h-screen" dir="rtl">
@@ -86,6 +94,11 @@ export default async function OrderPrintPage({ params }: { params: Promise<{ id:
           customerName={order.customer.name}
           orderNo={order.orderNo}
           phone={order.customer.phone}
+        />
+        <ShareOnWhatsapp
+          phone={order.customer.phone}
+          message={settings?.whatsappMessage}
+          summary={summary}
         />
       </div>
 

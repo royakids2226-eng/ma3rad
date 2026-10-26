@@ -16,6 +16,7 @@ export default async function SettingsPage({
       invoiceNotes: formData.get("invoiceNotes") as string,
       header: formData.get("header") as string,
       footer: formData.get("footer") as string,
+      whatsappMessage: formData.get("whatsappMessage") as string,
     };
 
     const result = await updateSettings(data);
@@ -119,6 +120,25 @@ export default async function SettingsPage({
           />
           <p className="mt-2 text-sm text-gray-500">
             نص عام يظهر في قسم الملاحظات بجميع الفواتير.
+          </p>
+        </div>
+
+        <div>
+          <label
+            htmlFor="whatsappMessage"
+            className="block text-base font-semibold text-gray-800 mb-2"
+          >
+            رسالة ترحيب الواتساب
+          </label>
+          <textarea
+            id="whatsappMessage"
+            name="whatsappMessage"
+            rows={4}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            defaultValue={settings?.whatsappMessage || ""}
+          />
+          <p className="mt-2 text-sm text-gray-500">
+            رسالة ترحيبية يتم إرسالها مع ملخص الفاتورة على الواتساب.
           </p>
         </div>
 
