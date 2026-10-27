@@ -34,6 +34,8 @@ interface InvoiceRow {
   currentStock?: number
 }
 
+const DRAFT_STORAGE_KEY = 'purchase_return_draft_v2'
+
 export default function NewPurchaseReturnInvoicePage() {
   const router = useRouter()
 
@@ -54,7 +56,7 @@ export default function NewPurchaseReturnInvoicePage() {
   const [vendors, setVendors] = useState<any[]>([])
   const [allProducts, setAllProducts] = useState<any[]>([])
   
-  // ✅ المورد الافتراضي "رؤية"
+  // المورد الافتراضي "رؤية"
   const [selectedVendor, setSelectedVendor] = useState<any>(null)
   const [vendorSearch, setVendorSearch] = useState('')
   const [showVendorDropdown, setShowVendorDropdown] = useState(false)
@@ -73,12 +75,25 @@ export default function NewPurchaseReturnInvoicePage() {
   const [editingRowIndex, setEditingRowIndex] = useState<number | null>(null)
   const [availableColorsForEdit, setAvailableColorsForEdit] = useState<any[]>([])
 
-  // مؤشرات التحميل
+  // مؤشرات التحميل والإشعارات
   const [isSaving, setIsSaving] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [notice, setNotice] = useState<{ text: string; type: 'success' | 'warn' } | null>(null)
 
-  // مراجع عناصر الإدخال
+  // مراجع عناصر الإدخال والأزرار
   const qtyInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({})
+
+  // مراجع لحماية الـ Back والـ Popstate
+  const rowsRef = useRef(rows)
+  useEffect(() => { rowsRef.current = rows }, [rows])
+
+  const showScannerRef = useRef(showScanner)
+  useEffect(() => { showScannerRef.current = showScanner }, [showScanner])
+
+  const editingRowIndexRef = useRef(editingRowIndex)
+  useEffect(() => { editingRowIndexRef.current = editingRowIndex }, [editingRowIndex])
+
+  const historyTrappedRef = useRef(false)
 
   // دالة مساعدة لضبط المورد "رؤية" افتراضياً
   const applyDefaultRoyaVendor = (vendorsList: any[]) => {
@@ -91,7 +106,101 @@ export default function NewPurchaseReturnInvoicePage() {
     }
   }
 
-  // فحص الاتصال بالإنترنت والتهيئة
+  // =========================================================================
+  // 1. حماية زر الرجوع (Back Button Interception) وتجنب الخروج غير المقصود
+  // =========================================================================
+  useEffect(() => {
+    const hasUnsaved = rows.length > 0
+    if (hasUnsaved && !historyTrappedRef.current) {
+      window.history.pushState({ page: 'return-active' }, '', window.location.href)
+      historyTrappedRef.current = true
+    } else if (!hasUnsaved) {
+      historyTrappedRef.current = false
+    }
+  }, [rows.length])
+
+  useEffect(() => {
+    let isLeavingConfirmed = false
+
+    const handlePopState = (e: PopStateEvent) => {
+      // أ) إذا كان سكانر الكاميرا مفتوحاً: اغلق الكاميرا فقط ولا تخرج من الفاتورة
+      if (showScannerRef.current) {
+        setShowScanner(false)
+        return
+      }
+
+      // ب) إذا كان مودال تغيير اللون مفتوحاً: اغلقه فقط
+      if (editingRowIndexRef.current !== null) {
+        setEditingRowIndex(null)
+        return
+      }
+
+      // ج) إذا كان هناك أصناف في الفاتورة
+      if (rowsRef.current.length > 0 && !isLeavingConfirmed) {
+        const confirmLeave = window.confirm(
+          '⚠️ تنبيه: لديك أصناف في فاتورة المرتجع الحالية لم يتم حفظها بعد!\n\nهل أنت متأكد من الخروج وإلغاء المسودة؟'
+        )
+
+        if (confirmLeave) {
+          isLeavingConfirmed = true
+          localStorage.removeItem(DRAFT_STORAGE_KEY)
+          historyTrappedRef.current = false
+          router.push('/')
+        } else {
+          // منع الخروج وإعادة تثبيت الصفحة
+          window.history.pushState({ page: 'return-active' }, '', window.location.href)
+        }
+      }
+    }
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (rowsRef.current.length > 0) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [router])
+
+  // دالة الخروج اليدوي من زر الهيدر
+  const handleExitClick = () => {
+    if (rows.length > 0) {
+      if (confirm('⚠️ تنبيه: لديك أصناف في فاتورة المرتجع الحالية.\n\nهل تريد الخروج وإلغاء المسودة؟')) {
+        localStorage.removeItem(DRAFT_STORAGE_KEY)
+        historyTrappedRef.current = false
+        router.push('/')
+      }
+    } else {
+      router.push('/')
+    }
+  }
+
+  // =========================================================================
+  // 2. الحفظ التلقائي للمسودة (Auto-Save Draft)
+  // =========================================================================
+  // حفظ التغييرات في الذاكرة المحلية تلقائياً
+  useEffect(() => {
+    if (rows.length > 0) {
+      try {
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({
+          rows,
+          notes,
+          invoiceNo,
+          paymentStatus,
+          vendorId: selectedVendor?.id
+        }))
+      } catch (e) {}
+    }
+  }, [rows, notes, invoiceNo, paymentStatus, selectedVendor])
+
+  // التحميل الأولي واسترجاع المسودة إن وجدت
   useEffect(() => {
     setIsOnline(navigator.onLine)
     const handleOnline = () => setIsOnline(true)
@@ -101,6 +210,25 @@ export default function NewPurchaseReturnInvoicePage() {
 
     loadInitialData()
     setUnsyncedReturns(getUnsyncedReturns())
+
+    // محاولة استرجاع المسودة المحفوظة
+    try {
+      const savedDraft = localStorage.getItem(DRAFT_STORAGE_KEY)
+      if (savedDraft) {
+        const parsed = JSON.parse(savedDraft)
+        if (parsed.rows && parsed.rows.length > 0) {
+          setRows(parsed.rows)
+          if (parsed.notes) setNotes(parsed.notes)
+          if (parsed.invoiceNo) setInvoiceNo(parsed.invoiceNo)
+          if (parsed.paymentStatus) setPaymentStatus(parsed.paymentStatus)
+          setNotice({
+            text: `تم استرجاع مسودة المرتجع السابقة (${parsed.rows.length} صنف) تلقائياً لحمايتها من الفقدان!`,
+            type: 'success'
+          })
+          setTimeout(() => setNotice(null), 5000)
+        }
+      }
+    } catch (e) {}
 
     const handleClickOutside = (e: MouseEvent) => {
       if (vendorRef.current && !vendorRef.current.contains(e.target as Node)) {
@@ -197,11 +325,17 @@ export default function NewPurchaseReturnInvoicePage() {
     return () => clearTimeout(timer)
   }, [manualSearch, isOnline, allProducts])
 
+  // فتح السكانر مع دفع حالة في الـ History لمنع الخروج إذا ضغط المستخدم Back
+  const handleOpenScanner = () => {
+    window.history.pushState({ modal: 'scanner' }, '', window.location.href)
+    setShowScanner(true)
+  }
+
   // إضافة صنف أو التركيز عليه فوراً بعد المسح أو الاختيار
   const handleSelectProduct = (prod: any) => {
     const rowId = `row-${Date.now()}-${Math.random()}`
     
-    // فحص ما إذا كان نفس الصنف (الموديل واللون) موجوداً مسبقاً في الفاتورة
+    // فحص ما إذا كان نفس الصنف موجوداً مسبقاً
     const existingIndex = rows.findIndex(
       r => r.modelNo.toLowerCase() === prod.modelNo.toLowerCase() && r.color === prod.color
     )
@@ -221,7 +355,7 @@ export default function NewPurchaseReturnInvoicePage() {
         id: rowId,
         modelNo: prod.modelNo,
         color: prod.color || 'افتراضي',
-        quantity: '', // خالية لإجبار المستخدم على إدخال الرقم الفعلي فوراً بدون مسح رقم 1
+        quantity: '', // خالية ليتم إدخال الكمية مباشرة بالكيبورد دون مسح رقم 1
         cost: prod.cost || 0,
         price: prod.price || 0,
         description: prod.description || '',
@@ -271,11 +405,18 @@ export default function NewPurchaseReturnInvoicePage() {
   }
 
   const removeRow = (index: number) => {
-    setRows(prev => prev.filter((_, i) => i !== index))
+    setRows(prev => {
+      const filtered = prev.filter((_, i) => i !== index)
+      if (filtered.length === 0) {
+        localStorage.removeItem(DRAFT_STORAGE_KEY)
+      }
+      return filtered
+    })
   }
 
   // تعديل ألوان الصنف في الكارت
   const openColorPicker = async (index: number) => {
+    window.history.pushState({ modal: 'color-picker' }, '', window.location.href)
     setEditingRowIndex(index)
     const row = rows[index]
     let colors = []
@@ -332,6 +473,7 @@ export default function NewPurchaseReturnInvoicePage() {
       saveReturnForSync(payload)
       setUnsyncedReturns(getUnsyncedReturns())
       alert('📦 تم حفظ المرتجع محلياً بنجاح (وضع غير متصل). ستتم المزامنة تلقائياً فور عودة الإنترنت.')
+      localStorage.removeItem(DRAFT_STORAGE_KEY)
       setRows([])
       setInvoiceNo(`RET-${Date.now().toString().slice(-6)}`)
       applyDefaultRoyaVendor(vendors)
@@ -346,6 +488,7 @@ export default function NewPurchaseReturnInvoicePage() {
 
     if (res.success) {
       alert(res.message)
+      localStorage.removeItem(DRAFT_STORAGE_KEY)
       router.push(`/admin/vendors/${selectedVendor.id}`)
     } else {
       alert('❌ خطأ: ' + res.error)
@@ -377,7 +520,17 @@ export default function NewPurchaseReturnInvoicePage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-3 sm:p-5 font-sans pb-44" dir="rtl">
       
-      {/* مؤشر حالة الشبكة */}
+      {/* إشعار سريع للمسودة المسترجعة أو النظام */}
+      {notice && (
+        <div className={`mb-3 p-3 rounded-2xl shadow-xl flex justify-between items-center text-xs font-bold border animate-in slide-in-from-top duration-300 ${
+          notice.type === 'success' ? 'bg-emerald-600/90 border-emerald-400 text-white' : 'bg-amber-600/90 border-amber-400 text-white'
+        }`}>
+          <span>{notice.text}</span>
+          <button onClick={() => setNotice(null)} className="text-white text-sm px-1 font-bold">✕</button>
+        </div>
+      )}
+
+      {/* مؤشر حالة الشبكة وزر الخروج المحمي */}
       <div className="flex justify-between items-center mb-3">
         <span className={`px-3 py-1 text-xs font-black rounded-full flex items-center gap-1.5 ${
           isOnline ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse'
@@ -386,12 +539,16 @@ export default function NewPurchaseReturnInvoicePage() {
           {isOnline ? 'متصل بالشبكة (أونلاين)' : 'أوفلاين (حفظ محلي)'}
         </span>
 
-        <Link href="/" className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-xl text-xs font-bold transition">
-          ← الرئيسية
-        </Link>
+        <button
+          type="button"
+          onClick={handleExitClick}
+          className="bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 px-3 py-1 rounded-xl text-xs font-bold transition border border-slate-700"
+        >
+          ← خروج
+        </button>
       </div>
 
-      {/* تنبيه بالمرتجعات المعلقة */}
+      {/* تنبيه بالمرتجعات المعلقة للمزامنة */}
       {unsyncedReturns.length > 0 && (
         <div className="bg-amber-950/40 border border-amber-500/50 rounded-2xl p-3 mb-4 flex justify-between items-center text-xs">
           <div>
@@ -546,7 +703,8 @@ export default function NewPurchaseReturnInvoicePage() {
           </div>
 
           <button
-            onClick={() => setShowScanner(true)}
+            type="button"
+            onClick={handleOpenScanner}
             className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white px-4 py-3 rounded-xl font-bold flex items-center justify-center shrink-0 shadow-lg shadow-rose-900/40 transition"
             title="مسح باركود بالكاميرا"
           >
@@ -594,7 +752,10 @@ export default function NewPurchaseReturnInvoicePage() {
           {rows.length > 0 && (
             <button
               onClick={() => {
-                if (confirm('تفريغ كافة الأصناف المضافة من الفاتورة؟')) setRows([])
+                if (confirm('تفريغ كافة الأصناف المضافة من الفاتورة؟')) {
+                  setRows([])
+                  localStorage.removeItem(DRAFT_STORAGE_KEY)
+                }
               }}
               className="text-xs text-rose-400 hover:text-rose-300 font-bold"
             >
@@ -749,7 +910,7 @@ export default function NewPurchaseReturnInvoicePage() {
         )}
       </div>
 
-      {/* مودال الكاميرا لمسح الباركود */}
+      {/* مودال الكاميرا لمسح الباركود (محمي ضد الخروج بـ Back) */}
       {showScanner && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-sm bg-slate-900 rounded-3xl overflow-hidden relative border-2 border-rose-500 shadow-2xl">
@@ -778,7 +939,7 @@ export default function NewPurchaseReturnInvoicePage() {
                 onClick={() => setShowScanner(false)}
                 className="w-full py-2.5 bg-slate-800 text-slate-300 font-bold text-xs rounded-xl"
               >
-                إلغاء السكانر
+                إلغاء السكانر (أو اضغط زر الرجوع)
               </button>
             </div>
           </div>
@@ -845,7 +1006,7 @@ export default function NewPurchaseReturnInvoicePage() {
             {/* زر كاميرا سكانر عائم وسريع */}
             <button
               type="button"
-              onClick={() => setShowScanner(true)}
+              onClick={handleOpenScanner}
               className="w-12 h-12 bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700 rounded-2xl flex items-center justify-center text-2xl shadow-lg transition"
               title="مسح صنف جديد"
             >
