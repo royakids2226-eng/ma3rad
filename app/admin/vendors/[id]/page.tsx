@@ -2,10 +2,11 @@
 
 import { useEffect, useState, use, useMemo } from 'react'
 import { getVendorLedger, recordVendorInvoice } from '@/app/vendor-actions'
-import { cancelVendorInvoice } from '@/app/purchase-actions'
+import { getPurchaseInvoiceDetails, cancelVendorInvoice } from '@/app/purchase-actions'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
+import * as XLSX from 'xlsx'
 
 export default function VendorLedgerPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -14,7 +15,7 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
-  // حالات الفلاتر الجديدة
+  // حالات الفلاتر
   const [filter, setFilter] = useState<'ALL' | 'PURCHASE' | 'PAYMENT' | 'RETURN'>('ALL')
   const [searchTerm, setSearchTerm] = useState('')
   const [startDate, setStartDate] = useState('')
@@ -28,6 +29,9 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
   const [invoiceNotes, setInvoiceNotes] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [isDeletingInvoice, setIsDeletingInvoice] = useState(false)
+
+  // حالة مؤشر تحميل الإكسيل للسطر الحالي
+  const [downloadingRef, setDownloadingRef] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -95,6 +99,53 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
     }
   }
 
+  // =========================================================================
+  // ✅ دالة تصدير الفاتورة أو المرتجع إلى ملف Excel
+  // =========================================================================
+  const handleExportInvoiceExcel = async (reference: string, type: string) => {
+    try {
+      setDownloadingRef(reference)
+      const res = await getPurchaseInvoiceDetails(reference)
+      
+      if (!res.success || !res.invoice) {
+        alert(res.error || 'فشل جلب تفاصيل الفاتورة لتحميل الإكسيل')
+        return
+      }
+
+      if (!res.invoice.items || res.invoice.items.length === 0) {
+        alert('لا توجد بنود مسجلة في هذه الفاتورة')
+        return
+      }
+
+      // بناء صفوف الإكسيل: أول عمودين barcode ثم qty وبقية التفاصيل
+      const excelData = res.invoice.items.map((it: any) => ({
+        barcode: it.modelNo,
+        qty: it.quantity,
+        'اللون': it.color,
+        'الوصف': it.description || '',
+        'سعر التكلفة': it.cost,
+        'سعر البيع': it.price || 0,
+        'الإجمالي': (Number(it.quantity) || 0) * (Number(it.cost) || 0)
+      }))
+
+      const ws = XLSX.utils.json_to_sheet(excelData)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "Items")
+
+      const typeLabel = type === 'RETURN' ? 'مرتجع' : 'فاتورة'
+      const cleanVendorName = (vendor?.name || 'مورد').trim().replace(/[\/\\?%*:|"<>]/g, '-')
+      const cleanRef = reference.trim().replace(/[\/\\?%*:|"<>]/g, '-')
+      const fileName = `${cleanVendorName}_${typeLabel}_${cleanRef}.xlsx`
+
+      XLSX.writeFile(wb, fileName)
+    } catch (err: any) {
+      console.error('Error exporting invoice to excel:', err)
+      alert('حدث خطأ أثناء تصدير الإكسيل: ' + err.message)
+    } finally {
+      setDownloadingRef(null)
+    }
+  }
+
   const { vendor, ledger = [], summary } = data || {}
 
   // استخراج قائمة الخزن التي تمت عليها معاملات مع هذا المورد
@@ -158,7 +209,6 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
     })
   }, [ledger, filter, selectedSafe, startDate, endDate, searchTerm])
 
-  // إعادة ضبط كل الفلاتر
   const handleResetFilters = () => {
     setFilter('ALL')
     setSelectedSafe('ALL')
@@ -322,8 +372,6 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
 
         {/* الصف الثاني: فلاتر التواريخ والخزنة والنوع */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 items-end">
-          
-          {/* من تاريخ */}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">من تاريخ:</label>
             <input
@@ -334,7 +382,6 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
             />
           </div>
 
-          {/* إلى تاريخ */}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">إلى تاريخ:</label>
             <input
@@ -345,7 +392,6 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
             />
           </div>
 
-          {/* فلتر الخزنة */}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">🏦 الخزنة:</label>
             <select
@@ -360,7 +406,6 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
             </select>
           </div>
 
-          {/* زر إعادة التعيين */}
           <div>
             <button
               type="button"
@@ -372,10 +417,9 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
               <span>إعادة تعيين الفلاتر</span>
             </button>
           </div>
-
         </div>
 
-        {/* الصف الثالث: تبويبات نوع الحركة وأزرار التصفية السريعة */}
+        {/* الصف الثالث: تبويبات نوع الحركة */}
         <div className="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-gray-100">
           <div className="flex gap-1.5 flex-wrap">
             <button
@@ -426,9 +470,9 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
         </div>
       )}
 
-      {/* جدول الحركات */}
+      {/* جدول الحركات مع أزرار الإكسيل والتعديل والإلغاء */}
       <div className="bg-white rounded-xl shadow overflow-x-auto">
-        <table className="w-full text-right min-w-[900px]">
+        <table className="w-full text-right min-w-[950px]">
           <thead className="bg-gray-100">
             <tr>
               <th className="p-3 text-xs font-bold w-28">التاريخ</th>
@@ -438,7 +482,7 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
               <th className="p-3 text-xs font-bold text-center w-28">دائن (علينا)</th>
               <th className="p-3 text-xs font-bold text-center w-32">الرصيد</th>
               <th className="p-3 text-xs font-bold w-24">الموظف</th>
-              <th className="p-3 text-xs font-bold text-center w-28 no-print bg-gray-200">تحكم</th>
+              <th className="p-3 text-xs font-bold text-center w-48 no-print bg-gray-200">تحكم</th>
             </tr>
           </thead>
           <tbody>
@@ -475,7 +519,7 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
                       )}
                     </td>
 
-                    {/* المرجع والأزرار بجواره */}
+                    {/* المرجع والأزرار السريعة بجواره */}
                     <td className="p-3">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-sm font-mono text-purple-900 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
@@ -484,6 +528,17 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
 
                         {isInvoice && (
                           <div className="flex items-center gap-1 no-print">
+                            {/* زر تحميل إكسيل أيقونة */}
+                            <button
+                              type="button"
+                              disabled={downloadingRef === t.reference}
+                              onClick={() => handleExportInvoiceExcel(t.reference, t.type)}
+                              className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 p-1 rounded font-bold text-xs shadow-sm transition"
+                              title="تنزيل إكسيل (barcode & qty)"
+                            >
+                              {downloadingRef === t.reference ? '⏳' : '📊'}
+                            </button>
+
                             <Link
                               href={`/admin/purchases/${encodeURIComponent(t.reference)}/edit`}
                               className="bg-amber-100 hover:bg-amber-200 text-amber-800 p-1 rounded font-bold text-xs shadow-sm transition"
@@ -491,6 +546,7 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
                             >
                               ✏️
                             </Link>
+
                             <button
                               type="button"
                               disabled={isDeletingInvoice}
@@ -550,10 +606,22 @@ export default function VendorLedgerPage({ params }: { params: Promise<{ id: str
 
                     <td className="p-3 text-sm text-gray-600">{t.user}</td>
                     
-                    {/* عمود تحكم بارز في أقصى اليسار */}
+                    {/* عمود التحكم الرئيسي مع زر الإكسيل */}
                     <td className="p-3 text-center no-print bg-gray-50/50">
                       {isInvoice ? (
-                        <div className="flex justify-center items-center gap-1.5">
+                        <div className="flex justify-center items-center gap-1.5 flex-wrap">
+                          {/* زر إكسيل واضح */}
+                          <button
+                            type="button"
+                            disabled={downloadingRef === t.reference}
+                            onClick={() => handleExportInvoiceExcel(t.reference, t.type)}
+                            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-2 py-1 rounded text-xs font-bold transition shadow flex items-center gap-1"
+                            title="تنزيل إكسيل بأكواد الموديلات والكميات"
+                          >
+                            <span>{downloadingRef === t.reference ? '⏳' : '📊'}</span>
+                            <span>إكسيل</span>
+                          </button>
+
                           <Link
                             href={`/admin/purchases/${encodeURIComponent(t.reference)}/edit`}
                             className="bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs font-bold transition shadow"
